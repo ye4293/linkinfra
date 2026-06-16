@@ -2,6 +2,8 @@
 .vscode
 upload
 *.exe
+*.exe~
+test-build
 *.db
 build
 *.db-journal
