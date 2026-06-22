@@ -38,7 +38,7 @@ func isReplicate(baseURL string) bool {
 func (a *Adaptor) ValidateRequest(meta *util.RelayMeta) error {
 	if isReplicate(meta.BaseURL) {
 		if _, ok := ReplicateModelMap[meta.OriginModelName]; !ok {
-			return fmt.Errorf("模型 %s 在 Replicate 渠道暂不支持", meta.OriginModelName)
+			return fmt.Errorf("model %s is not supported on the Replicate channel", meta.OriginModelName)
 		}
 	}
 	return nil
@@ -104,12 +104,12 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Request, meta *ut
 
 // ConvertRequest 实现标准接口（Flux 不使用此方法，使用自定义的 ConvertFluxRequest）
 func (a *Adaptor) ConvertRequest(c *gin.Context, relayMode int, request *relaymodel.GeneralOpenAIRequest) (any, error) {
-	return nil, fmt.Errorf("Flux 使用自定义请求处理流程")
+	return nil, fmt.Errorf("Flux uses a custom request processing flow")
 }
 
 // ConvertImageRequest 实现标准接口（Flux 不使用此方法）
 func (a *Adaptor) ConvertImageRequest(request *relaymodel.ImageRequest) (any, error) {
-	return nil, fmt.Errorf("Flux 使用自定义请求处理流程")
+	return nil, fmt.Errorf("Flux uses a custom request processing flow")
 }
 
 // ConvertFluxRequest Flux 专用的请求转换
@@ -118,7 +118,7 @@ func (a *Adaptor) ConvertImageRequest(request *relaymodel.ImageRequest) (any, er
 func (a *Adaptor) ConvertFluxRequest(c *gin.Context, meta *util.RelayMeta) ([]byte, error) {
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取请求体失败: %w", err)
+		return nil, fmt.Errorf("failed to read request body: %w", err)
 	}
 
 	// 恢复请求体供后续使用
@@ -127,7 +127,7 @@ func (a *Adaptor) ConvertFluxRequest(c *gin.Context, meta *util.RelayMeta) ([]by
 	// 解析请求
 	var requestMap map[string]any
 	if err := json.Unmarshal(bodyBytes, &requestMap); err != nil {
-		return nil, fmt.Errorf("解析请求体失败: %w", err)
+		return nil, fmt.Errorf("failed to parse request body: %w", err)
 	}
 
 	// Replicate 渠道的特殊处理
@@ -191,7 +191,7 @@ func (a *Adaptor) ConvertFluxRequest(c *gin.Context, meta *util.RelayMeta) ([]by
 
 	modifiedBody, err := json.Marshal(requestMap)
 	if err != nil {
-		return nil, fmt.Errorf("序列化请求体失败: %w", err)
+		return nil, fmt.Errorf("failed to serialize request body: %w", err)
 	}
 
 	return modifiedBody, nil
@@ -220,7 +220,7 @@ func (a *Adaptor) CreatePendingRecord(c *gin.Context, meta *util.RelayMeta) erro
 
 	if err := imageRecord.Insert(); err != nil {
 		logger.Errorf(c, "创建 Flux pending 记录失败: %v", err)
-		return fmt.Errorf("创建数据库记录失败: %w", err)
+		return fmt.Errorf("failed to create database record: %w", err)
 	}
 
 	a.ImageRecord = imageRecord
@@ -267,7 +267,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, meta *util.RelayMeta, requestBody io
 func (a *Adaptor) doReplicateRequest(c *gin.Context, meta *util.RelayMeta, requestBody io.Reader) (*http.Response, error) {
 	replicateID, ok := ReplicateModelMap[meta.OriginModelName]
 	if !ok {
-		return nil, fmt.Errorf("Replicate 渠道不支持模型: %s", meta.OriginModelName)
+		return nil, fmt.Errorf("model not supported on Replicate channel: %s", meta.OriginModelName)
 	}
 
 	requestURL := fmt.Sprintf("%s/v1/models/%s/predictions", meta.BaseURL, replicateID)
@@ -305,10 +305,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *util.Rel
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		a.updateRecordToFailed(c, fmt.Sprintf("读取响应失败: %v", err))
+		a.updateRecordToFailed(c, fmt.Sprintf("failed to read response: %v", err))
 		return nil, &relaymodel.ErrorWithStatusCode{
 			StatusCode: http.StatusInternalServerError,
-			Error:      relaymodel.Error{Message: fmt.Sprintf("读取响应失败: %v", err)},
+			Error:      relaymodel.Error{Message: fmt.Sprintf("failed to read response: %v", err)},
 		}
 	}
 
@@ -329,10 +329,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *util.Rel
 	var fluxResp FluxResponse
 	if err := json.Unmarshal(body, &fluxResp); err != nil {
 		logger.Errorf(c, "解析 Flux 响应失败: %v, body: %s", err, string(body))
-		a.updateRecordToFailed(c, fmt.Sprintf("解析响应失败: %v", err))
+		a.updateRecordToFailed(c, fmt.Sprintf("failed to parse response: %v", err))
 		return nil, &relaymodel.ErrorWithStatusCode{
 			StatusCode: http.StatusInternalServerError,
-			Error:      relaymodel.Error{Message: fmt.Sprintf("解析响应失败: %v", err)},
+			Error:      relaymodel.Error{Message: fmt.Sprintf("failed to parse response: %v", err)},
 		}
 	}
 
@@ -426,10 +426,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *util.Rel
 func (a *Adaptor) doReplicateResponse(c *gin.Context, resp *http.Response, meta *util.RelayMeta) (*relaymodel.Usage, *relaymodel.ErrorWithStatusCode) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		a.updateRecordToFailed(c, fmt.Sprintf("读取响应失败: %v", err))
+		a.updateRecordToFailed(c, fmt.Sprintf("failed to read response: %v", err))
 		return nil, &relaymodel.ErrorWithStatusCode{
 			StatusCode: http.StatusInternalServerError,
-			Error:      relaymodel.Error{Message: fmt.Sprintf("读取响应失败: %v", err)},
+			Error:      relaymodel.Error{Message: fmt.Sprintf("failed to read response: %v", err)},
 		}
 	}
 
@@ -451,10 +451,10 @@ func (a *Adaptor) doReplicateResponse(c *gin.Context, resp *http.Response, meta 
 	var replicateResp ReplicateResponse
 	if err := json.Unmarshal(body, &replicateResp); err != nil {
 		logger.Errorf(c, "解析 Replicate 响应失败: %v, body: %s", err, string(body))
-		a.updateRecordToFailed(c, fmt.Sprintf("解析响应失败: %v", err))
+		a.updateRecordToFailed(c, fmt.Sprintf("failed to parse response: %v", err))
 		return nil, &relaymodel.ErrorWithStatusCode{
 			StatusCode: http.StatusInternalServerError,
-			Error:      relaymodel.Error{Message: fmt.Sprintf("解析响应失败: %v", err)},
+			Error:      relaymodel.Error{Message: fmt.Sprintf("failed to parse response: %v", err)},
 		}
 	}
 
@@ -486,7 +486,7 @@ func (a *Adaptor) handleReplicateSuccess(c *gin.Context, replicateResp Replicate
 
 	// P2-3: 空 URL 不应计为成功
 	if imageURL == "" {
-		errMsg := "Replicate 返回空图片 URL"
+		errMsg := "Replicate returned empty image URL"
 		logger.Errorf(c, "%s: task_id=%s", errMsg, replicateResp.ID)
 		if a.ImageRecord != nil {
 			a.updateRecordToFailed(c, errMsg)
@@ -807,7 +807,7 @@ func handleFailedCallback(c *gin.Context, image *model.Image, notification FluxC
 		image.FailReason = notification.Status
 	}
 	if image.FailReason == "" {
-		image.FailReason = "Flux API 任务失败"
+		image.FailReason = "Flux API task failed"
 	}
 
 	logger.Infof(c, "Flux callback task failed: task_id=%s, reason=%s",
@@ -861,20 +861,20 @@ func (a *Adaptor) QueryResult(c *gin.Context, taskID string, baseURL string, api
 
 	req, err := http.NewRequest("GET", queryURL, nil)
 	if err != nil {
-		return http.StatusInternalServerError, nil, fmt.Errorf("创建请求失败: %w", err)
+		return http.StatusInternalServerError, nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("x-key", apiKey)
 
 	resp, err := util.HTTPClient.Do(req)
 	if err != nil {
-		return http.StatusInternalServerError, nil, fmt.Errorf("请求失败: %w", err)
+		return http.StatusInternalServerError, nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return http.StatusInternalServerError, nil, fmt.Errorf("读取响应失败: %w", err)
+		return http.StatusInternalServerError, nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	logger.Debugf(c, "Flux 查询响应: status=%d, body=%s", resp.StatusCode, string(body))
@@ -919,19 +919,19 @@ func (a *Adaptor) queryReplicateResult(c *gin.Context, taskID string, baseURL st
 
 	req, err := http.NewRequest("GET", queryURL, nil)
 	if err != nil {
-		return http.StatusInternalServerError, nil, fmt.Errorf("创建请求失败: %w", err)
+		return http.StatusInternalServerError, nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := util.HTTPClient.Do(req)
 	if err != nil {
-		return http.StatusInternalServerError, nil, fmt.Errorf("请求失败: %w", err)
+		return http.StatusInternalServerError, nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return http.StatusInternalServerError, nil, fmt.Errorf("读取响应失败: %w", err)
+		return http.StatusInternalServerError, nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	//logger.Infof(c, "Replicate QueryResult raw: task_id=%s, status=%d, body=%s", taskID, resp.StatusCode, string(body))
@@ -1007,7 +1007,7 @@ func HandleReplicateCallback(c *gin.Context, replicateResp ReplicateResponse, ra
 		// P2-3: 空 URL 按失败处理，不扣费
 		if imageURL == "" {
 			image.Status = TaskStatusFailed
-			image.FailReason = "Replicate 返回空图片 URL"
+			image.FailReason = "Replicate returned empty image URL"
 			logger.Errorf(c, "Replicate callback empty output: task_id=%s", taskID)
 			applied, dbErr := image.UpdateIfNotTerminal()
 			if dbErr != nil {
@@ -1063,7 +1063,7 @@ func HandleReplicateCallback(c *gin.Context, replicateResp ReplicateResponse, ra
 		image.Status = TaskStatusFailed
 		errMsg := fmt.Sprintf("%v", replicateResp.Error)
 		if errMsg == "<nil>" || errMsg == "" {
-			errMsg = fmt.Sprintf("Replicate 任务 %s", replicateResp.Status)
+			errMsg = fmt.Sprintf("Replicate task %s", replicateResp.Status)
 		}
 		image.FailReason = errMsg
 		logger.Infof(c, "Replicate callback task %s: task_id=%s, reason=%s", replicateResp.Status, taskID, errMsg)

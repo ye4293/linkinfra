@@ -1739,7 +1739,7 @@ func fetchModelsFromURL(url string, headers http.Header) ([]string, error) {
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// 设置请求头
@@ -1751,17 +1751,17 @@ func fetchModelsFromURL(url string, headers http.Header) ([]string, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求失败: %w", err)
+		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("请求返回错误状态码: %d", resp.StatusCode)
+		return nil, fmt.Errorf("upstream returned error status: %d", resp.StatusCode)
 	}
 
 	var result OpenAIModelsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %w", err)
+		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
 	// 提取模型ID并去重

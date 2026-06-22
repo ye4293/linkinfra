@@ -285,7 +285,7 @@ func PostConsumeQuota(ctx context.Context, tokenId int, quotaDelta int64, totalQ
 	}
 	// totalQuota is total quota consumed
 	if totalQuota != 0 {
-		logContent := fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f", modelRatio, groupRatio)
+		logContent := fmt.Sprintf("model ratio %.2f, group ratio %.2f", modelRatio, groupRatio)
 		model.RecordConsumeLog(ctx, userId, channelId, int(totalQuota), 0, modelName, tokenName, totalQuota, logContent, duration, title, httpReferer, false, 0.0)
 		model.UpdateUserUsedQuotaAndRequestCount(userId, totalQuota)
 		model.UpdateChannelUsedQuota(channelId, totalQuota)
@@ -308,7 +308,7 @@ func PostConsumeQuotaWithTokens(ctx context.Context, tokenId int, quotaDelta int
 	}
 	// totalQuota is total quota consumed
 	if totalQuota != 0 {
-		logContent := fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f", modelRatio, groupRatio)
+		logContent := fmt.Sprintf("model ratio %.2f, group ratio %.2f", modelRatio, groupRatio)
 		// 正确记录inputTokens和outputTokens
 		model.RecordConsumeLog(ctx, userId, channelId, int(inputTokens), int(outputTokens), modelName, tokenName, totalQuota, logContent, duration, title, httpReferer, false, 0.0)
 		model.UpdateUserUsedQuotaAndRequestCount(userId, totalQuota)
@@ -332,7 +332,7 @@ func PostConsumeQuotaWithDetailedTokens(ctx context.Context, tokenId int, quotaD
 	}
 	// totalQuota is total quota consumed
 	if totalQuota != 0 {
-		logContent := fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f", modelRatio, groupRatio)
+		logContent := fmt.Sprintf("model ratio %.2f, group ratio %.2f", modelRatio, groupRatio)
 
 		// 创建详细的token信息JSON
 		otherInfo := fmt.Sprintf(`{"text_input":%d,"text_output":%d,"audio_input":%d,"audio_output":%d}`,

@@ -27,7 +27,7 @@ func checkBalance(c *gin.Context, meta *util.RelayMeta, quota int64) *model.Erro
 		return openaiAdaptor.ErrorWrapper(err, "get_user_quota_error", http.StatusInternalServerError)
 	}
 	if userQuota-quota < 0 {
-		return openaiAdaptor.ErrorWrapper(fmt.Errorf("用户余额不足"), "User balance is not enough", http.StatusBadRequest)
+		return openaiAdaptor.ErrorWrapper(fmt.Errorf("insufficient user balance"), "User balance is not enough", http.StatusBadRequest)
 	}
 	return nil
 }
@@ -220,13 +220,13 @@ func (a *VideoAdaptor) HandleVideoResult(c *gin.Context, videoTask *dbmodel.Vide
 
 	if aliResp.Code != "" {
 		generalResponse.TaskStatus = "failed"
-		generalResponse.Message = fmt.Sprintf("阿里云API错误: [%s] %s (request_id: %s)", aliResp.Code, aliResp.Message, aliResp.RequestID)
+		generalResponse.Message = fmt.Sprintf("Ali Cloud API error: [%s] %s (request_id: %s)", aliResp.Code, aliResp.Message, aliResp.RequestID)
 		return generalResponse, nil
 	}
 
 	if aliResp.Output == nil {
 		generalResponse.TaskStatus = "failed"
-		generalResponse.Message = fmt.Sprintf("未收到响应数据 (request_id: %s)", aliResp.RequestID)
+		generalResponse.Message = fmt.Sprintf("no response data received (request_id: %s)", aliResp.RequestID)
 		return generalResponse, nil
 	}
 
@@ -241,15 +241,15 @@ func (a *VideoAdaptor) HandleVideoResult(c *gin.Context, videoTask *dbmodel.Vide
 	case "FAILED":
 		generalResponse.TaskStatus = "failed"
 		if aliResp.Output.Code != "" && aliResp.Output.Message != "" {
-			generalResponse.Message = fmt.Sprintf("视频生成失败: [%s] %s (request_id: %s)", aliResp.Output.Code, aliResp.Output.Message, aliResp.RequestID)
+			generalResponse.Message = fmt.Sprintf("video generation failed: [%s] %s (request_id: %s)", aliResp.Output.Code, aliResp.Output.Message, aliResp.RequestID)
 		} else if aliResp.Output.Message != "" {
-			generalResponse.Message = fmt.Sprintf("视频生成失败: %s (request_id: %s)", aliResp.Output.Message, aliResp.RequestID)
+			generalResponse.Message = fmt.Sprintf("video generation failed: %s (request_id: %s)", aliResp.Output.Message, aliResp.RequestID)
 		} else {
-			generalResponse.Message = fmt.Sprintf("视频生成失败 (request_id: %s)", aliResp.RequestID)
+			generalResponse.Message = fmt.Sprintf("video generation failed (request_id: %s)", aliResp.RequestID)
 		}
 	case "UNKNOWN":
 		generalResponse.TaskStatus = "failed"
-		generalResponse.Message = fmt.Sprintf("任务已过期或未知 (request_id: %s)", aliResp.RequestID)
+		generalResponse.Message = fmt.Sprintf("task expired or unknown (request_id: %s)", aliResp.RequestID)
 	default:
 		generalResponse.TaskStatus = "processing"
 		generalResponse.Message = fmt.Sprintf("Video generation in progress, request_id: %s", aliResp.RequestID)

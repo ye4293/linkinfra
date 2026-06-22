@@ -268,16 +268,16 @@ func (user *User) Insert(inviterId int) error {
 		return result.Error
 	}
 	if config.QuotaForNewUser > 0 {
-		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("新用户注册赠送 %s", common.LogQuota(config.QuotaForNewUser)))
+		RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("new user registration bonus %s", common.LogQuota(config.QuotaForNewUser)))
 	}
 	if inviterId != 0 {
 		if config.QuotaForInvitee > 0 {
 			_ = IncreaseUserQuota(user.Id, config.QuotaForInvitee)
-			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("使用邀请码赠送 %s", common.LogQuota(config.QuotaForInvitee)))
+			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("invited by referral bonus %s", common.LogQuota(config.QuotaForInvitee)))
 		}
 		if config.QuotaForInviter > 0 {
 			_ = IncreaseUserQuota(inviterId, config.QuotaForInviter)
-			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("邀请用户赠送 %s", common.LogQuota(config.QuotaForInviter)))
+			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("referral bonus %s", common.LogQuota(config.QuotaForInviter)))
 		}
 	}
 	return nil
