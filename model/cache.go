@@ -675,7 +675,7 @@ func CacheGetChannel(id int) (*Channel, error) {
 
 	c, ok := channelsIDM[id]
 	if !ok {
-		return nil, fmt.Errorf("当前渠道# %d，已不存在", id)
+		return nil, fmt.Errorf("channel #%d not found", id)
 	}
 	return c, nil
 }

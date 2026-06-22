@@ -262,7 +262,7 @@ func decreaseTokenQuota(id int, quota int64) (err error) {
 
 func PreConsumeTokenQuota(tokenId int, quota int64) (err error) {
 	if quota < 0 {
-		return errors.New("quota 不能为负数！")
+		return errors.New("quota cannot be negative")
 	}
 	token, err := GetTokenById(tokenId)
 	if err != nil {
