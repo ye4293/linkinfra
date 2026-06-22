@@ -64,7 +64,7 @@ func parseAKSKFormat(keyData string) (*KelingCredentials, error) {
 		return nil, fmt.Errorf("AK or SK is empty in: %s", keyData)
 	}
 
-	fmt.Printf("[Keling] 成功解析凭证 - AK: %s***\n", ak[:min(4, len(ak))])
+	fmt.Printf("[Keling] credentials parsed - AK: %s***\n", ak[:min(4, len(ak))])
 
 	return &KelingCredentials{
 		AK: ak,
@@ -78,15 +78,15 @@ func GetKelingCredentialsFromConfig(cfg model.ChannelConfig, channel *model.Chan
 	if channel != nil {
 		credentials, err := ParseKelingCredentials(channel, keyIndex)
 		if err == nil {
-			fmt.Printf("[Keling] 从Key字段获取凭证 - 多密钥模式: %v\n", channel.MultiKeyInfo.IsMultiKey)
+			fmt.Printf("[Keling] credentials loaded from Key field - multi-key: %v\n", channel.MultiKeyInfo.IsMultiKey)
 			return credentials, nil
 		}
-		fmt.Printf("[Keling] Key字段解析失败: %v，尝试Config回退\n", err)
+		fmt.Printf("[Keling] Key field parse failed: %v, falling back to Config\n", err)
 	}
 
 	// 方案2：回退到Config.AK/SK（向后兼容）
 	if cfg.AK != "" && cfg.SK != "" {
-		fmt.Printf("[Keling] 从Config获取凭证 - AK: %s***（建议迁移到Key字段）\n", cfg.AK[:min(4, len(cfg.AK))])
+		fmt.Printf("[Keling] credentials loaded from Config - AK: %s*** (consider migrating to Key field)\n", cfg.AK[:min(4, len(cfg.AK))])
 		return &KelingCredentials{
 			AK: cfg.AK,
 			SK: cfg.SK,
