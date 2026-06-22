@@ -119,7 +119,7 @@ func SendNativeVideoRequest(baseURL, apiKey, endpoint string, body []byte) (*Nat
 
 	httpReq, err := http.NewRequest(http.MethodPost, fullURL, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
@@ -127,13 +127,13 @@ func SendNativeVideoRequest(baseURL, apiKey, endpoint string, body []byte) (*Nat
 	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("请求上游失败: %w", err)
+		return nil, fmt.Errorf("upstream request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取上游响应失败: %w", err)
+		return nil, fmt.Errorf("failed to read upstream response: %w", err)
 	}
 
 	result := &NativeVideoResponse{
@@ -160,19 +160,19 @@ func FetchNativeVideoResult(baseURL, apiKey, requestId string) (*NativeVideoResu
 
 	httpReq, err := http.NewRequest(http.MethodGet, fullURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("请求上游失败: %w", err)
+		return nil, fmt.Errorf("upstream request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取上游响应失败: %w", err)
+		return nil, fmt.Errorf("failed to read upstream response: %w", err)
 	}
 
 	return &NativeVideoResultResponse{

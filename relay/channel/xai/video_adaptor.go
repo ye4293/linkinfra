@@ -27,7 +27,7 @@ func checkBalance(c *gin.Context, meta *util.RelayMeta, quota int64) *model.Erro
 		return openaiAdaptor.ErrorWrapper(err, "get_user_quota_error", http.StatusInternalServerError)
 	}
 	if userQuota-quota < 0 {
-		return openaiAdaptor.ErrorWrapper(fmt.Errorf("用户余额不足"), "User balance is not enough", http.StatusBadRequest)
+		return openaiAdaptor.ErrorWrapper(fmt.Errorf("insufficient user balance"), "User balance is not enough", http.StatusBadRequest)
 	}
 	return nil
 }

@@ -251,12 +251,12 @@ func VerifyCryptCallbackSignature(message, signature string) error {
 	//
 	decodeSignature, err := base64.StdEncoding.DecodeString(signature)
 	if err != nil {
-		return errors.New("签名解码失败")
+		return errors.New("signature decode failed")
 	}
 	// 解析公钥PEM数据
 	block, _ := pem.Decode([]byte(Pubkey))
 	if block == nil {
-		return errors.New("公钥解析失败")
+		return errors.New("public key parse failed")
 	}
 	// 解析公钥
 	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
@@ -267,7 +267,7 @@ func VerifyCryptCallbackSignature(message, signature string) error {
 	// 类型断言转换为*rsa.PublicKey
 	rsaPub, ok := pub.(*rsa.PublicKey)
 	if !ok {
-		return errors.New("公钥不是RSA类型")
+		return errors.New("public key is not RSA type")
 	}
 
 	//方法一：

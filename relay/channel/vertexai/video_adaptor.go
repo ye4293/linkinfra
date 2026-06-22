@@ -49,7 +49,7 @@ func (a *VideoAdaptor) HandleVideoRequest(c *gin.Context, req *model.VideoReques
 	projectID := credentials.ProjectID
 	if projectID == "" {
 		return nil, openaiAdaptor.ErrorWrapper(
-			fmt.Errorf("无法获取Vertex AI项目ID，请检查Key字段中的JSON凭证"),
+			fmt.Errorf("unable to get Vertex AI project ID, please check JSON credentials in Key field"),
 			"invalid_project_id", http.StatusBadRequest)
 	}
 
@@ -181,7 +181,7 @@ func (a *VideoAdaptor) HandleVideoRequest(c *gin.Context, req *model.VideoReques
 		}
 	}
 	return nil, openaiAdaptor.ErrorWrapper(
-		fmt.Errorf("VEO API错误: %s", errorMsg),
+		fmt.Errorf("VEO API error: %s", errorMsg),
 		"api_error", resp.StatusCode)
 }
 
@@ -220,7 +220,7 @@ func (a *VideoAdaptor) HandleVideoResult(c *gin.Context, videoTask *dbmodel.Vide
 		if err := json.Unmarshal([]byte(videoTask.Credentials), credentials); err != nil {
 			log.Printf("[VEO查询] ❌ 解析保存的凭证失败 - 任务:%s, 错误:%v", taskId, err)
 			return nil, openaiAdaptor.ErrorWrapper(
-				fmt.Errorf("解析保存的Vertex AI凭证失败: %v", err),
+				fmt.Errorf("failed to parse saved Vertex AI credentials: %v", err),
 				"invalid_saved_credentials", http.StatusInternalServerError)
 		}
 		log.Printf("[VEO查询] ✅ 使用保存的凭证 - 任务:%s, 项目ID:%s", taskId, credentials.ProjectID)
@@ -230,7 +230,7 @@ func (a *VideoAdaptor) HandleVideoResult(c *gin.Context, videoTask *dbmodel.Vide
 		credentials, err = GetCredentialsFromConfig(*cfg, ch)
 		if err != nil {
 			return nil, openaiAdaptor.ErrorWrapper(
-				fmt.Errorf("获取Vertex AI凭证失败: %v", err),
+				fmt.Errorf("failed to get Vertex AI credentials: %v", err),
 				"invalid_credentials", http.StatusInternalServerError)
 		}
 	}
@@ -238,7 +238,7 @@ func (a *VideoAdaptor) HandleVideoResult(c *gin.Context, videoTask *dbmodel.Vide
 	projectId := credentials.ProjectID
 	if projectId == "" {
 		return nil, openaiAdaptor.ErrorWrapper(
-			fmt.Errorf("无法获取Vertex AI项目ID，请检查凭证配置"),
+			fmt.Errorf("unable to get Vertex AI project ID, please check credential configuration"),
 			"invalid_project_id", http.StatusInternalServerError)
 	}
 

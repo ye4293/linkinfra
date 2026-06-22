@@ -203,7 +203,7 @@ func (a *VideoAdaptor) handleRemixRequest(c *gin.Context, meta *util.RelayMeta) 
 		return nil, ErrorWrapper(err, "get_user_quota_error", http.StatusInternalServerError)
 	}
 	if userQuota-quota < 0 {
-		return nil, ErrorWrapper(fmt.Errorf("用户余额不足"), "User balance is not enough", http.StatusBadRequest)
+		return nil, ErrorWrapper(fmt.Errorf("insufficient user balance"), "User balance is not enough", http.StatusBadRequest)
 	}
 
 	if soraResponse.Error != nil {
@@ -253,7 +253,7 @@ func (a *VideoAdaptor) sendFormDataRequest(c *gin.Context, meta *util.RelayMeta,
 		return nil, ErrorWrapper(err, "get_user_quota_error", http.StatusInternalServerError)
 	}
 	if userQuota-quota < 0 {
-		return nil, ErrorWrapper(fmt.Errorf("用户余额不足"), "User balance is not enough", http.StatusBadRequest)
+		return nil, ErrorWrapper(fmt.Errorf("insufficient user balance"), "User balance is not enough", http.StatusBadRequest)
 	}
 
 	baseUrl := meta.BaseURL
@@ -343,7 +343,7 @@ func (a *VideoAdaptor) sendJSONRequest(c *gin.Context, meta *util.RelayMeta, sor
 		return nil, ErrorWrapper(err, "get_user_quota_error", http.StatusInternalServerError)
 	}
 	if userQuota-quota < 0 {
-		return nil, ErrorWrapper(fmt.Errorf("用户余额不足"), "User balance is not enough", http.StatusBadRequest)
+		return nil, ErrorWrapper(fmt.Errorf("insufficient user balance"), "User balance is not enough", http.StatusBadRequest)
 	}
 
 	baseUrl := meta.BaseURL

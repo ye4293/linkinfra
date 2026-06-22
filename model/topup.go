@@ -86,7 +86,7 @@ func CompleteTopUpOrder(tradeNo string) error {
 // CompleteTopUpOrderManual 管理员补单：将详情序列化写入 other
 func CompleteTopUpOrderManual(tradeNo string, meta TopUpManualCompleteMeta) error {
 	if meta.OperatorUserId <= 0 {
-		return errors.New("无效的操作者")
+		return errors.New("invalid operator")
 	}
 	if meta.Source == "" {
 		meta.Source = "manual_complete"
@@ -102,7 +102,7 @@ func CompleteTopUpOrderManual(tradeNo string, meta TopUpManualCompleteMeta) erro
 // manualOtherJSON 非空时表示管理员补单，写入 other
 func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride *string, manualOtherJSON string) error {
 	if tradeNo == "" {
-		return errors.New("未提供订单号")
+		return errors.New("trade number not provided")
 	}
 
 	var userId int
@@ -114,7 +114,7 @@ func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride
 		var topUp TopUp
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").
 			Where("trade_no = ?", tradeNo).First(&topUp).Error; err != nil {
-			return errors.New("充值订单不存在")
+			return errors.New("top-up order not found")
 		}
 
 		if topUp.Status != "pending" {
@@ -123,7 +123,7 @@ func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride
 
 		quotaToAdd = int64(float64(topUp.Amount) * config.QuotaPerUnit)
 		if quotaToAdd <= 0 {
-			return errors.New("无效的充值额度")
+			return errors.New("invalid top-up quota")
 		}
 
 		if moneyOverride != nil {
@@ -163,7 +163,7 @@ func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride
 		if currency != "" {
 			curNote = " " + currency
 		}
-		RecordLog(userId, LogTypeTopup, fmt.Sprintf("在线充值成功，充值金额: %d，支付金额: %.2f%s", quotaToAdd, money, curNote))
+		RecordLog(userId, LogTypeTopup, fmt.Sprintf("Top-up successful, quota added: %d, amount paid: %.2f%s", quotaToAdd, money, curNote))
 		if manualOtherJSON != "" {
 			logger.SysLog(fmt.Sprintf("管理员补单入账: other=%s, buyerUserId=%d, tradeNo=%s, quota=%d, money=%.2f %s", manualOtherJSON, userId, tradeNo, quotaToAdd, money, currency))
 		} else {

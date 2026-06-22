@@ -136,7 +136,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *util.Rel
 	if readErr != nil {
 		return nil, &model.ErrorWithStatusCode{
 			StatusCode: http.StatusInternalServerError,
-			Error:      model.Error{Message: "读取响应失败: " + readErr.Error()},
+			Error:      model.Error{Message: "failed to read response: " + readErr.Error()},
 		}
 	}
 
@@ -144,7 +144,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *util.Rel
 	if unmarshalErr := json.Unmarshal(body, &klingResp); unmarshalErr != nil {
 		return nil, &model.ErrorWithStatusCode{
 			StatusCode: http.StatusInternalServerError,
-			Error:      model.Error{Message: "解析响应失败: " + unmarshalErr.Error()},
+			Error:      model.Error{Message: "failed to parse response: " + unmarshalErr.Error()},
 		}
 	}
 
@@ -189,7 +189,7 @@ func (a *Adaptor) QueryTaskStatus(taskID string, meta *util.RelayMeta) (*QueryTa
 	}
 
 	if result.Code != 0 {
-		return nil, fmt.Errorf("查询失败: %s", result.Message)
+		return nil, fmt.Errorf("query failed: %s", result.Message)
 	}
 
 	return &result, nil

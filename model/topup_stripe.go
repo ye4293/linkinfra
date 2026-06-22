@@ -47,14 +47,14 @@ func ExpireStripeTopUp(tradeNo string) error {
 
 func ExpireTopUpOrder(tradeNo string) error {
 	if tradeNo == "" {
-		return errors.New("未提供订单号")
+		return errors.New("trade number not provided")
 	}
 
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var topUp TopUp
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").
 			Where("trade_no = ?", tradeNo).First(&topUp).Error; err != nil {
-			return errors.New("充值订单不存在")
+			return errors.New("top-up order not found")
 		}
 
 		if topUp.Status != "pending" {

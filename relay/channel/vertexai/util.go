@@ -56,7 +56,7 @@ func GetAccessToken(a *Adaptor, meta *util.RelayMeta) (string, error) {
 	// 解析当前密钥的凭证
 	credentials, err := parseCredentialsFromKey(meta, keyIndex)
 	if err != nil {
-		return "", fmt.Errorf("🔐 Vertex AI凭证解析失败 (渠道:%d, 密钥:%d): %w", meta.ChannelId, keyIndex, err)
+		return "", fmt.Errorf("vertex AI credential parse failed (channel:%d, key:%d): %w", meta.ChannelId, keyIndex, err)
 	}
 
 	fmt.Printf("[Vertex AI] 开始JWT认证 - 服务账号: %s, 项目: %s\n",
@@ -64,12 +64,12 @@ func GetAccessToken(a *Adaptor, meta *util.RelayMeta) (string, error) {
 
 	signedJWT, err := createSignedJWT(credentials.ClientEmail, credentials.PrivateKey)
 	if err != nil {
-		return "", fmt.Errorf("🔑 JWT签名失败 - 服务账号: %s, 错误: %w", credentials.ClientEmail, err)
+		return "", fmt.Errorf("JWT signing failed - service account: %s, error: %w", credentials.ClientEmail, err)
 	}
 
 	newToken, err := exchangeJwtForAccessToken(signedJWT)
 	if err != nil {
-		return "", fmt.Errorf("🌐 Google OAuth2令牌交换失败 - 项目: %s, 错误: %w", credentials.ProjectID, err)
+		return "", fmt.Errorf("Google OAuth2 token exchange failed - project: %s, error: %w", credentials.ProjectID, err)
 	}
 
 	fmt.Printf("[Vertex AI] ✅ 令牌获取成功 - 渠道:%d, 密钥:%d\n", meta.ChannelId, keyIndex)
@@ -206,24 +206,24 @@ func ValidateVertexAIConfig(meta *util.RelayMeta, keyIndex int) error {
 	// 检查是否能解析凭证
 	credentials, err := parseCredentialsFromKey(meta, keyIndex)
 	if err != nil {
-		return fmt.Errorf("凭证解析失败: %w", err)
+		return fmt.Errorf("credential parse failed: %w", err)
 	}
 
 	// 检查必要字段
 	if credentials.ProjectID == "" {
-		return fmt.Errorf("缺少project_id字段")
+		return fmt.Errorf("missing project_id field")
 	}
 	if credentials.ClientEmail == "" {
-		return fmt.Errorf("缺少client_email字段")
+		return fmt.Errorf("missing client_email field")
 	}
 	if credentials.PrivateKey == "" {
-		return fmt.Errorf("缺少private_key字段")
+		return fmt.Errorf("missing private_key field")
 	}
 
 	// 检查项目ID是否能提取
 	projectID := extractProjectIDFromKey(meta, keyIndex)
 	if projectID == "" {
-		return fmt.Errorf("无法提取project_id")
+		return fmt.Errorf("unable to extract project_id")
 	}
 
 	fmt.Printf("[Vertex AI] 配置验证成功 - 项目ID: %s, 服务账号: %s\n",
@@ -283,28 +283,28 @@ func GetCredentialsFromConfig(cfg model.ChannelConfig, channel *model.Channel) (
 		}
 	}
 
-	return nil, fmt.Errorf("无法从Config或Key字段获取有效的Vertex AI凭证")
+	return nil, fmt.Errorf("unable to obtain valid Vertex AI credentials from Config or Key field")
 }
 
 // MigrateConfigToKey 迁移Config中的凭证到Key字段（管理员工具）
 func MigrateConfigToKey(channelId int) error {
 	channel, err := model.GetChannelById(channelId, true)
 	if err != nil {
-		return fmt.Errorf("获取渠道失败: %w", err)
+		return fmt.Errorf("failed to get channel: %w", err)
 	}
 
 	cfg, err := channel.LoadConfig()
 	if err != nil {
-		return fmt.Errorf("加载配置失败: %w", err)
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// 检查是否需要迁移
 	if cfg.VertexAIADC == "" {
-		return fmt.Errorf("渠道 %d 没有Config.VertexAIADC配置，无需迁移", channelId)
+		return fmt.Errorf("channel %d has no Config.VertexAIADC, migration not needed", channelId)
 	}
 
 	if channel.Key != "" && channel.Key != cfg.VertexAIADC {
-		return fmt.Errorf("渠道 %d 的Key字段已有其他内容，请手动检查", channelId)
+		return fmt.Errorf("channel %d Key field already has other content, please check manually", channelId)
 	}
 
 	// 执行迁移
@@ -313,7 +313,7 @@ func MigrateConfigToKey(channelId int) error {
 	// 验证JSON格式
 	var testCredentials Credentials
 	if err := json.Unmarshal([]byte(cfg.VertexAIADC), &testCredentials); err != nil {
-		return fmt.Errorf("Config.VertexAIADC中的JSON格式无效: %w", err)
+		return fmt.Errorf("invalid JSON in Config.VertexAIADC: %w", err)
 	}
 
 	// 迁移到Key字段
@@ -324,7 +324,7 @@ func MigrateConfigToKey(channelId int) error {
 	// 更新配置...
 
 	if err := channel.Update(); err != nil {
-		return fmt.Errorf("更新渠道失败: %w", err)
+		return fmt.Errorf("failed to update channel: %w", err)
 	}
 
 	fmt.Printf("✅ 渠道 %d 迁移完成 - 项目: %s\n", channelId, testCredentials.ProjectID)

@@ -87,7 +87,7 @@ func (tm *TaskManager) createVideoTask(req *CreateTaskRequest) (*dbmodel.Video, 
 	}
 
 	if err := video.Insert(); err != nil {
-		return nil, fmt.Errorf("创建视频任务失败: %w", err)
+		return nil, fmt.Errorf("failed to create video task: %w", err)
 	}
 
 	logger.SysLog(fmt.Sprintf("Created video task: id=%d, type=%s, user_id=%d, channel_id=%d, callback_url=%s",
@@ -113,7 +113,7 @@ func (tm *TaskManager) createImageTask(req *CreateTaskRequest) (*dbmodel.Image, 
 	}
 
 	if err := image.Insert(); err != nil {
-		return nil, fmt.Errorf("创建图片任务失败: %w", err)
+		return nil, fmt.Errorf("failed to create image task: %w", err)
 	}
 
 	logger.SysLog(fmt.Sprintf("Created image task: id=%d, type=%s, user_id=%d, channel_id=%d",

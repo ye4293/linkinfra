@@ -126,59 +126,6 @@ func SetRelayRouter(router *gin.Engine) {
 		relayV1Router.POST("/responses/compact", controller.RelayResponse)
 		relayV1Router.POST("/responses", controller.RelayResponse)
 	}
-	mjModeMiddleware := func() gin.HandlerFunc {
-		return func(c *gin.Context) {
-			mode := c.Param("mode")
-
-			// 如果 mode 参数为空（对应默认 /mj 路由），设置为 "fast"
-			if mode == "" {
-				mode = "fast"
-			}
-
-			// 验证 mode 是否有效
-			switch mode {
-			case "fast", "turbo", "relax":
-				// 有效的模式
-			default:
-				// 如果是无效模式，设置为默认的 "fast"
-				mode = "fast"
-			}
-
-			mjMode := "mj_" + mode
-			c.Set("mode", mode)
-			c.Set("mj_mode", mjMode)
-			c.Next()
-		}
-	}
-
-	// 定义设置 MJ 路由的函数
-	setupMJRoutes := func(group *gin.RouterGroup) {
-		group.GET("/image/:id", controller.RelayMidjourneyImage)
-		group.POST("/notify", middleware.Distribute(), controller.RelayMidjourney)
-		group.Use(middleware.TokenAuth(), middleware.Distribute())
-		{
-			group.POST("/submit/action", controller.RelayMidjourney)
-			group.POST("/submit/shorten", controller.RelayMidjourney)
-			group.POST("/submit/modal", controller.RelayMidjourney)
-			group.POST("/submit/imagine", controller.RelayMidjourney)
-			group.POST("/submit/change", controller.RelayMidjourney)
-			group.POST("/submit/simple-change", controller.RelayMidjourney)
-			group.POST("/submit/describe", controller.RelayMidjourney)
-			group.POST("/submit/blend", controller.RelayMidjourney)
-			group.GET("/task/:id/fetch", controller.RelayMidjourney)
-			group.GET("/task/:id/image-seed", controller.RelayMidjourney)
-			group.POST("/task/list-by-condition", controller.RelayMidjourney)
-			group.POST("/insight-face/swap", controller.RelayMidjourney)
-		}
-	}
-
-	defaultMjRouter := router.Group("/mj", mjModeMiddleware())
-	setupMJRoutes(defaultMjRouter)
-
-	// 设置带模式的 MJ 路由 (/mj-:mode/mj)
-	modeMjRouter := router.Group("/mj-:mode/mj", mjModeMiddleware())
-	setupMJRoutes(modeMjRouter)
-
 	// Flux 生成路由：POST 需要 Distribute 选渠道
 	relayFluxRouter := router.Group("/flux")
 	relayFluxRouter.Use(middleware.RelayPanicRecover(), middleware.TokenAuth(), middleware.Distribute())

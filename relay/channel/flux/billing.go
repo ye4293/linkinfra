@@ -16,13 +16,13 @@ func ChargeOnSuccess(ctx context.Context, image *model.Image, quota int64) error
 	}
 
 	if err := model.DecreaseUserQuota(image.UserId, quota); err != nil {
-		return fmt.Errorf("扣费失败: %w", err)
+		return fmt.Errorf("billing deduction failed: %w", err)
 	}
 
 	model.UpdateUserUsedQuotaAndRequestCount(image.UserId, quota)
 	model.UpdateChannelUsedQuota(image.ChannelId, quota)
 
-	logContent := fmt.Sprintf("Flux 任务成功，扣费 quota=%d", quota)
+	logContent := fmt.Sprintf("Flux task completed, deducted quota=%d", quota)
 	model.RecordConsumeLogWithRequestID(
 		ctx,
 		image.UserId,

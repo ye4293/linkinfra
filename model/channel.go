@@ -741,13 +741,13 @@ func UpdateChannelStatusById(id int, status int) error {
 	var statusText string
 	switch status {
 	case common.ChannelStatusEnabled:
-		statusText = "启用"
+		statusText = "enabled"
 	case common.ChannelStatusManuallyDisabled:
-		statusText = "手动禁用"
+		statusText = "manually disabled"
 	case common.ChannelStatusAutoDisabled:
-		statusText = "自动禁用"
+		statusText = "auto disabled"
 	default:
-		statusText = fmt.Sprintf("状态%d", status)
+		statusText = fmt.Sprintf("status%d", status)
 	}
 
 	InitChannelCache()
@@ -879,13 +879,13 @@ func BatchUpdateChannelStatus(ids []int, status int) error {
 	var statusText string
 	switch status {
 	case common.ChannelStatusEnabled:
-		statusText = "启用"
+		statusText = "enabled"
 	case common.ChannelStatusManuallyDisabled:
-		statusText = "手动禁用"
+		statusText = "manually disabled"
 	case common.ChannelStatusAutoDisabled:
-		statusText = "自动禁用"
+		statusText = "auto disabled"
 	default:
-		statusText = fmt.Sprintf("状态%d", status)
+		statusText = fmt.Sprintf("status%d", status)
 	}
 
 	logger.SysLog(fmt.Sprintf("Successfully batch updated %d channels to %s, affected %d abilities",
