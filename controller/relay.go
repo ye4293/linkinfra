@@ -22,7 +22,6 @@ import (
 	"github.com/songquanpeng/one-api/middleware"
 	dbmodel "github.com/songquanpeng/one-api/model"
 	"github.com/songquanpeng/one-api/monitor"
-	"github.com/songquanpeng/one-api/relay/channel/midjourney"
 	relayconstant "github.com/songquanpeng/one-api/relay/constant"
 	controller "github.com/songquanpeng/one-api/relay/controller"
 	"github.com/songquanpeng/one-api/relay/model"
@@ -384,57 +383,6 @@ func recordFailedRequestLog(ctx context.Context, c *gin.Context, bizErr *model.E
 // recordRetryFailureLog 已删除：每次重试失败的日志不再单独入 DB，
 // 改由 controller/retry_log.go 的 recordFinalErrorLog 在循环结束后聚合写一条。
 
-// recordMidjourneyFailedLog 记录Midjourney失败请求的日志
-func recordMidjourneyFailedLog(ctx context.Context, c *gin.Context, mjErr *midjourney.MidjourneyResponseWithStatusCode, channelHistory []int) {
-	userId := c.GetInt("id")
-	originalModel := c.GetString("original_model")
-	tokenName := c.GetString("token_name")
-	requestID := c.GetHeader("X-Request-ID")
-
-	// 获取渠道历史信息
-	var otherInfo string
-	if len(channelHistory) > 0 {
-		if channelHistoryBytes, err := json.Marshal(channelHistory); err == nil {
-			otherInfo = fmt.Sprintf("adminInfo:%s", string(channelHistoryBytes))
-		}
-	}
-
-	// 构建失败日志内容：只放上游错误，不再拼 "Midjourney请求失败 [requestID]:" 等前缀
-	errorMsg := strings.TrimSpace(fmt.Sprintf("%s %s", mjErr.Response.Description, mjErr.Response.Result))
-	logContent := errorMsg
-
-	// 获取最后使用的渠道ID
-	channelId := 0
-	if len(channelHistory) > 0 {
-		channelId = channelHistory[len(channelHistory)-1]
-	}
-
-	// 记录失败日志，quota为0
-	dbmodel.RecordConsumeLogWithOtherAndRequestID(
-		ctx,
-		userId,
-		channelId,
-		0, // promptTokens
-		0, // completionTokens
-		originalModel,
-		tokenName,
-		0, // quota - 失败请求不消费
-		logContent,
-		0.0,   // duration
-		"",    // title
-		"",    // httpReferer
-		false, // isStream
-		0.0,   // firstWordLatency
-		otherInfo,
-		requestID,
-		0,
-		"",
-	)
-
-	logger.Infof(ctx, "Recorded Midjourney failed request log: userId=%d, model=%s, error=%s, channels=%v",
-		userId, originalModel, errorMsg, channelHistory)
-}
-
 // recordRunwayFailedLog 记录Runway失败请求的日志
 func recordRunwayFailedLog(ctx context.Context, c *gin.Context, statusCode int, channelHistory []int) {
 	userId := c.GetInt("id")
@@ -451,7 +399,7 @@ func recordRunwayFailedLog(ctx context.Context, c *gin.Context, statusCode int, 
 	}
 
 	// 构建失败日志内容：精简为状态码，不再包装 "Runway请求失败 [requestID]:"
-	errorMsg := fmt.Sprintf("HTTP状态码: %d", statusCode)
+	errorMsg := fmt.Sprintf("HTTP status: %d", statusCode)
 	logContent := errorMsg
 
 	// 获取最后使用的渠道ID
@@ -705,9 +653,9 @@ func recordXAIContentViolationCharge(ctx context.Context, c *gin.Context, channe
 	otherInfo := strings.Join(otherParts, ";")
 
 	// 构建日志内容
-	logContent := "xAI内容违规检查失败（已扣费$0.05）"
+	logContent := "xAI content policy violation (charged $0.05)"
 	if requestID != "" {
-		logContent = fmt.Sprintf("xAI内容违规检查失败 [%s]（已扣费$0.05）", requestID)
+		logContent = fmt.Sprintf("xAI content policy violation [%s] (charged $0.05)", requestID)
 	}
 
 	// 记录消费日志
@@ -851,160 +799,6 @@ func getExcludedKeyIndicesFromContext(c *gin.Context) []int {
 	}
 	return []int{}
 }
-
-func relayMidjourney(c *gin.Context, relayMode int) *midjourney.MidjourneyResponseWithStatusCode {
-	var err *midjourney.MidjourneyResponseWithStatusCode
-	switch relayMode {
-	case relayconstant.RelayModeMidjourneyNotify:
-		err = controller.RelayMidjourneyNotify(c)
-	case relayconstant.RelayModeMidjourneyTaskFetch, relayconstant.RelayModeMidjourneyTaskFetchByCondition:
-		err = controller.RelayMidjourneyTask(c, relayMode)
-	case relayconstant.RelayModeMidjourneyTaskImageSeed:
-		err = controller.RelayMidjourneyTaskImageSeed(c)
-	case relayconstant.RelayModeSwapFace:
-		err = controller.RelaySwapFace(c)
-	default:
-		err = controller.RelayMidjourneySubmit(c, relayMode)
-	}
-	return err
-}
-
-func RelayMidjourney(c *gin.Context) {
-	ctx := c.Request.Context()
-	relayMode := c.GetInt("relay_mode")
-
-	var MjErr *midjourney.MidjourneyResponseWithStatusCode
-	MjErr = relayMidjourney(c, relayMode)
-	retryTimes := config.RetryTimes
-	if MjErr == nil {
-		// 第一次成功，记录使用的渠道到上下文中
-		var channelHistory []int
-		channelId := c.GetInt("channel_id")
-		if channelId > 0 {
-			channelHistory = append(channelHistory, channelId)
-			c.Set("admin_channel_history", channelHistory)
-		}
-		return
-	}
-	// channelId := c.GetInt("channel_id")
-	// channelName := c.GetString("channel_name")
-	group := c.GetString("group")
-	originalModel := c.GetString("original_model")
-
-	// if originalModel != "" {
-	// 	ShouldDisabelMidjourneyChannel(channelId, channelName, MjErr)
-	// }
-	if !MidjourneyShouldRetryByCode(MjErr) { //返回false就不执行重试
-		retryTimes = 0
-		logger.Info(c.Request.Context(), "no retry!!!")
-	}
-
-	// 记录使用的渠道历史，用于添加到日志中
-	var channelHistory []int
-	// 添加初始失败的渠道
-	channelId := c.GetInt("channel_id")
-	if channelId > 0 {
-		channelHistory = append(channelHistory, channelId)
-	}
-
-	// 初始就排除首次失败渠道，最高优先级只补重试其他可用渠道一次
-	failedChannelIds := []int{channelId}
-
-	lastMjChannel := getLastRetryFallbackChannel(channelId)
-
-	for i := retryTimes; i > 0; i-- {
-		if originalModel != "" {
-			currentAttempt := retryTimes - i + 1
-			channel, err := selectRetryChannel(ctx, group, originalModel, &failedChannelIds)
-			if err != nil {
-				if lastMjChannel == nil {
-					logger.Errorf(ctx, "No channels available after cycling: %v (excludedChannels: %v)", err, failedChannelIds)
-					break
-				}
-				logger.Infof(ctx, "No channel found after cycling, retrying with last channel #%d (%d/%d)", lastMjChannel.Id, currentAttempt, retryTimes)
-				channel = lastMjChannel
-			}
-			lastMjChannel = channel
-			logger.Infof(ctx, "Using channel #%d to retry (remain times %d)", channel.Id, i)
-
-			// 将新渠道添加到已失败列表（因为如果本次失败，下次不应该再选它）
-			failedChannelIds = appendUniqueChannelID(failedChannelIds, channel.Id)
-
-			// 记录重试使用的渠道
-			channelHistory = append(channelHistory, channel.Id)
-
-			middleware.SetupContextForSelectedChannel(c, channel, originalModel)
-			requestBody, err := common.GetRequestBody(c)
-			if err != nil {
-				return
-			}
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
-			MjErr := relayMidjourney(c, relayMode)
-			if MjErr == nil {
-				// 成功时记录渠道历史到上下文中
-				c.Set("admin_channel_history", channelHistory)
-				return
-			}
-			// ShouldDisabelMidjourneyChannel(channelId, channelName, MjErr)
-		} else {
-			requestBody, err := common.GetRequestBody(c)
-			if err != nil {
-				return
-			}
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
-			MjErr = relayMidjourney(c, relayMode)
-			if MjErr == nil {
-				return
-			}
-			logger.Info(c.Request.Context(), fmt.Sprintf("relayMode:%+v;retry:%d\n", relayMode, i))
-		}
-	}
-	if MjErr != nil {
-		// 失败时记录渠道历史到上下文中
-		c.Set("admin_channel_history", channelHistory)
-
-		// 记录Midjourney失败请求的日志
-		recordMidjourneyFailedLog(ctx, c, MjErr, channelHistory)
-
-		statusCode := http.StatusBadRequest
-		if MjErr.Response.Code == 30 {
-			MjErr.Response.Result = "The current group load is saturated, please try again later, or upgrade your account to improve service quality."
-			statusCode = http.StatusTooManyRequests
-		}
-		c.JSON(statusCode, gin.H{
-			"description": util.ProcessString(fmt.Sprintf("%s %s", MjErr.Response.Description, MjErr.Response.Result)),
-			"type":        "upstream_error",
-			"code":        MjErr.Response.Code,
-		})
-		channelId := c.GetInt("channel_id")
-		logger.Error(c.Request.Context(), fmt.Sprintf("relay error (channel #%d): %s", channelId, fmt.Sprintf("%s %s", MjErr.Response.Description, MjErr.Response.Result)))
-	}
-}
-
-func MidjourneyShouldRetryByCode(MjErr *midjourney.MidjourneyResponseWithStatusCode) bool {
-	// if MjErr.Response.Code == 23 { //当前渠道已满
-	// 	return true
-	// }
-	// if MjErr.Response.Code == 24 {
-	// 	return false
-	// }
-	// if MjErr.Response.Code != 1 && MjErr.Response.Code != 21 && MjErr.Response.Code != 22 && MjErr.Response.Code != 4 {
-	// 	return true
-	// }
-
-	return false
-}
-
-// func ShouldDisabelMidjourneyChannel(channelId int, channelName string, MjErr *midjourney.MidjourneyResponseWithStatusCode) {
-// 	if MjErr.Response.Code == 3 {
-// 		monitor.DisableChannel(channelId, channelName, MjErr.Response.Description)
-// 	}
-
-// 	if MjErr.StatusCode == 403 || MjErr.StatusCode == 401 || MjErr.StatusCode == 404 {
-// 		monitor.DisableChannel(channelId, channelName, MjErr.Response.Description)
-// 	}
-
-// }
 
 func RelayNotImplemented(c *gin.Context) {
 	err := model.Error{
@@ -2319,7 +2113,7 @@ func recordXaiVideoFailedLog(ctx context.Context, c *gin.Context, endpoint strin
 		}
 	}
 
-	errorMsg := fmt.Sprintf("HTTP状态码: %d", statusCode)
+	errorMsg := fmt.Sprintf("HTTP status: %d", statusCode)
 	logContent := errorMsg
 
 	channelId := 0

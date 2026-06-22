@@ -78,7 +78,7 @@ func runFluxReconcile(ctx context.Context) {
 
 	// ① 超过 15 分钟仍未终态 → 直接标失败，不再查上游
 	expireBefore := now - fluxReconcileExpireSecs
-	expired, err := model.ExpireStuckFluxImages(statuses, expireBefore, "任务超时")
+	expired, err := model.ExpireStuckFluxImages(statuses, expireBefore, "task timed out")
 	if err != nil {
 		logger.Errorf(ctx, "[flux-reconciler] 批量过期失败: %v", err)
 	} else if expired > 0 {
@@ -173,7 +173,7 @@ func fetchBFLResult(ctx context.Context, taskID, baseURL, apiKey string) (*flux.
 
 	var poll flux.FluxPollingResponse
 	if err := json.Unmarshal(body, &poll); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %w", err)
+		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 	return &poll, nil
 }
@@ -287,7 +287,7 @@ func applyFluxReplicateFailed(ctx context.Context, image *model.Image, repl flux
 	image.Status = flux.TaskStatusFailed
 	image.FailReason = fmt.Sprintf("%v", repl.Error)
 	if image.FailReason == "<nil>" || image.FailReason == "" {
-		image.FailReason = fmt.Sprintf("Replicate 任务 %s", repl.Status)
+		image.FailReason = fmt.Sprintf("Replicate task %s", repl.Status)
 	}
 	applied, dbErr := image.UpdateIfNotTerminal()
 	if dbErr != nil {

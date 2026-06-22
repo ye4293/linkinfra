@@ -45,7 +45,7 @@ func DoIdentifyFace(c *gin.Context) {
 	if (!hasVideoID && !hasVideoURL) || (hasVideoID && hasVideoURL) {
 		logger.Error(c.Request.Context(), fmt.Sprintf("Kling identify-face invalid parameters: user_id=%d, has_video_id=%v, has_video_url=%v", meta.UserId, hasVideoID, hasVideoURL))
 		errResp := openai.ErrorWrapper(
-			fmt.Errorf("video_id 和 video_url 必须二选一填写"),
+			fmt.Errorf("exactly one of video_id or video_url must be provided"),
 			"invalid_parameters",
 			http.StatusBadRequest,
 		)
@@ -216,7 +216,7 @@ func DoAdvancedLipSync(c *gin.Context) {
 	if userQuota < quota {
 		logger.Error(c.Request.Context(), fmt.Sprintf("Kling advanced-lip-sync insufficient quota: user_id=%d, user_quota=%d, required_quota=%d", meta.UserId, userQuota, quota))
 		errResp := openai.ErrorWrapper(
-			fmt.Errorf("余额不足"),
+			fmt.Errorf("insufficient balance"),
 			"insufficient_quota",
 			http.StatusPaymentRequired,
 		)
@@ -335,7 +335,7 @@ func DoAdvancedLipSync(c *gin.Context) {
 // 统一支持 Video 和 Image 任务查询
 func GetKlingVideoResult(c *gin.Context, taskID string) {
 	if taskID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "task_id 参数缺失"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "task_id parameter is missing"})
 		return
 	}
 
@@ -346,7 +346,7 @@ func GetKlingVideoResult(c *gin.Context, taskID string) {
 		logger.Error(c.Request.Context(), fmt.Sprintf("查询任务失败: task_id=%s, error=%v", taskID, err))
 		c.JSON(http.StatusNotFound, gin.H{
 			"code":    404,
-			"message": "任务不存在",
+			"message": "Task not found.",
 			"error":   err.Error(),
 		})
 		return

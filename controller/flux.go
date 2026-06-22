@@ -70,14 +70,14 @@ func relayFluxHelper(c *gin.Context) *relaymodel.ErrorWithStatusCode {
 	balance, balErr := model.CacheGetUserQuota(c.Request.Context(), meta.UserId)
 	if balErr != nil {
 		logger.Errorf(c, "Flux 余额查询失败: %v", balErr)
-		adaptor.MarkFailed(c, "余额查询失败")
+		adaptor.MarkFailed(c, "balance query failed")
 		return &relaymodel.ErrorWithStatusCode{
 			StatusCode: http.StatusInternalServerError,
-			Error:      relaymodel.Error{Message: "余额查询失败: " + balErr.Error()},
+			Error:      relaymodel.Error{Message: "balance query failed: " + balErr.Error()},
 		}
 	}
 	if balance < minBalanceQuota {
-		msg := fmt.Sprintf("余额不足，当前余额 $%.4f，请充值后重试（最低需 $0.10）", float64(balance)/500000)
+		msg := fmt.Sprintf("Insufficient balance ($%.4f). Please top up and try again (minimum required: $0.10).", float64(balance)/500000)
 		logger.Warnf(c, "Flux 余额预检拒绝: user_id=%d, balance=%d", meta.UserId, balance)
 		adaptor.MarkFailed(c, msg)
 		return &relaymodel.ErrorWithStatusCode{

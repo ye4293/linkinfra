@@ -99,17 +99,6 @@ func init() {
 			})
 		}
 	}
-	for modelName, _ := range common.MidjourneyModel2Action {
-		openAIModels = append(openAIModels, OpenAIModels{
-			Id:         modelName,
-			Object:     "model",
-			Created:    1626777600,
-			OwnedBy:    "midjourney",
-			Permission: permission,
-			Root:       modelName,
-			Parent:     nil,
-		})
-	}
 	openAIModelsMap = make(map[string]OpenAIModels)
 	for _, model := range openAIModels {
 		openAIModelsMap[model.Id] = model
@@ -173,7 +162,6 @@ var channelOptions = []ChannelOption{
 	{Key: 24, Text: "Google Gemini", Value: 24, Color: "orange"},
 	{Key: 28, Text: "Mistral AI", Value: 28, Color: "orange"},
 	{Key: 31, Text: "零一万物", Value: 31, Color: "green"},
-	{Key: 32, Text: "midjourney-Plus", Value: 32, Color: "green"},
 	{Key: 33, Text: "AWS Claude", Value: 33, Color: "black"},
 
 	{Key: 35, Text: "Cohere", Value: 35, Color: "green"},
@@ -191,7 +179,7 @@ var channelOptions = []ChannelOption{
 	{Key: 23, Text: "腾讯混元", Value: 23, Color: "teal"},
 	{Key: 26, Text: "百川大模型", Value: 26, Color: "orange"},
 	{Key: 27, Text: "MiniMax", Value: 27, Color: "red"},
-	{Key: 8, Text: "自定义渠道", Value: 8, Color: "pink"},
+	{Key: 8, Text: "Custom Channel", Value: 8, Color: "pink"},
 	{Key: 41, Text: "可灵", Value: 41, Color: "purple"},
 	{Key: 42, Text: "Runway", Value: 42, Color: "purple"},
 	{Key: 43, Text: "Recraft", Value: 43, Color: "purple"},

@@ -182,7 +182,7 @@ func fetchChannelUpstreamModelList(channel *model.Channel) ([]string, error) {
 	}
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return nil, fmt.Errorf("渠道密钥为空")
+		return nil, fmt.Errorf("channel key is empty")
 	}
 
 	baseURL := channel.GetBaseURL()
@@ -284,7 +284,7 @@ func upstreamCollectPendingChanges(channel *model.Channel, settings config.Chann
 	}
 	if len(upstream) == 0 {
 		// 上游返回空列表视为异常（限流、维护、解析失败等），拒绝处理避免误删全部模型
-		return nil, nil, fmt.Errorf("上游返回模型列表为空，跳过本次同步")
+		return nil, nil, fmt.Errorf("upstream returned an empty model list, skipping sync")
 	}
 	add, remove := upstreamCollectPendingChangesFromModels(
 		channel.GetModels(),
@@ -412,7 +412,7 @@ func checkAndPersistUpstreamChanges(channel *model.Channel, settings *config.Cha
 		}
 		// 模型全删 → 自动禁用（巡检仍会扫描 auto-disabled 渠道，上游恢复后可自动重新启用）
 		if allModelsRemoved {
-			if disabled, disableErr := model.AutoDisableChannelById(channel.Id, "上游模型同步后模型列表为空", ""); disableErr != nil {
+			if disabled, disableErr := model.AutoDisableChannelById(channel.Id, "model list empty after upstream sync", ""); disableErr != nil {
 				upstreamInfo(fmt.Sprintf("upstream sync: failed to auto-disable empty channel_id=%d err=%v", channel.Id, disableErr))
 			} else if disabled {
 				upstreamInfo(fmt.Sprintf("upstream sync: auto-disabled channel_id=%d channel_name=%s: no models remain", channel.Id, channel.Name))

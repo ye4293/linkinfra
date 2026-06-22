@@ -189,7 +189,7 @@ func UpdateModelRatio(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无效的参数: " + err.Error(),
+			"message": "Invalid parameters: " + err.Error(),
 		})
 		return
 	}
@@ -202,7 +202,7 @@ func UpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存模型倍率失败: " + err.Error(),
+				"message": "Failed to save model ratios: " + err.Error(),
 			})
 			return
 		}
@@ -215,7 +215,7 @@ func UpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存补全倍率失败: " + err.Error(),
+				"message": "Failed to save completion ratios: " + err.Error(),
 			})
 			return
 		}
@@ -228,7 +228,7 @@ func UpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存按次计费价格失败: " + err.Error(),
+				"message": "Failed to save per-call prices: " + err.Error(),
 			})
 			return
 		}
@@ -241,7 +241,7 @@ func UpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存图片输入倍率失败: " + err.Error(),
+				"message": "Failed to save image input ratios: " + err.Error(),
 			})
 			return
 		}
@@ -254,7 +254,7 @@ func UpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存图片输出倍率失败: " + err.Error(),
+				"message": "Failed to save image output ratios: " + err.Error(),
 			})
 			return
 		}
@@ -267,7 +267,7 @@ func UpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存音频输入倍率失败: " + err.Error(),
+				"message": "Failed to save audio input ratios: " + err.Error(),
 			})
 			return
 		}
@@ -280,7 +280,7 @@ func UpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存音频输出倍率失败: " + err.Error(),
+				"message": "Failed to save audio output ratios: " + err.Error(),
 			})
 			return
 		}
@@ -293,7 +293,7 @@ func UpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存缓存倍率失败: " + err.Error(),
+				"message": "Failed to save cache ratios: " + err.Error(),
 			})
 			return
 		}
@@ -301,7 +301,7 @@ func UpdateModelRatio(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "更新成功",
+		"message": "Updated.",
 	})
 }
 
@@ -324,7 +324,7 @@ func BatchUpdateModelRatio(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无效的参数: " + err.Error(),
+			"message": "Invalid parameters: " + err.Error(),
 		})
 		return
 	}
@@ -379,7 +379,7 @@ func BatchUpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存模型倍率失败: " + err.Error(),
+				"message": "Failed to save model ratios: " + err.Error(),
 			})
 			return
 		}
@@ -390,7 +390,7 @@ func BatchUpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存补全倍率失败: " + err.Error(),
+				"message": "Failed to save completion ratios: " + err.Error(),
 			})
 			return
 		}
@@ -401,7 +401,7 @@ func BatchUpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存按次计费价格失败: " + err.Error(),
+				"message": "Failed to save per-call prices: " + err.Error(),
 			})
 			return
 		}
@@ -412,7 +412,7 @@ func BatchUpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存图片输入倍率失败: " + err.Error(),
+				"message": "Failed to save image input ratios: " + err.Error(),
 			})
 			return
 		}
@@ -423,7 +423,7 @@ func BatchUpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存图片输出倍率失败: " + err.Error(),
+				"message": "Failed to save image output ratios: " + err.Error(),
 			})
 			return
 		}
@@ -434,7 +434,7 @@ func BatchUpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存音频输入倍率失败: " + err.Error(),
+				"message": "Failed to save audio input ratios: " + err.Error(),
 			})
 			return
 		}
@@ -445,7 +445,7 @@ func BatchUpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存音频输出倍率失败: " + err.Error(),
+				"message": "Failed to save audio output ratios: " + err.Error(),
 			})
 			return
 		}
@@ -456,7 +456,7 @@ func BatchUpdateModelRatio(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "保存缓存倍率失败: " + err.Error(),
+				"message": "Failed to save cache ratios: " + err.Error(),
 			})
 			return
 		}
@@ -464,7 +464,7 @@ func BatchUpdateModelRatio(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "批量更新成功",
+		"message": "Batch update complete.",
 	})
 }
 

@@ -43,12 +43,12 @@ func DirectRelayRunway(c *gin.Context, meta *util.RelayMeta) {
 	// 获取channel信息，使用channel.Key而不是meta.APIKey
 	channel, err := dbmodel.GetChannelById(meta.ChannelId, true)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取渠道信息失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get channel info: " + err.Error()})
 		return
 	}
 
 	if channel.Key == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "渠道密钥为空"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "channel key is empty"})
 		return
 	}
 
@@ -61,14 +61,14 @@ func DirectRelayRunway(c *gin.Context, meta *util.RelayMeta) {
 	// 读取请求体以便后续判断mode类型
 	requestBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取请求体失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read request body: " + err.Error()})
 		return
 	}
 
 	// 创建新的HTTP请求，透传原始请求体
 	req, err := http.NewRequest(c.Request.Method, fullRequestUrl, strings.NewReader(string(requestBody)))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request: " + err.Error()})
 		return
 	}
 
@@ -89,7 +89,7 @@ func DirectRelayRunway(c *gin.Context, meta *util.RelayMeta) {
 	// 发送请求
 	resp, err := util.HTTPClient.Do(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "请求失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "request failed: " + err.Error()})
 		return
 	}
 	defer resp.Body.Close()
@@ -97,7 +97,7 @@ func DirectRelayRunway(c *gin.Context, meta *util.RelayMeta) {
 	// 读取响应体
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取响应失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read response: " + err.Error()})
 		return
 	}
 
@@ -368,7 +368,7 @@ func GetRunwayResult(c *gin.Context, taskId string) {
 		// 查询图像任务
 		task, err := dbmodel.GetImageByTaskId(taskId)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "图像任务不存在: " + err.Error()})
+			c.JSON(http.StatusNotFound, gin.H{"error": "image task not found: " + err.Error()})
 			return
 		}
 		channelId = task.ChannelId
@@ -376,7 +376,7 @@ func GetRunwayResult(c *gin.Context, taskId string) {
 		// 查询视频任务
 		task, err := dbmodel.GetVideoTaskById(taskId)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "视频任务不存在: " + err.Error()})
+			c.JSON(http.StatusNotFound, gin.H{"error": "video task not found: " + err.Error()})
 			return
 		}
 		channelId = task.ChannelId
@@ -385,7 +385,7 @@ func GetRunwayResult(c *gin.Context, taskId string) {
 	// 获取channel信息
 	channel, err := dbmodel.GetChannelById(channelId, true)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取渠道信息失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get channel info: " + err.Error()})
 		return
 	}
 
@@ -395,7 +395,7 @@ func GetRunwayResult(c *gin.Context, taskId string) {
 	// 创建HTTP请求
 	req, err := http.NewRequest("GET", fullRequestUrl, nil)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request: " + err.Error()})
 		return
 	}
 
@@ -407,7 +407,7 @@ func GetRunwayResult(c *gin.Context, taskId string) {
 	// 发送请求
 	resp, err := util.HTTPClient.Do(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "请求失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "request failed: " + err.Error()})
 		return
 	}
 	defer resp.Body.Close()
@@ -415,7 +415,7 @@ func GetRunwayResult(c *gin.Context, taskId string) {
 	// 读取响应体
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取响应失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read response: " + err.Error()})
 		return
 	}
 
@@ -730,7 +730,7 @@ func handleRunwayImageBilling(c *gin.Context, meta *util.RelayMeta, modelName st
 	// 扣除token配额
 	err := dbmodel.PostConsumeTokenQuota(meta.TokenId, quota)
 	if err != nil {
-		return fmt.Errorf("扣除token配额失败: %v", err)
+		return fmt.Errorf("failed to deduct token quota: %v", err)
 	}
 
 	// 更新用户配额缓存
@@ -763,7 +763,7 @@ func handleRunwayVideoBilling(c *gin.Context, meta *util.RelayMeta, modelName st
 	// 扣除token配额
 	err := dbmodel.PostConsumeTokenQuota(meta.TokenId, quota)
 	if err != nil {
-		return fmt.Errorf("扣除token配额失败: %v", err)
+		return fmt.Errorf("failed to deduct token quota: %v", err)
 	}
 
 	// 更新用户配额缓存
@@ -802,12 +802,12 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 	// 获取channel信息
 	channel, err := dbmodel.GetChannelById(meta.ChannelId, true)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取渠道信息失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get channel info: " + err.Error()})
 		return
 	}
 
 	if channel.Key == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "渠道密钥为空"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "channel key is empty"})
 		return
 	}
 
@@ -838,7 +838,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 		// 读取原始请求体
 		requestBody, err := io.ReadAll(c.Request.Body)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "读取请求体失败: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body: " + err.Error()})
 			return
 		}
 
@@ -861,7 +861,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 		// 创建 HTTP 请求，直接透传JSON
 		req, err = http.NewRequest("POST", fullRequestUrl, bytes.NewReader(requestBody))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request: " + err.Error()})
 			return
 		}
 
@@ -882,7 +882,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 
 		// 解析 multipart form
 		if err := c.Request.ParseMultipartForm(32 << 20); err != nil { // 32MB
-			c.JSON(http.StatusBadRequest, gin.H{"error": "解析表单失败: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse form: " + err.Error()})
 			return
 		}
 
@@ -918,7 +918,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 
 				// 下载图片并添加为文件字段
 				if err := downloadAndAddImageFile(ctx, writer, imageUrl); err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "下载 input_reference 图片失败: " + err.Error()})
+					c.JSON(http.StatusBadRequest, gin.H{"error": "failed to download input_reference image: " + err.Error()})
 					return
 				}
 				inputReferenceHandled = true
@@ -935,7 +935,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 					// 打开原始文件
 					file, err := fileHeader.Open()
 					if err != nil {
-						c.JSON(http.StatusInternalServerError, gin.H{"error": "读取 input_reference 文件失败: " + err.Error()})
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read input_reference file: " + err.Error()})
 						return
 					}
 					defer file.Close()
@@ -943,7 +943,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 					// 获取并验证文件的Content-Type
 					fileContentType, err := detectFileContentType(file, fileHeader)
 					if err != nil {
-						c.JSON(http.StatusBadRequest, gin.H{"error": "input_reference 文件类型检测失败: " + err.Error()})
+						c.JSON(http.StatusBadRequest, gin.H{"error": "failed to detect input_reference file type: " + err.Error()})
 						return
 					}
 
@@ -954,13 +954,13 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 
 					part, err := writer.CreatePart(h)
 					if err != nil {
-						c.JSON(http.StatusInternalServerError, gin.H{"error": "创建 input_reference 表单文件失败: " + err.Error()})
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create input_reference form file: " + err.Error()})
 						return
 					}
 
 					// 复制文件内容
 					if _, err := io.Copy(part, file); err != nil {
-						c.JSON(http.StatusInternalServerError, gin.H{"error": "复制 input_reference 文件内容失败: " + err.Error()})
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to copy input_reference file content: " + err.Error()})
 						return
 					}
 				}
@@ -977,7 +977,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 				// 打开原始文件
 				file, err := fileHeader.Open()
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "读取文件失败: " + err.Error()})
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file: " + err.Error()})
 					return
 				}
 				defer file.Close()
@@ -985,7 +985,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 				// 获取并验证文件的Content-Type
 				fileContentType, err := detectFileContentType(file, fileHeader)
 				if err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "文件类型检测失败: " + err.Error()})
+					c.JSON(http.StatusBadRequest, gin.H{"error": "failed to detect file type: " + err.Error()})
 					return
 				}
 
@@ -996,13 +996,13 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 
 				part, err := writer.CreatePart(h)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "创建表单文件失败: " + err.Error()})
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create form file: " + err.Error()})
 					return
 				}
 
 				// 复制文件内容
 				if _, err := io.Copy(part, file); err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "复制文件内容失败: " + err.Error()})
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to copy file content: " + err.Error()})
 					return
 				}
 			}
@@ -1014,7 +1014,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 		// 创建 HTTP 请求
 		req, err = http.NewRequest("POST", fullRequestUrl, body)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request: " + err.Error()})
 			return
 		}
 
@@ -1036,7 +1036,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 		// 读取原始请求体
 		requestBody, err := io.ReadAll(c.Request.Body)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "读取请求体失败: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body: " + err.Error()})
 			return
 		}
 
@@ -1059,7 +1059,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 		// 创建 HTTP 请求，直接透传原始请求体
 		req, err = http.NewRequest("POST", fullRequestUrl, bytes.NewReader(requestBody))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request: " + err.Error()})
 			return
 		}
 
@@ -1078,7 +1078,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 	// 发送请求
 	resp, err := util.HTTPClient.Do(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "请求失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "request failed: " + err.Error()})
 		return
 	}
 	defer resp.Body.Close()
@@ -1086,7 +1086,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 	// 读取响应体
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取响应失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read response: " + err.Error()})
 		return
 	}
 
@@ -1343,7 +1343,7 @@ func GetSoraVideoContent(c *gin.Context, videoId string) {
 	resp, err := client.Do(req)
 	if err != nil {
 		logger.Errorf(ctx, "GetSoraVideoContent: request failed: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("请求失败: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("request failed: %v", err)})
 		return
 	}
 	defer resp.Body.Close()
@@ -1447,7 +1447,7 @@ func handleSoraVideoBilling(c *gin.Context, meta *util.RelayMeta, modelName stri
 	// 扣除token配额
 	err := dbmodel.PostConsumeTokenQuota(meta.TokenId, quota)
 	if err != nil {
-		return fmt.Errorf("扣除token配额失败: %v", err)
+		return fmt.Errorf("failed to deduct token quota: %v", err)
 	}
 
 	// 更新用户配额缓存
@@ -1645,12 +1645,12 @@ func DirectRelaySoraCharacter(c *gin.Context, meta *util.RelayMeta) {
 
 	channel, err := dbmodel.GetChannelById(meta.ChannelId, true)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取渠道信息失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get channel info: " + err.Error()})
 		return
 	}
 
 	if channel.Key == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "渠道密钥为空"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "channel key is empty"})
 		return
 	}
 
@@ -1668,7 +1668,7 @@ func DirectRelaySoraCharacter(c *gin.Context, meta *util.RelayMeta) {
 
 	if isFormData {
 		if err := c.Request.ParseMultipartForm(64 << 20); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "解析表单失败: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse form: " + err.Error()})
 			return
 		}
 
@@ -1685,14 +1685,14 @@ func DirectRelaySoraCharacter(c *gin.Context, meta *util.RelayMeta) {
 			for _, fileHeader := range fileHeaders {
 				file, err := fileHeader.Open()
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "读取文件失败: " + err.Error()})
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file: " + err.Error()})
 					return
 				}
 				defer file.Close()
 
 				fileContentType, err := detectFileContentType(file, fileHeader)
 				if err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "文件类型检测失败: " + err.Error()})
+					c.JSON(http.StatusBadRequest, gin.H{"error": "failed to detect file type: " + err.Error()})
 					return
 				}
 
@@ -1702,12 +1702,12 @@ func DirectRelaySoraCharacter(c *gin.Context, meta *util.RelayMeta) {
 
 				part, err := writer.CreatePart(h)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "创建表单文件失败: " + err.Error()})
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create form file: " + err.Error()})
 					return
 				}
 
 				if _, err := io.Copy(part, file); err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "复制文件内容失败: " + err.Error()})
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to copy file content: " + err.Error()})
 					return
 				}
 			}
@@ -1717,7 +1717,7 @@ func DirectRelaySoraCharacter(c *gin.Context, meta *util.RelayMeta) {
 
 		req, err = http.NewRequest("POST", fullRequestUrl, body)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request: " + err.Error()})
 			return
 		}
 
@@ -1725,13 +1725,13 @@ func DirectRelaySoraCharacter(c *gin.Context, meta *util.RelayMeta) {
 	} else {
 		requestBody, err := io.ReadAll(c.Request.Body)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "读取请求体失败: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body: " + err.Error()})
 			return
 		}
 
 		req, err = http.NewRequest("POST", fullRequestUrl, bytes.NewReader(requestBody))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request: " + err.Error()})
 			return
 		}
 
@@ -1749,14 +1749,14 @@ func DirectRelaySoraCharacter(c *gin.Context, meta *util.RelayMeta) {
 
 	resp, err := util.HTTPClient.Do(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "请求失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "request failed: " + err.Error()})
 		return
 	}
 	defer resp.Body.Close()
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取响应失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read response: " + err.Error()})
 		return
 	}
 
@@ -1912,7 +1912,7 @@ func DirectRelaySoraVideoRemix(c *gin.Context, originalVideoId string) {
 	}
 
 	if channel.Key == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "渠道密钥为空"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "channel key is empty"})
 		return
 	}
 
@@ -1940,14 +1940,14 @@ func DirectRelaySoraVideoRemix(c *gin.Context, originalVideoId string) {
 	// 读取请求体
 	requestBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取请求体失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read request body: " + err.Error()})
 		return
 	}
 
 	// 创建HTTP请求
 	req, err := http.NewRequest("POST", fullRequestUrl, strings.NewReader(string(requestBody)))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request: " + err.Error()})
 		return
 	}
 
@@ -1963,7 +1963,7 @@ func DirectRelaySoraVideoRemix(c *gin.Context, originalVideoId string) {
 	// 发送请求
 	resp, err := util.HTTPClient.Do(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "请求失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "request failed: " + err.Error()})
 		return
 	}
 	defer resp.Body.Close()
@@ -1971,7 +1971,7 @@ func DirectRelaySoraVideoRemix(c *gin.Context, originalVideoId string) {
 	// 读取响应体
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取响应失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read response: " + err.Error()})
 		return
 	}
 
@@ -2084,7 +2084,7 @@ func handleSoraRemixBilling(c *gin.Context, meta *util.RelayMeta, modelName stri
 	// 扣除token配额
 	err := dbmodel.PostConsumeTokenQuota(meta.TokenId, quota)
 	if err != nil {
-		return fmt.Errorf("扣除token配额失败: %v", err)
+		return fmt.Errorf("failed to deduct token quota: %v", err)
 	}
 
 	// 更新用户配额缓存
@@ -2120,7 +2120,7 @@ func DirectRelaySoraVideoEdit(c *gin.Context) {
 	if isFormData {
 		// multipart/form-data: 可能是文件上传编辑
 		if err := c.Request.ParseMultipartForm(64 << 20); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "解析表单失败: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse form: " + err.Error()})
 			return
 		}
 		formParams = make(map[string]string)
@@ -2150,12 +2150,12 @@ func DirectRelaySoraVideoEdit(c *gin.Context) {
 		var err error
 		requestBody, err = io.ReadAll(c.Request.Body)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "读取请求体失败: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body: " + err.Error()})
 			return
 		}
 		var requestData map[string]interface{}
 		if err := json.Unmarshal(requestBody, &requestData); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "解析请求体失败: " + err.Error()})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse request body: " + err.Error()})
 			return
 		}
 		if videoObj, ok := requestData["video"].(map[string]interface{}); ok {
@@ -2166,7 +2166,7 @@ func DirectRelaySoraVideoEdit(c *gin.Context) {
 	}
 
 	if sourceVideoId == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 video.id，视频编辑需要指定源视频"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing video.id: source video is required for video editing"})
 		return
 	}
 
@@ -2187,7 +2187,7 @@ func DirectRelaySoraVideoEdit(c *gin.Context) {
 	}
 
 	if channel.Key == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "渠道密钥为空"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "channel key is empty"})
 		return
 	}
 
@@ -2225,14 +2225,14 @@ func DirectRelaySoraVideoEdit(c *gin.Context) {
 			for _, fileHeader := range fileHeaders {
 				file, err := fileHeader.Open()
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "读取文件失败: " + err.Error()})
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read file: " + err.Error()})
 					return
 				}
 				defer file.Close()
 
 				fileContentType, err := detectFileContentType(file, fileHeader)
 				if err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "文件类型检测失败: " + err.Error()})
+					c.JSON(http.StatusBadRequest, gin.H{"error": "failed to detect file type: " + err.Error()})
 					return
 				}
 
@@ -2242,12 +2242,12 @@ func DirectRelaySoraVideoEdit(c *gin.Context) {
 
 				part, err := writer.CreatePart(h)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "创建表单文件失败: " + err.Error()})
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create form file: " + err.Error()})
 					return
 				}
 
 				if _, err := io.Copy(part, file); err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "复制文件内容失败: " + err.Error()})
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to copy file content: " + err.Error()})
 					return
 				}
 			}
@@ -2257,14 +2257,14 @@ func DirectRelaySoraVideoEdit(c *gin.Context) {
 
 		req, err = http.NewRequest("POST", fullRequestUrl, body)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request: " + err.Error()})
 			return
 		}
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 	} else {
 		req, err = http.NewRequest("POST", fullRequestUrl, bytes.NewReader(requestBody))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败: " + err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request: " + err.Error()})
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
@@ -2279,14 +2279,14 @@ func DirectRelaySoraVideoEdit(c *gin.Context) {
 
 	resp, err := util.HTTPClient.Do(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "请求失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "request failed: " + err.Error()})
 		return
 	}
 	defer resp.Body.Close()
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取响应失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read response: " + err.Error()})
 		return
 	}
 
@@ -2350,25 +2350,25 @@ func DirectRelaySoraVideoExtension(c *gin.Context) {
 
 	requestBody, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "读取请求体失败: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body: " + err.Error()})
 		return
 	}
 
 	var requestData map[string]interface{}
 	if err := json.Unmarshal(requestBody, &requestData); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "解析请求体失败: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse request body: " + err.Error()})
 		return
 	}
 
 	videoObj, ok := requestData["video"].(map[string]interface{})
 	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 video 对象"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing video object"})
 		return
 	}
 
 	sourceVideoId, ok := videoObj["id"].(string)
 	if !ok || sourceVideoId == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 video.id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing video.id"})
 		return
 	}
 
@@ -2389,7 +2389,7 @@ func DirectRelaySoraVideoExtension(c *gin.Context) {
 	}
 
 	if channel.Key == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "渠道密钥为空"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "channel key is empty"})
 		return
 	}
 
@@ -2413,7 +2413,7 @@ func DirectRelaySoraVideoExtension(c *gin.Context) {
 
 	req, err := http.NewRequest("POST", fullRequestUrl, bytes.NewReader(requestBody))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建请求失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create request: " + err.Error()})
 		return
 	}
 
@@ -2427,14 +2427,14 @@ func DirectRelaySoraVideoExtension(c *gin.Context) {
 
 	resp, err := util.HTTPClient.Do(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "请求失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "request failed: " + err.Error()})
 		return
 	}
 	defer resp.Body.Close()
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取响应失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read response: " + err.Error()})
 		return
 	}
 
@@ -2544,30 +2544,30 @@ func downloadAndAddImageFile(ctx context.Context, writer *multipart.Writer, imag
 	// 发起下载请求
 	resp, err := client.Get(imageUrl)
 	if err != nil {
-		return fmt.Errorf("下载图片请求失败: %v", err)
+		return fmt.Errorf("image download request failed: %v", err)
 	}
 	defer resp.Body.Close()
 
 	// 检查 HTTP 状态码
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("下载图片失败，HTTP 状态码: %d", resp.StatusCode)
+		return fmt.Errorf("image download failed, HTTP status: %d", resp.StatusCode)
 	}
 
 	// 检查 Content-Length（如果存在）
 	if resp.ContentLength > 100*1024*1024 { // 100MB
-		return fmt.Errorf("图片文件过大: %d bytes，最大支持 100MB", resp.ContentLength)
+		return fmt.Errorf("image file too large: %d bytes (maximum 100MB)", resp.ContentLength)
 	}
 
 	// 读取图片内容（限制大小）
 	limitReader := io.LimitReader(resp.Body, 100*1024*1024+1) // 100MB + 1 byte
 	imageData, err := io.ReadAll(limitReader)
 	if err != nil {
-		return fmt.Errorf("读取图片内容失败: %v", err)
+		return fmt.Errorf("failed to read image content: %v", err)
 	}
 
 	// 检查是否超过大小限制
 	if len(imageData) > 100*1024*1024 {
-		return fmt.Errorf("图片文件过大: 超过 100MB")
+		return fmt.Errorf("image file too large: exceeds 100MB")
 	}
 
 	// 验证文件类型（基于内容）
@@ -2589,7 +2589,7 @@ func downloadAndAddImageFile(ctx context.Context, writer *multipart.Writer, imag
 
 	// 验证类型
 	if !supportedImageTypes[detectedType] {
-		return fmt.Errorf("不支持的图片类型: %s，仅支持 jpeg, png, webp", detectedType)
+		return fmt.Errorf("unsupported image type: %s (only jpeg, png, webp are supported)", detectedType)
 	}
 
 	// 从 URL 中提取文件名
@@ -2605,12 +2605,12 @@ func downloadAndAddImageFile(ctx context.Context, writer *multipart.Writer, imag
 
 	part, err := writer.CreatePart(h)
 	if err != nil {
-		return fmt.Errorf("创建 multipart 文件字段失败: %v", err)
+		return fmt.Errorf("failed to create multipart file field: %v", err)
 	}
 
 	// 写入图片数据
 	if _, err := part.Write(imageData); err != nil {
-		return fmt.Errorf("写入图片数据失败: %v", err)
+		return fmt.Errorf("failed to write image data: %v", err)
 	}
 
 	return nil
@@ -2666,14 +2666,14 @@ func detectFileContentType(file multipart.File, fileHeader *multipart.FileHeader
 	buffer := make([]byte, 512)
 	n, err := file.Read(buffer)
 	if err != nil && err != io.EOF {
-		return "", fmt.Errorf("读取文件内容失败: %v", err)
+		return "", fmt.Errorf("failed to read file content: %v", err)
 	}
 
 	// 重置文件读取位置到开始
 	if seeker, ok := file.(io.Seeker); ok {
 		seeker.Seek(0, io.SeekStart)
 	} else {
-		return "", fmt.Errorf("无法重置文件读取位置")
+		return "", fmt.Errorf("failed to reset file read position")
 	}
 
 	// 使用Go标准库检测内容类型（基于文件内容，更可靠）
@@ -2723,7 +2723,7 @@ func detectFileContentType(file multipart.File, fileHeader *multipart.FileHeader
 			detectedType = "video/mp4"
 		} else {
 			// 返回错误，不支持的文件类型
-			return "", fmt.Errorf("不支持的文件类型。检测到: %s, 文件名: %s。支持的格式: image/jpeg, image/png, image/webp, video/mp4",
+			return "", fmt.Errorf("unsupported file type. detected: %s, filename: %s. supported formats: image/jpeg, image/png, image/webp, video/mp4",
 				detectedType, fileHeader.Filename)
 		}
 	}
@@ -2754,7 +2754,7 @@ func detectFileContentType(file multipart.File, fileHeader *multipart.FileHeader
 
 	// 可选：检查文件大小（防止过大的文件）
 	if fileHeader.Size > 100*1024*1024 { // 100MB限制
-		return "", fmt.Errorf("文件过大: %d bytes，最大支持100MB", fileHeader.Size)
+		return "", fmt.Errorf("file too large: %d bytes (maximum 100MB)", fileHeader.Size)
 	}
 
 	return detectedType, nil

@@ -216,7 +216,7 @@ func updateChannelBalance(channel *model.Channel) (float64, error) {
 			baseURL = channel.GetBaseURL()
 		}
 	case common.ChannelTypeAzure:
-		return 0, errors.New("尚未实现")
+		return 0, errors.New("not implemented")
 	case common.ChannelTypeCustom:
 		baseURL = channel.GetBaseURL()
 	case common.ChannelTypeCloseAI:
@@ -230,7 +230,7 @@ func updateChannelBalance(channel *model.Channel) (float64, error) {
 	case common.ChannelTypeAIGC2D:
 		return updateChannelAIGC2DBalance(channel)
 	default:
-		return 0, errors.New("尚未实现")
+		return 0, errors.New("not implemented")
 	}
 	url := fmt.Sprintf("%s/v1/dashboard/billing/subscription", baseURL)
 
@@ -319,7 +319,7 @@ func updateAllChannelsBalance() error {
 		} else {
 			// err is nil & balance <= 0 means quota is used up
 			if balance <= 0 {
-				monitor.DisableChannelSafelyWithStatusCode(channel.Id, channel.Name, "余额不足", "N/A (Billing Check)", 0)
+				monitor.DisableChannelSafelyWithStatusCode(channel.Id, channel.Name, "Insufficient balance", "N/A (Billing Check)", 0)
 			}
 			channel.Balance = balance
 			channel.BalanceUpdatedTime = helper.GetTimestamp()

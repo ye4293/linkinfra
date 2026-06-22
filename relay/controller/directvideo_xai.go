@@ -35,7 +35,7 @@ func directRelayXaiVideo(c *gin.Context, meta *util.RelayMeta, endpoint string) 
 
 	requestBody, readErr := common.GetRequestBody(c)
 	if readErr != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "读取请求体失败: " + readErr.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body: " + readErr.Error()})
 		return
 	}
 
@@ -44,11 +44,11 @@ func directRelayXaiVideo(c *gin.Context, meta *util.RelayMeta, endpoint string) 
 
 	userQuota, err := dbmodel.CacheGetUserQuota(ctx, meta.UserId)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户配额失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get user quota: " + err.Error()})
 		return
 	}
 	if userQuota-quota < 0 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "用户余额不足"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient user balance"})
 		return
 	}
 
@@ -90,7 +90,7 @@ func GetXaiVideoResult(c *gin.Context, requestId string) {
 
 	task, err := dbmodel.GetVideoTaskById(requestId)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "视频任务不存在: " + err.Error()})
+		c.JSON(http.StatusNotFound, gin.H{"error": "video task not found: " + err.Error()})
 		return
 	}
 
@@ -102,7 +102,7 @@ func GetXaiVideoResult(c *gin.Context, requestId string) {
 
 	channel, err := dbmodel.GetChannelById(task.ChannelId, true)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取渠道信息失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get channel info: " + err.Error()})
 		return
 	}
 

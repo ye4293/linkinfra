@@ -766,7 +766,7 @@ func handleAudioStreamResponse(c *gin.Context, resp *http.Response, audioModel s
 
 			otherInfo = util.AppendRetryHistoryOther(cCopy, otherInfo, duration)
 			model.RecordConsumeLogWithOtherAndRequestID(ctx, userId, channelId, int(textInputTokens+audioInputTokens), int(textOutputTokens),
-				audioModel, tokenName, quota, fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f", modelRatio, groupRatio),
+				audioModel, tokenName, quota, fmt.Sprintf("model ratio %.2f, group ratio %.2f", modelRatio, groupRatio),
 				duration, title, referer, true, 0.0, otherInfo, xRequestID, 0, "")
 			model.UpdateUserUsedQuotaAndRequestCount(userId, quota)
 			model.UpdateChannelUsedQuota(channelId, quota)
@@ -1001,7 +1001,7 @@ func handleTTSStreamResponse(c *gin.Context, resp *http.Response, audioModel str
 
 			otherInfo = util.AppendRetryHistoryOther(cCopy, otherInfo, duration)
 			model.RecordConsumeLogWithOtherAndRequestID(ctx, userId, channelId, int(textInputTokens), int(audioOutputTokens),
-				audioModel, tokenName, quota, fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f", modelRatio, groupRatio),
+				audioModel, tokenName, quota, fmt.Sprintf("model ratio %.2f, group ratio %.2f", modelRatio, groupRatio),
 				duration, title, referer, true, 0.0, otherInfo, xRequestID, 0, "")
 			model.UpdateUserUsedQuotaAndRequestCount(userId, quota)
 			model.UpdateChannelUsedQuota(channelId, quota)
@@ -1034,7 +1034,7 @@ func handleTTSStreamResponse(c *gin.Context, resp *http.Response, audioModel str
 
 						otherInfo = util.AppendRetryHistoryOther(cCopy, otherInfo, duration)
 						model.RecordConsumeLogWithOtherAndRequestID(ctx, userId, channelId, int(textInputTokens), int(audioOutputTokens),
-							audioModel, tokenName, quota, fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f", modelRatio, groupRatio),
+							audioModel, tokenName, quota, fmt.Sprintf("model ratio %.2f, group ratio %.2f", modelRatio, groupRatio),
 							duration, title, referer, true, 0.0, otherInfo, xRequestID, 0, "")
 						model.UpdateUserUsedQuotaAndRequestCount(userId, quota)
 						model.UpdateChannelUsedQuota(channelId, quota)
@@ -1132,7 +1132,7 @@ func handleAzureTTSStream(c *gin.Context, resp *http.Response, audioModel string
 
 					otherInfo = util.AppendRetryHistoryOther(cCopy, otherInfo, duration)
 					model.RecordConsumeLogWithOtherAndRequestID(ctx, userId, channelId, int(textInputTokens), int(audioOutputTokens),
-						audioModel, tokenName, quota, fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f", modelRatio, groupRatio),
+						audioModel, tokenName, quota, fmt.Sprintf("model ratio %.2f, group ratio %.2f", modelRatio, groupRatio),
 						duration, title, referer, true, 0.0, otherInfo, xRequestID, 0, "")
 					model.UpdateUserUsedQuotaAndRequestCount(userId, quota)
 					model.UpdateChannelUsedQuota(channelId, quota)

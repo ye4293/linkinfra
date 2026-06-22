@@ -144,7 +144,7 @@ func GoogleOAuthCallback(c *gin.Context) {
 	if !config.GoogleOAuthEnabled {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "管理员未开启通过 Google 登录以及注册",
+			"message": "The administrator has not enabled login and registration through Google.",
 		})
 		return
 	}
@@ -214,7 +214,7 @@ func GoogleOAuthCallback(c *gin.Context) {
 	//如果是已经被注册过
 	if user.Status != common.UserStatusEnabled {
 		c.JSON(http.StatusOK, gin.H{
-			"message": "用户已被封禁",
+			"message": "User has been banned.",
 			"success": false,
 		})
 		return

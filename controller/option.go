@@ -16,35 +16,35 @@ func validateOptionUpdate(option model.Option) string {
 	switch option.Key {
 	case "Theme":
 		if !config.ValidThemes[option.Value] {
-			return "无效的主题"
+			return "Invalid theme."
 		}
 	case "GitHubOAuthEnabled":
 		if option.Value == "true" && config.GitHubClientId == "" {
-			return "无法启用 GitHub OAuth，请先填入 GitHub Client Id 以及 GitHub Client Secret！"
+			return "Cannot enable GitHub OAuth. Please fill in the GitHub Client ID and GitHub Client Secret first."
 		}
 	case "GoogleOAuthEnabled":
 		if option.Value == "true" && config.GoogleClientId == "" {
-			return "无法启用 Google OAuth，请先填入 Google Client Id 以及 Google Client Secret！"
+			return "Cannot enable Google OAuth. Please fill in the Google Client ID and Google Client Secret first."
 		}
 	case "EmailDomainRestrictionEnabled":
 		if option.Value == "true" && len(config.EmailDomainWhitelist) == 0 {
-			return "无法启用邮箱域名限制，请先填入限制的邮箱域名！"
+			return "Cannot enable email domain restriction. Please fill in the allowed email domains first."
 		}
 	case "WeChatAuthEnabled":
 		if option.Value == "true" && config.WeChatServerAddress == "" {
-			return "无法启用微信登录，请先填入微信登录相关配置信息！"
+			return "Cannot enable WeChat login. Please fill in the WeChat login configuration first."
 		}
 	case "TurnstileCheckEnabled":
 		if option.Value == "true" && config.TurnstileSiteKey == "" {
-			return "无法启用 Turnstile 校验，请先填入 Turnstile 校验相关配置信息！"
+			return "Cannot enable Turnstile verification. Please fill in the Turnstile configuration first."
 		}
 	case "CryptPaymentEnabled":
 		if option.Value == "true" && (config.AddressOut == "" || config.CryptCallbackUrl == "") {
-			return "无法启用 cryptai支付，请先填入 服务器回调地址 和钱包收款地址！"
+			return "Cannot enable crypto payment. Please fill in the server callback URL and wallet receiving address first."
 		}
 	case "StripePaymentEnabled":
 		if option.Value == "true" && (config.StripeApiSecret == "" || config.StripeWebhookSecret == "" || config.StripePriceId == "") {
-			return "无法启用 Stripe 支付，请先填入 Stripe API Secret、Webhook Secret 和 Price ID！"
+			return "Cannot enable Stripe payment. Please fill in the Stripe API Secret, Webhook Secret, and Price ID first."
 		}
 	}
 	return ""

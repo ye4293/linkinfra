@@ -48,14 +48,13 @@ func buildTestRequest() *relaymodel.GeneralOpenAIRequest {
 // 不支持通过 /v1/chat/completions 进行自动测试的渠道类型
 // 这些渠道属于图像/视频/音频等专用接口，无法用聊天补全测试
 var unsupportedTestChannelTypes = map[int]bool{
-	common.ChannelTypeMidjourneyPlus: true,
-	common.ChannelTypeKeling:         true,
-	common.ChannelTypeRunway:         true,
-	common.ChannelTypeRecraft:        true,
-	common.ChannelTypeLuma:           true,
-	common.ChannelTypePixverse:       true,
-	common.ChannelTypeFlux:           true,
-	common.ChannelTypeReplicate:      true,
+	common.ChannelTypeKeling:    true,
+	common.ChannelTypeRunway:    true,
+	common.ChannelTypeRecraft:   true,
+	common.ChannelTypeLuma:      true,
+	common.ChannelTypePixverse:  true,
+	common.ChannelTypeFlux:      true,
+	common.ChannelTypeReplicate: true,
 }
 
 // 不支持通过 /v1/chat/completions 进行自动测试的模型名关键字（小写匹配）
@@ -70,7 +69,6 @@ var unsupportedTestModelKeywords = []string{
 	"dalle",
 	"stable-diffusion",
 	"flux",
-	"midjourney",
 	"suno",
 	"kling",
 	"runway",
@@ -191,7 +189,7 @@ func recordChannelTestConsumeLog(channel *model.Channel, modelName string, promp
 	if modelPrice != -1 {
 		// 固定价格计费（按次）
 		quota = int64(modelPrice * config.QuotaPerUnit * groupRatio)
-		logContent = fmt.Sprintf("模型固定价格 %.2f$，分组倍率 %.2f", modelPrice, groupRatio)
+		logContent = fmt.Sprintf("Model fixed price $%.2f, group ratio %.2f", modelPrice, groupRatio)
 	} else {
 		// token 倍率计费
 		if cachedTokens > 0 {
@@ -212,10 +210,10 @@ func recordChannelTestConsumeLog(channel *model.Channel, modelName string, promp
 		if promptTokens+completionTokens == 0 {
 			quota = 0
 		}
-		logContent = fmt.Sprintf("模型倍率 %.2f，分组倍率 %.2f，补全倍率 %.2f", modelRatio, groupRatio, completionRatio)
+		logContent = fmt.Sprintf("Model ratio %.2f, group ratio %.2f, completion ratio %.2f", modelRatio, groupRatio, completionRatio)
 	}
 
-	title := fmt.Sprintf("渠道测试: %s", channel.Name)
+	title := fmt.Sprintf("Channel test: %s", channel.Name)
 	model.RecordConsumeLogWithOtherAndRequestID(
 		context.Background(),
 		1, // userId=1 表示系统测试，不关联真实用户
@@ -490,7 +488,7 @@ func testChannels(notify bool, scope string) error {
 	testAllChannelsLock.Lock()
 	if testAllChannelsRunning {
 		testAllChannelsLock.Unlock()
-		return errors.New("测试已在运行中")
+		return errors.New("test is already running")
 	}
 	testAllChannelsRunning = true
 	testAllChannelsLock.Unlock()
@@ -517,11 +515,11 @@ func testChannels(notify bool, scope string) error {
 			tok := time.Now()
 			milliseconds := tok.Sub(tik).Milliseconds()
 			if isChannelEnabled && milliseconds > disableThreshold {
-				err = fmt.Errorf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
+				err = fmt.Errorf("response time %.2fs exceeds threshold %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
 				if config.AutomaticDisableChannelEnabled {
 					monitor.DisableChannelSafelyWithStatusCode(channel.Id, channel.Name, err.Error(), "N/A (Test)", 0)
 				} else {
-					_ = message.Notify(message.ByAll, fmt.Sprintf("渠道 %s （%d）测试超时", channel.Name, channel.Id), "", err.Error())
+					_ = message.Notify(message.ByAll, fmt.Sprintf("Channel %s (%d) test timed out", channel.Name, channel.Id), "", err.Error())
 				}
 			}
 			if isChannelEnabled && util.ShouldDisableChannel(openaiErr, -1) {
@@ -554,7 +552,7 @@ func testChannels(notify bool, scope string) error {
 		testAllChannelsRunning = false
 		testAllChannelsLock.Unlock()
 		if notify {
-			err := message.Notify(message.ByAll, "渠道测试完成", "", "渠道测试完成，如果没有收到禁用通知，说明所有渠道都正常")
+			err := message.Notify(message.ByAll, "Channel test complete", "", "Channel test complete. If you did not receive a disable notification, all channels are functioning normally.")
 			if err != nil {
 				logger.SysError(fmt.Sprintf("failed to send email: %s", err.Error()))
 			}
