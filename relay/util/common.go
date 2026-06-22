@@ -183,21 +183,21 @@ func RelayErrorHandler(resp *http.Response) (ErrorWithStatusCode *relaymodel.Err
 		// 提供更详细的错误信息
 		switch resp.StatusCode {
 		case 504:
-			ErrorWithStatusCode.Error.Message = fmt.Sprintf("网关超时 (504): 上游服务器响应超时，请稍后重试或检查API服务状态")
+			ErrorWithStatusCode.Error.Message = fmt.Sprintf("Gateway timeout (504): upstream server timed out. Please retry or check your API service.")
 		case 502:
-			ErrorWithStatusCode.Error.Message = fmt.Sprintf("网关错误 (502): 上游服务器返回无效响应")
+			ErrorWithStatusCode.Error.Message = fmt.Sprintf("Bad gateway (502): upstream server returned an invalid response.")
 		case 503:
-			ErrorWithStatusCode.Error.Message = fmt.Sprintf("服务不可用 (503): 上游服务器暂时无法处理请求")
+			ErrorWithStatusCode.Error.Message = fmt.Sprintf("Service unavailable (503): upstream server is temporarily unable to handle requests.")
 		case 429:
-			ErrorWithStatusCode.Error.Message = fmt.Sprintf("请求过于频繁 (429): 已达到API调用限制，请稍后重试")
+			ErrorWithStatusCode.Error.Message = fmt.Sprintf("Too many requests (429): API rate limit reached. Please retry after a moment.")
 		case 401:
-			ErrorWithStatusCode.Error.Message = fmt.Sprintf("认证失败 (401): API密钥无效或已过期")
+			ErrorWithStatusCode.Error.Message = fmt.Sprintf("Unauthorized (401): API key is invalid or expired.")
 		case 403:
-			ErrorWithStatusCode.Error.Message = fmt.Sprintf("权限不足 (403): 无权访问此资源或模型")
+			ErrorWithStatusCode.Error.Message = fmt.Sprintf("Forbidden (403): you do not have access to this resource or model.")
 		case 404:
-			ErrorWithStatusCode.Error.Message = fmt.Sprintf("资源未找到 (404): 请求的端点或模型不存在")
+			ErrorWithStatusCode.Error.Message = fmt.Sprintf("Not found (404): the requested endpoint or model does not exist.")
 		default:
-			ErrorWithStatusCode.Error.Message = fmt.Sprintf("上游服务错误 (状态码: %d)", resp.StatusCode)
+			ErrorWithStatusCode.Error.Message = fmt.Sprintf("Upstream error (status %d).", resp.StatusCode)
 		}
 	}
 	return

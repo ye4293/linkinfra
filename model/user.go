@@ -176,7 +176,7 @@ func SearchUsers(keyword string) (users []*User, err error) {
 
 func GetUserById(id int, selectAll bool) (*User, error) {
 	if id == 0 {
-		return nil, errors.New("id 为空！")
+		return nil, errors.New("id is required")
 	}
 	user := User{Id: id}
 	var err error = nil
@@ -190,7 +190,7 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 
 func GetUserByUsername(username string, selectAll bool) (*User, error) {
 	if username == "" {
-		return nil, errors.New("username 为空！")
+		return nil, errors.New("username is required")
 	}
 	var user User
 	err := DB.Where("username = ?", username).First(&user).Error
@@ -202,7 +202,7 @@ func GetUserByUsername(username string, selectAll bool) (*User, error) {
 
 func GetUserIdByAffCode(affCode string) (int, error) {
 	if affCode == "" {
-		return 0, errors.New("affCode 为空！")
+		return 0, errors.New("affCode is required")
 	}
 	var user User
 	err := DB.Select("id").First(&user, "aff_code = ?", affCode).Error
@@ -211,7 +211,7 @@ func GetUserIdByAffCode(affCode string) (int, error) {
 
 func GetUserByEmail(email string) (*User, error) {
 	if email == "" {
-		return nil, errors.New("email 为空！")
+		return nil, errors.New("email is required")
 	}
 	var user User
 	err := DB.Where("email = ?", email).First(&user).Error
@@ -229,7 +229,7 @@ func GetUserByEmail2(email string) (user *User, err error) {
 
 func DeleteUserById(id int) (err error) {
 	if id == 0 {
-		return errors.New("id 为空！")
+		return errors.New("id is required")
 	}
 	user := User{Id: id}
 	return user.Delete()
@@ -246,7 +246,7 @@ func DeleteUsersByIds(ids []int) error {
 
 	// 如果你需要检查是否所有的用户都被成功删除（比如有些ID可能不存在），你可以检查result.RowsAffected
 	if result.RowsAffected != int64(len(ids)) {
-		return errors.New("并非所有指定的用户都被删除")
+		return errors.New("not all specified users were deleted")
 	}
 
 	return nil
@@ -302,7 +302,7 @@ func (user *User) Update(updatePassword bool) error {
 
 func (user *User) Delete() error {
 	if user.Id == 0 {
-		return errors.New("id 为空！")
+		return errors.New("id is required")
 	}
 	blacklist.BanUser(user.Id)
 	user.Username = fmt.Sprintf("deleted_%s", helper.GetUUID())
@@ -318,7 +318,7 @@ func (user *User) ValidateAndFill() (err error) {
 	// it won’t be used to build query conditions
 	password := user.Password
 	if user.Username == "" || password == "" {
-		return errors.New("用户名或密码为空")
+		return errors.New("username and password are required")
 	}
 	err = DB.Where("username = ?", user.Username).First(user).Error
 	if err != nil {
@@ -326,19 +326,19 @@ func (user *User) ValidateAndFill() (err error) {
 		// consider this case: a malicious user set his username as other's email
 		err := DB.Where("email = ?", user.Username).First(user).Error
 		if err != nil {
-			return errors.New("用户名或密码错误，或用户已被封禁")
+			return errors.New("invalid username or password, or account is suspended")
 		}
 	}
 	okay := common.ValidatePasswordAndHash(password, user.Password)
 	if !okay || user.Status != common.UserStatusEnabled {
-		return errors.New("用户名或密码错误，或用户已被封禁")
+		return errors.New("invalid username or password, or account is suspended")
 	}
 	return nil
 }
 
 func (user *User) FillUserById() error {
 	if user.Id == 0 {
-		return errors.New("id 为空！")
+		return errors.New("id is required")
 	}
 	DB.Where(User{Id: user.Id}).First(user)
 	return nil
@@ -346,7 +346,7 @@ func (user *User) FillUserById() error {
 
 func (user *User) FillUserByEmail() error {
 	if user.Email == "" {
-		return errors.New("email 为空！")
+		return errors.New("email is required")
 	}
 	DB.Where(User{Email: user.Email}).First(user)
 	return nil
@@ -354,7 +354,7 @@ func (user *User) FillUserByEmail() error {
 
 func (user *User) FillUserByGitHubId() error {
 	if user.GitHubId == "" {
-		return errors.New("GitHub id 为空！")
+		return errors.New("GitHub id is required")
 	}
 	DB.Where(User{GitHubId: user.GitHubId}).First(user)
 	return nil
@@ -362,14 +362,14 @@ func (user *User) FillUserByGitHubId() error {
 
 func (user *User) FillUserByGoogleId() error {
 	if user.GoogleId == "" {
-		return errors.New("Google id 为空！")
+		return errors.New("Google id is required")
 	}
 	DB.Where(User{GoogleId: user.GoogleId}).First(user)
 	return nil
 }
 func (user *User) FillUserByWeChatId() error {
 	if user.WeChatId == "" {
-		return errors.New("WeChat id 为空！")
+		return errors.New("WeChat id is required")
 	}
 	DB.Where(User{WeChatId: user.WeChatId}).First(user)
 	return nil
@@ -377,7 +377,7 @@ func (user *User) FillUserByWeChatId() error {
 
 func (user *User) FillUserByUsername() error {
 	if user.Username == "" {
-		return errors.New("username 为空！")
+		return errors.New("username is required")
 	}
 	DB.Where(User{Username: user.Username}).First(user)
 	return nil
@@ -405,7 +405,7 @@ func IsGoogleIdAlreadyTaken(GoogleId string) bool {
 
 func ResetUserPasswordByEmail(email string, password string) error {
 	if email == "" || password == "" {
-		return errors.New("邮箱地址或密码为空！")
+		return errors.New("email and password are required")
 	}
 	hashedPassword, err := common.Password2Hash(password)
 	if err != nil {
@@ -479,7 +479,7 @@ func GetUserGroup(id int) (group string, err error) {
 
 func IncreaseUserQuota(id int, quota int64) (err error) {
 	if quota < 0 {
-		return errors.New("quota 不能为负数！")
+		return errors.New("quota cannot be negative")
 	}
 	if config.BatchUpdateEnabled {
 		addNewRecord(BatchUpdateTypeUserQuota, id, quota)
@@ -495,7 +495,7 @@ func increaseUserQuota(id int, quota int64) (err error) {
 
 func DecreaseUserQuota(id int, quota int64) (err error) {
 	if quota < 0 {
-		return errors.New("quota 不能为负数！")
+		return errors.New("quota cannot be negative")
 	}
 	if config.BatchUpdateEnabled {
 		addNewRecord(BatchUpdateTypeUserQuota, id, -quota)

@@ -23,15 +23,15 @@ func GetAffinityConfig(c *gin.Context) {
 func UpdateAffinityConfig(c *gin.Context) {
 	var cfg common.ChannelAffinitySetting
 	if err := json.NewDecoder(c.Request.Body).Decode(&cfg); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "参数解析失败: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Failed to parse request: " + err.Error()})
 		return
 	}
 	jsonStr := common.AffinityConfigToJSON(cfg)
 	if err := model.UpdateOption("ChannelAffinityConfig", jsonStr); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "保存失败: " + err.Error()})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Save failed: " + err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "保存成功"})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "Saved."})
 }
 
 // GetAffinityCacheStats GET /api/affinity/cache — 返回缓存条目数
@@ -63,7 +63,7 @@ func GetAffinityCacheStats(c *gin.Context) {
 // ClearAffinityCache DELETE /api/affinity/cache — 清空所有亲和缓存
 func ClearAffinityCache(c *gin.Context) {
 	if !common.RedisEnabled || common.RDB == nil {
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Redis 未启用，无需清理"})
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "Redis is not enabled; nothing to clear."})
 		return
 	}
 	var cursor uint64
@@ -72,12 +72,12 @@ func ClearAffinityCache(c *gin.Context) {
 	for {
 		keys, nextCursor, err := common.RDB.Scan(context.Background(), cursor, prefix, 100).Result()
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "扫描失败: " + err.Error()})
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Scan failed: " + err.Error()})
 			return
 		}
 		if len(keys) > 0 {
 			if err := common.RDB.Del(context.Background(), keys...).Err(); err != nil {
-				c.JSON(http.StatusOK, gin.H{"success": false, "message": "删除失败: " + err.Error()})
+				c.JSON(http.StatusOK, gin.H{"success": false, "message": "Delete failed: " + err.Error()})
 				return
 			}
 			deleted += int64(len(keys))
@@ -89,7 +89,7 @@ func ClearAffinityCache(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "已清空全部亲和缓存",
+		"message": "Affinity cache cleared.",
 		"data":    gin.H{"deleted": deleted},
 	})
 }

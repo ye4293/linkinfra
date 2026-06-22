@@ -15,7 +15,7 @@ func GetAllGroupConfigs(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "获取分组配置失败: " + err.Error(),
+			"message": "Failed to load group configs: " + err.Error(),
 		})
 		return
 	}
@@ -32,7 +32,7 @@ func CreateGroupConfigHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&config); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无效的参数: " + err.Error(),
+			"message": "Invalid parameters: " + err.Error(),
 		})
 		return
 	}
@@ -40,7 +40,7 @@ func CreateGroupConfigHandler(c *gin.Context) {
 	if config.GroupKey == "" || config.DisplayName == "" {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "group_key 和 display_name 不能为空",
+			"message": "group_key and display_name are required.",
 		})
 		return
 	}
@@ -50,7 +50,7 @@ func CreateGroupConfigHandler(c *gin.Context) {
 	if config.Discount < 0 || config.Discount > 1 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "discount 必须在 0-1 之间（乘数，1=无折扣；前端按百分比展示，UI 保存时会自动除以 100）",
+			"message": "discount must be between 0 and 1 (multiplier; 1 = no discount).",
 		})
 		return
 	}
@@ -58,7 +58,7 @@ func CreateGroupConfigHandler(c *gin.Context) {
 	if err := model.CreateGroupConfig(&config); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "创建分组配置失败: " + err.Error(),
+			"message": "Failed to create group config: " + err.Error(),
 		})
 		return
 	}
@@ -68,7 +68,7 @@ func CreateGroupConfigHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "创建成功",
+		"message": "Created.",
 	})
 }
 
@@ -78,7 +78,7 @@ func UpdateGroupConfigHandler(c *gin.Context) {
 	if err := c.ShouldBindJSON(&config); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无效的参数: " + err.Error(),
+			"message": "Invalid parameters: " + err.Error(),
 		})
 		return
 	}
@@ -86,7 +86,7 @@ func UpdateGroupConfigHandler(c *gin.Context) {
 	if config.ID == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "缺少 id",
+			"message": "id is required.",
 		})
 		return
 	}
@@ -95,7 +95,7 @@ func UpdateGroupConfigHandler(c *gin.Context) {
 	if config.Discount < 0 || config.Discount > 1 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "discount 必须在 0-1 之间（乘数，1=无折扣；前端按百分比展示，UI 保存时会自动除以 100）",
+			"message": "discount must be between 0 and 1 (multiplier; 1 = no discount).",
 		})
 		return
 	}
@@ -103,7 +103,7 @@ func UpdateGroupConfigHandler(c *gin.Context) {
 	if err := model.UpdateGroupConfig(&config); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "更新分组配置失败: " + err.Error(),
+			"message": "Failed to update group config: " + err.Error(),
 		})
 		return
 	}
@@ -113,7 +113,7 @@ func UpdateGroupConfigHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "更新成功",
+		"message": "Updated.",
 	})
 }
 
@@ -124,7 +124,7 @@ func DeleteGroupConfigHandler(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无效的 id",
+			"message": "Invalid id.",
 		})
 		return
 	}
@@ -134,7 +134,7 @@ func DeleteGroupConfigHandler(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "未找到该分组配置",
+			"message": "Group config not found.",
 		})
 		return
 	}
@@ -142,7 +142,7 @@ func DeleteGroupConfigHandler(c *gin.Context) {
 	if err := model.DeleteGroupConfigByID(id); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "删除分组配置失败: " + err.Error(),
+			"message": "Failed to delete group config: " + err.Error(),
 		})
 		return
 	}
@@ -152,6 +152,6 @@ func DeleteGroupConfigHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "删除成功",
+		"message": "Deleted.",
 	})
 }

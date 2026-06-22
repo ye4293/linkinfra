@@ -343,7 +343,7 @@ func GenerateAccessToken(c *gin.Context) {
 	if model.DB.Where("access_token = ?", user.AccessToken).First(user).RowsAffected != 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "请重试，系统生成的 UUID 竟然重复了！",
+			"message": "Please retry. A UUID collision occurred.",
 		})
 		return
 	}
@@ -426,7 +426,7 @@ func UpdateUser(c *gin.Context) {
 	if err := common.Validate.Struct(&updatedUser); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "输入不合法 " + err.Error(),
+			"message": "Invalid input: " + err.Error(),
 		})
 		return
 	}
@@ -442,14 +442,14 @@ func UpdateUser(c *gin.Context) {
 	if myRole <= originUser.Role && myRole != common.RoleRootUser {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无权更新同权限等级或更高权限等级的用户信息",
+			"message": "Cannot update a user with equal or higher permissions.",
 		})
 		return
 	}
 	if myRole <= updatedUser.Role && myRole != common.RoleRootUser {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无权将其他用户权限等级提升到大于等于自己的权限等级",
+			"message": "Cannot promote a user to a role equal to or higher than your own.",
 		})
 		return
 	}
@@ -501,7 +501,7 @@ func UpdateSelf(c *gin.Context) {
 	if err := common.Validate.Struct(&user); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "输入不合法 " + err.Error(),
+			"message": "Invalid input: " + err.Error(),
 		})
 		return
 	}
@@ -567,7 +567,7 @@ func BatchDelteUser(c *gin.Context) {
 		if myRole <= originUser.Role {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "无权删除同权限等级或更高权限等级的用户",
+				"message": "Cannot delete a user with equal or higher permissions.",
 			})
 			return
 		}
@@ -585,7 +585,7 @@ func BatchDelteUser(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "用户删除成功",
+		"message": "User deleted.",
 	})
 }
 
@@ -610,7 +610,7 @@ func DeleteUser(c *gin.Context) {
 	if myRole <= originUser.Role {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无权删除同权限等级或更高权限等级的用户",
+			"message": "Cannot delete a user with equal or higher permissions.",
 		})
 		return
 	}
@@ -636,7 +636,7 @@ func DeleteSelf(c *gin.Context) {
 	if user.Role == common.RoleRootUser {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "不能删除超级管理员账户",
+			"message": "Cannot delete a super admin account.",
 		})
 		return
 	}
@@ -669,7 +669,7 @@ func CreateUser(c *gin.Context) {
 	if err := common.Validate.Struct(&user); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "输入不合法 " + err.Error(),
+			"message": "Invalid input: " + err.Error(),
 		})
 		return
 	}
@@ -680,7 +680,7 @@ func CreateUser(c *gin.Context) {
 	if user.Role >= myRole {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无法创建权限大于等于自己的用户",
+			"message": "Cannot create a user with a role equal to or higher than your own.",
 		})
 		return
 	}
@@ -730,7 +730,7 @@ func ManageUser(c *gin.Context) {
 	if user.Id == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "用户不存在",
+			"message": "User not found.",
 		})
 		return
 	}
@@ -738,7 +738,7 @@ func ManageUser(c *gin.Context) {
 	if myRole <= user.Role && myRole != common.RoleRootUser {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无权更新同权限等级或更高权限等级的用户信息",
+			"message": "Cannot update a user with equal or higher permissions.",
 		})
 		return
 	}
@@ -748,7 +748,7 @@ func ManageUser(c *gin.Context) {
 		if user.Role == common.RoleRootUser {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "无法禁用超级管理员用户",
+				"message": "Cannot disable a super admin.",
 			})
 			return
 		}
@@ -758,7 +758,7 @@ func ManageUser(c *gin.Context) {
 		if user.Role == common.RoleRootUser {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "无法删除超级管理员用户",
+				"message": "Cannot delete a super admin.",
 			})
 			return
 		}
@@ -773,14 +773,14 @@ func ManageUser(c *gin.Context) {
 		if myRole != common.RoleRootUser {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "普通管理员用户无法提升其他用户为管理员",
+				"message": "Admins cannot promote other users to admin.",
 			})
 			return
 		}
 		if user.Role >= common.RoleAdminUser {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "该用户已经是管理员",
+				"message": "User is already an admin.",
 			})
 			return
 		}
@@ -789,14 +789,14 @@ func ManageUser(c *gin.Context) {
 		if user.Role == common.RoleRootUser {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "无法降级超级管理员用户",
+				"message": "Cannot demote a super admin.",
 			})
 			return
 		}
 		if user.Role == common.RoleCommonUser {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "该用户已经是普通用户",
+				"message": "User is already a regular user.",
 			})
 			return
 		}
@@ -828,7 +828,7 @@ func EmailBind(c *gin.Context) {
 	if !common.VerifyCodeWithKey(email, code, common.EmailVerificationPurpose) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "验证码错误或已过期",
+			"message": "Invalid or expired verification code.",
 		})
 		return
 	}

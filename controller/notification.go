@@ -22,7 +22,7 @@ func TestSMTP(c *gin.Context) {
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "请提供有效的邮箱地址",
+			"message": "A valid email address is required.",
 		})
 		return
 	}
@@ -31,24 +31,24 @@ func TestSMTP(c *gin.Context) {
 	if config.SMTPServer == "" || config.SMTPAccount == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "SMTP 服务器未配置，请先保存 SMTP 设置",
+			"message": "SMTP server is not configured. Save your SMTP settings first.",
 		})
 		return
 	}
 
 	// 发送测试邮件
-	subject := fmt.Sprintf("[%s] SMTP 配置测试", config.SystemName)
+	subject := fmt.Sprintf("[%s] SMTP configuration test", config.SystemName)
 	content := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-			<h2 style="color: #333;">🎉 SMTP 配置测试成功！</h2>
-			<p>恭喜！您的 SMTP 邮件服务已配置成功。</p>
+			<h2 style="color: #333;">✅ SMTP configuration test passed</h2>
+			<p>Your SMTP email service is configured correctly.</p>
 			<hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
 			<p style="color: #666; font-size: 14px;">
-				<strong>服务器:</strong> %s<br>
-				<strong>端口:</strong> %d<br>
-				<strong>发送时间:</strong> %s
+				<strong>Server:</strong> %s<br>
+				<strong>Port:</strong> %d<br>
+				<strong>Sent at:</strong> %s
 			</p>
-			<p style="color: #999; font-size: 12px;">此邮件由 %s 系统自动发送，用于测试 SMTP 配置。</p>
+			<p style="color: #999; font-size: 12px;">This message was sent automatically by %s to verify your SMTP configuration.</p>
 		</div>
 	`, config.SMTPServer, config.SMTPPort, time.Now().Format("2006-01-02 15:04:05"), config.SystemName)
 
@@ -56,14 +56,14 @@ func TestSMTP(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": fmt.Sprintf("发送测试邮件失败: %s", err.Error()),
+			"message": fmt.Sprintf("Failed to send test email: %s", err.Error()),
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "测试邮件发送成功",
+		"message": "Test email sent.",
 	})
 }
 
@@ -77,7 +77,7 @@ func TestFeishuWebhook(c *gin.Context) {
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "请提供有效的 Webhook URL 列表",
+			"message": "A valid list of webhook URLs is required.",
 		})
 		return
 	}
@@ -85,7 +85,7 @@ func TestFeishuWebhook(c *gin.Context) {
 	if len(request.WebhookUrls) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "请提供至少一个 Webhook URL",
+			"message": "At least one webhook URL is required.",
 		})
 		return
 	}
@@ -97,7 +97,7 @@ func TestFeishuWebhook(c *gin.Context) {
 			"header": map[string]interface{}{
 				"title": map[string]interface{}{
 					"tag":     "plain_text",
-					"content": fmt.Sprintf("🎉 %s 飞书通知测试", config.SystemName),
+					"content": fmt.Sprintf("🎉 %s Feishu notification test", config.SystemName),
 				},
 				"template": "green",
 			},
@@ -106,7 +106,7 @@ func TestFeishuWebhook(c *gin.Context) {
 					"tag": "div",
 					"text": map[string]interface{}{
 						"tag":     "lark_md",
-						"content": "恭喜！飞书 Webhook 配置测试成功！\n\n系统将通过此 Webhook 发送重要通知。",
+						"content": "Your Feishu webhook is working correctly.\n\nThe system will use this webhook for important notifications.",
 					},
 				},
 				{
@@ -117,7 +117,7 @@ func TestFeishuWebhook(c *gin.Context) {
 					"elements": []map[string]interface{}{
 						{
 							"tag":     "plain_text",
-							"content": fmt.Sprintf("发送时间: %s", time.Now().Format("2006-01-02 15:04:05")),
+							"content": fmt.Sprintf("Sent at: %s", time.Now().Format("2006-01-02 15:04:05")),
 						},
 					},
 				},
@@ -129,7 +129,7 @@ func TestFeishuWebhook(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"message": "构建消息失败",
+			"message": "Failed to build message.",
 		})
 		return
 	}
@@ -142,7 +142,7 @@ func TestFeishuWebhook(c *gin.Context) {
 	for _, webhookUrl := range request.WebhookUrls {
 		resp, err := client.Post(webhookUrl, "application/json", bytes.NewBuffer(jsonData))
 		if err != nil {
-			lastError = fmt.Sprintf("发送失败: %s", err.Error())
+			lastError = fmt.Sprintf("Send failed: %s", err.Error())
 			continue
 		}
 
@@ -156,12 +156,12 @@ func TestFeishuWebhook(c *gin.Context) {
 			if resp.StatusCode == http.StatusOK {
 				successCount++
 			} else {
-				lastError = "解析响应失败"
+				lastError = "Failed to parse response."
 			}
 		} else if feishuResp.Code == 0 {
 			successCount++
 		} else {
-			lastError = fmt.Sprintf("飞书返回错误: %s", feishuResp.Msg)
+			lastError = fmt.Sprintf("Feishu returned an error: %s", feishuResp.Msg)
 		}
 		resp.Body.Close()
 	}
@@ -169,17 +169,17 @@ func TestFeishuWebhook(c *gin.Context) {
 	if successCount == len(request.WebhookUrls) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"message": fmt.Sprintf("全部 %d 个 Webhook 测试消息发送成功", successCount),
+			"message": fmt.Sprintf("All %d webhook(s) tested successfully.", successCount),
 		})
 	} else if successCount > 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": true,
-			"message": fmt.Sprintf("部分成功：%d/%d 个 Webhook 发送成功", successCount, len(request.WebhookUrls)),
+			"message": fmt.Sprintf("Partial success: %d of %d webhook(s) sent.", successCount, len(request.WebhookUrls)),
 		})
 	} else {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": fmt.Sprintf("所有 Webhook 发送失败，最后错误: %s", lastError),
+			"message": fmt.Sprintf("All webhooks failed. Last error: %s", lastError),
 		})
 	}
 }

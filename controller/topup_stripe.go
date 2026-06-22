@@ -30,16 +30,16 @@ type StripePayRequest struct {
 
 func getStripeAvailability() (bool, string) {
 	if !config.StripePaymentEnabled {
-		return false, "管理员未开启 Stripe 支付"
+		return false, "Stripe payments are not enabled."
 	}
 	if config.StripeApiSecret == "" {
-		return false, "当前管理员未配置 Stripe API Secret"
+		return false, "Stripe API Secret is not configured."
 	}
 	if config.StripeWebhookSecret == "" {
-		return false, "当前管理员未配置 Stripe Webhook Secret"
+		return false, "Stripe Webhook Secret is not configured."
 	}
 	if config.StripePriceId == "" {
-		return false, "当前管理员未配置 Stripe Price ID"
+		return false, "Stripe Price ID is not configured."
 	}
 	return true, ""
 }
@@ -57,7 +57,7 @@ func genStripeTradeNo(userId int) string {
 func RequestStripeAmount(c *gin.Context) {
 	var req StripePayRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "参数错误"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid parameters."})
 		return
 	}
 
@@ -67,13 +67,13 @@ func RequestStripeAmount(c *gin.Context) {
 		return
 	}
 	if req.Amount < int64(config.StripeMinTopUp) {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("充值数量不能小于 %d", config.StripeMinTopUp)})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Minimum top-up amount is %d.", config.StripeMinTopUp)})
 		return
 	}
 
 	payMoney := getStripePayMoney(req.Amount)
 	if payMoney < 0.01 {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "充值金额过低"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Top-up amount is too low."})
 		return
 	}
 
@@ -87,7 +87,7 @@ func RequestStripeAmount(c *gin.Context) {
 func RequestStripePay(c *gin.Context) {
 	var req StripePayRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "参数错误"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid parameters."})
 		return
 	}
 
@@ -101,21 +101,21 @@ func RequestStripePay(c *gin.Context) {
 		req.PaymentMethod = PaymentMethodStripe
 	}
 	if req.PaymentMethod != PaymentMethodStripe {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "不支持的支付渠道"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Unsupported payment method."})
 		return
 	}
 	if req.Amount < int64(config.StripeMinTopUp) {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("充值数量不能小于 %d", config.StripeMinTopUp)})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Minimum top-up amount is %d.", config.StripeMinTopUp)})
 		return
 	}
 	if req.Amount > 10000 {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "充值数量不能大于 10000"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Top-up amount cannot exceed 10,000."})
 		return
 	}
 
 	payMoney := getStripePayMoney(req.Amount)
 	if payMoney < 0.01 {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "充值金额过低"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Top-up amount is too low."})
 		return
 	}
 
@@ -125,12 +125,12 @@ func RequestStripePay(c *gin.Context) {
 	payLink, err := genStripeCheckoutLink(tradeNo, req.Amount, req.SuccessURL, req.CancelURL)
 	if err != nil {
 		log.Printf("创建 Stripe Checkout 失败: %v\n", err)
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "拉起支付失败"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to initiate payment."})
 		return
 	}
 
 	if err := model.CreateStripeTopUp(userId, req.Amount, payMoney, tradeNo); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "创建订单失败"})
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to create order."})
 		return
 	}
 
@@ -145,7 +145,7 @@ func RequestStripePay(c *gin.Context) {
 
 func genStripeCheckoutLink(referenceId string, amount int64, successURL string, cancelURL string) (string, error) {
 	if !strings.HasPrefix(config.StripeApiSecret, "sk_") && !strings.HasPrefix(config.StripeApiSecret, "rk_") {
-		return "", fmt.Errorf("无效的 Stripe API 密钥")
+		return "", fmt.Errorf("invalid Stripe API key")
 	}
 
 	stripe.Key = config.StripeApiSecret

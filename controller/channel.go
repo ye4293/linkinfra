@@ -152,7 +152,7 @@ func AddChannel(c *gin.Context) {
 		if trimmed != "" && !json.Valid([]byte(trimmed)) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "自定义请求头覆盖必须是合法的 JSON 格式",
+				"message": "Custom header override must be valid JSON.",
 			})
 			return
 		}
@@ -600,7 +600,7 @@ func UpdateChannel(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "获取现有渠道信息失败: " + err.Error(),
+			"message": "Failed to load channel: " + err.Error(),
 		})
 		return
 	}
@@ -617,7 +617,7 @@ func UpdateChannel(c *gin.Context) {
 		if trimmed != "" && !json.Valid([]byte(trimmed)) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
-				"message": "自定义请求头覆盖必须是合法的 JSON 格式",
+				"message": "Custom header override must be valid JSON.",
 			})
 			return
 		}
@@ -805,13 +805,13 @@ func GetChannelKeyDetails(c *gin.Context) {
 		var statusText string
 		switch status {
 		case 1:
-			statusText = "已启用"
+			statusText = "Enabled"
 		case 2:
-			statusText = "手动禁用"
+			statusText = "Disabled"
 		case 3:
-			statusText = "自动禁用"
+			statusText = "Auto-disabled"
 		default:
-			statusText = "未知状态"
+			statusText = "Unknown"
 		}
 
 		// 获取Key元数据
@@ -1260,16 +1260,16 @@ func GetChannelKeyHealthStatus(c *gin.Context) {
 		var statusText string
 		switch status {
 		case 1:
-			statusText = "已启用"
+			statusText = "Enabled"
 			enabledCount++
 		case 2:
-			statusText = "手动禁用"
+			statusText = "Disabled"
 			disabledCount++
 		case 3:
-			statusText = "自动禁用"
+			statusText = "Auto-disabled"
 			autoDisabledCount++
 		default:
-			statusText = "未知状态"
+			statusText = "Unknown"
 		}
 
 		// 获取Key元数据
@@ -1373,7 +1373,7 @@ func FixMultiKeyChannelStatus(c *gin.Context) {
 	if err := c.ShouldBindJSON(&params); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无效的参数",
+			"message": "Invalid parameters.",
 		})
 		return
 	}
@@ -1382,7 +1382,7 @@ func FixMultiKeyChannelStatus(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "渠道不存在",
+			"message": "Channel not found.",
 		})
 		return
 	}
@@ -1390,7 +1390,7 @@ func FixMultiKeyChannelStatus(c *gin.Context) {
 	if !channel.MultiKeyInfo.IsMultiKey {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "该渠道不是多密钥聚合渠道",
+			"message": "This channel is not a multi-key channel.",
 		})
 		return
 	}
@@ -1406,7 +1406,7 @@ func FixMultiKeyChannelStatus(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "多密钥状态修复成功",
+		"message": "Multi-key status repaired.",
 	})
 }
 
@@ -1417,7 +1417,7 @@ func DeleteDisabledKeys(c *gin.Context) {
 	if err := c.ShouldBindJSON(&params); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无效的参数",
+			"message": "Invalid parameters.",
 		})
 		return
 	}
@@ -1434,7 +1434,7 @@ func DeleteDisabledKeys(c *gin.Context) {
 	if !channel.MultiKeyInfo.IsMultiKey {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "该渠道不是多密钥渠道",
+			"message": "This channel is not a multi-key channel.",
 		})
 		return
 	}
@@ -1450,7 +1450,7 @@ func DeleteDisabledKeys(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "成功删除所有禁用密钥",
+		"message": "All disabled keys deleted.",
 	})
 }
 
@@ -1480,7 +1480,7 @@ func CopyChannel(c *gin.Context) {
 	newChannel := *originChannel
 	newChannel.Id = 0 // 让数据库自动生成ID
 	newChannel.CreatedTime = helper.GetTimestamp()
-	newChannel.Name = originChannel.Name + "_复制"
+	newChannel.Name = originChannel.Name + " (copy)"
 	newChannel.Status = common.ChannelStatusManuallyDisabled // 复制后默认禁用
 	newChannel.TestTime = 0
 	newChannel.ResponseTime = 0
@@ -1512,7 +1512,7 @@ func CopyChannel(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "渠道复制成功",
+		"message": "Channel duplicated.",
 		"data": gin.H{
 			"id":   newChannel.Id,
 			"name": newChannel.Name,
@@ -1622,7 +1622,7 @@ func FetchModels(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "参数错误: " + err.Error(),
+			"message": "Invalid parameters: " + err.Error(),
 		})
 		return
 	}
@@ -1632,7 +1632,7 @@ func FetchModels(c *gin.Context) {
 	if key == "" {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "密钥不能为空",
+			"message": "API key is required.",
 		})
 		return
 	}
@@ -1650,7 +1650,7 @@ func FetchModels(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "获取模型列表失败: " + err.Error(),
+			"message": "Failed to fetch models: " + err.Error(),
 		})
 		return
 	}
@@ -1668,7 +1668,7 @@ func FetchUpstreamModels(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "无效的渠道ID",
+			"message": "Invalid channel ID.",
 		})
 		return
 	}
@@ -1677,7 +1677,7 @@ func FetchUpstreamModels(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "渠道不存在: " + err.Error(),
+			"message": "Channel not found: " + err.Error(),
 		})
 		return
 	}
@@ -1702,7 +1702,7 @@ func FetchUpstreamModels(c *gin.Context) {
 	if key == "" {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "渠道密钥为空",
+			"message": "Channel has no API keys.",
 		})
 		return
 	}
@@ -1719,7 +1719,7 @@ func FetchUpstreamModels(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "获取模型列表失败: " + err.Error(),
+			"message": "Failed to fetch models: " + err.Error(),
 		})
 		return
 	}

@@ -152,7 +152,7 @@ func AddToken(c *gin.Context) {
 	if len(token.Name) > 30 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "令牌名称过长",
+			"message": "Token name is too long.",
 		})
 		return
 	}

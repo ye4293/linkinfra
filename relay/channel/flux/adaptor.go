@@ -63,7 +63,7 @@ func (a *Adaptor) GetModelDetails() []relaymodel.APIModel {
 			Name:        modelName,
 			Tags:        []string{"image-generation"},
 			Description: "Flux image generation model",
-			PriceType:   "按量计费",
+			PriceType:   "Pay per use",
 		})
 	}
 	return models

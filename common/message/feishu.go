@@ -39,16 +39,16 @@ func SendFeishuChannelDisableNotification(channelId int, channelName string, sta
 		return nil // 未配置飞书 Webhook，静默返回
 	}
 
-	title := fmt.Sprintf("[%s] 🚨 渠道「%s」(#%d) 已被禁用", config.SystemName, channelName, channelId)
+	title := fmt.Sprintf("[%s] 🚨 Channel \"%s\" (#%d) has been disabled", config.SystemName, channelName, channelId)
 
 	// 构建详细内容
 	content := fmt.Sprintf(
-		"**渠道ID：** %d\n"+
-			"**渠道名称：** %s\n"+
-			"**触发模型：** %s\n"+
-			"**状态码：** %d\n"+
-			"**错误详情：** %s\n"+
-			"**禁用时间：** %s",
+		"**Channel ID:** %d\n"+
+			"**Channel name:** %s\n"+
+			"**Model:** %s\n"+
+			"**Status code:** %d\n"+
+			"**Error:** %s\n"+
+			"**Disabled at:** %s",
 		channelId,
 		channelName,
 		modelName,
@@ -67,16 +67,16 @@ func SendFeishuKeyDisableNotification(channelId int, channelName string, keyInde
 		return nil // 未配置飞书 Webhook，静默返回
 	}
 
-	title := fmt.Sprintf("[%s] ⚠️ 渠道「%s」(#%d) 中的 Key 已被禁用", config.SystemName, channelName, channelId)
+	title := fmt.Sprintf("[%s] ⚠️ A key in channel \"%s\" (#%d) has been disabled", config.SystemName, channelName, channelId)
 
 	// 构建详细内容
 	content := fmt.Sprintf(
-		"**渠道ID：** %d\n"+
-			"**渠道名称：** %s\n"+
-			"**被禁用Key：** Key #%d (%s)\n"+
-			"**状态码：** %d\n"+
-			"**错误详情：** %s\n"+
-			"**禁用时间：** %s",
+		"**Channel ID:** %d\n"+
+			"**Channel name:** %s\n"+
+			"**Disabled key:** Key #%d (%s)\n"+
+			"**Status code:** %d\n"+
+			"**Error:** %s\n"+
+			"**Disabled at:** %s",
 		channelId,
 		channelName,
 		keyIndex,
@@ -96,15 +96,15 @@ func SendFeishuChannelFullDisableNotification(channelId int, channelName string,
 		return nil // 未配置飞书 Webhook，静默返回
 	}
 
-	title := fmt.Sprintf("[%s] 🔴 多Key渠道「%s」(#%d) 已被完全禁用", config.SystemName, channelName, channelId)
+	title := fmt.Sprintf("[%s] 🔴 Channel \"%s\" (#%d) fully disabled — all keys exhausted", config.SystemName, channelName, channelId)
 
 	// 构建详细内容
 	content := fmt.Sprintf(
-		"**渠道ID：** %d\n"+
-			"**渠道名称：** %s\n"+
-			"**禁用原因：** %s\n"+
-			"**禁用时间：** %s\n\n"+
-			"该渠道的所有Key都已被禁用，整个渠道已被系统自动禁用。",
+		"**Channel ID:** %d\n"+
+			"**Channel name:** %s\n"+
+			"**Reason:** %s\n"+
+			"**Disabled at:** %s\n\n"+
+			"All keys in this channel have been disabled. The channel has been automatically disabled.",
 		channelId,
 		channelName,
 		reason,
@@ -126,7 +126,7 @@ func sendToFeishuWebhooks(feishuMsg map[string]interface{}) error {
 
 	jsonData, err := json.Marshal(feishuMsg)
 	if err != nil {
-		return fmt.Errorf("构建飞书消息失败: %s", err.Error())
+		return fmt.Errorf("failed to build Feishu message: %s", err.Error())
 	}
 
 	successCount := 0
@@ -147,7 +147,7 @@ func sendToFeishuWebhooks(feishuMsg map[string]interface{}) error {
 	}
 
 	if successCount == 0 && lastError != "" {
-		return fmt.Errorf("所有飞书 Webhook 发送失败: %s", lastError)
+		return fmt.Errorf("all Feishu webhooks failed: %s", lastError)
 	}
 
 	return nil
@@ -157,7 +157,7 @@ func sendToFeishuWebhooks(feishuMsg map[string]interface{}) error {
 func sendSingleFeishuRequest(webhookUrl string, jsonData []byte) error {
 	resp, err := feishuClient.Post(webhookUrl, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("发送失败: %s", err.Error())
+		return fmt.Errorf("send failed: %s", err.Error())
 	}
 	defer resp.Body.Close()
 
@@ -172,11 +172,11 @@ func sendSingleFeishuRequest(webhookUrl string, jsonData []byte) error {
 		if resp.StatusCode == http.StatusOK {
 			return nil
 		}
-		return fmt.Errorf("解析响应失败，HTTP状态码: %d", resp.StatusCode)
+		return fmt.Errorf("failed to parse response (HTTP %d)", resp.StatusCode)
 	}
 
 	if feishuResp.Code != 0 {
-		return fmt.Errorf("飞书返回错误: %s", feishuResp.Msg)
+		return fmt.Errorf("Feishu returned an error: %s", feishuResp.Msg)
 	}
 
 	return nil
@@ -210,7 +210,7 @@ func buildFeishuCardMessage(title string, content string, color string) map[stri
 					"elements": []map[string]interface{}{
 						{
 							"tag":     "plain_text",
-							"content": fmt.Sprintf("来自 %s 系统 | %s", config.SystemName, time.Now().Format("2006-01-02 15:04:05")),
+							"content": fmt.Sprintf("From %s | %s", config.SystemName, time.Now().Format("2006-01-02 15:04:05")),
 						},
 					},
 				},

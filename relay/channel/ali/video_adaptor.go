@@ -89,7 +89,7 @@ type VideoAdaptor struct {
 }
 
 func (a *VideoAdaptor) GetProviderName() string { return "ali" }
-func (a *VideoAdaptor) GetChannelName() string  { return "阿里云万相" }
+func (a *VideoAdaptor) GetChannelName() string  { return "Alibaba Wanxiang" }
 func (a *VideoAdaptor) GetSupportedModels() []string {
 	return []string{"wan-x1", "wan-x1-14b", "wan2.1-i2v-14b-720p", "wan2.1-i2v-14b-480p", "wan2.1-t2v-14b", "wan2.1-t2v-turbo"}
 }

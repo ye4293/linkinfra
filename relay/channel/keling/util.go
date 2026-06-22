@@ -93,30 +93,30 @@ func GetKelingCredentialsFromConfig(cfg model.ChannelConfig, channel *model.Chan
 		}, nil
 	}
 
-	return nil, fmt.Errorf("无法从Key字段或Config获取有效的可灵凭证")
+	return nil, fmt.Errorf("no valid Kling credentials found in Key field or Config")
 }
 
 // ValidateKelingCredentials 验证可灵凭证格式
 func ValidateKelingCredentials(credentials *KelingCredentials) error {
 	if credentials == nil {
-		return fmt.Errorf("凭证为空")
+		return fmt.Errorf("credentials are empty")
 	}
 
 	if credentials.AK == "" {
-		return fmt.Errorf("AccessKey不能为空")
+		return fmt.Errorf("AccessKey is required")
 	}
 
 	if credentials.SK == "" {
-		return fmt.Errorf("SecretKey不能为空")
+		return fmt.Errorf("SecretKey is required")
 	}
 
 	// 基本格式检查
 	if len(credentials.AK) < 10 {
-		return fmt.Errorf("AccessKey长度过短")
+		return fmt.Errorf("AccessKey is too short")
 	}
 
 	if len(credentials.SK) < 10 {
-		return fmt.Errorf("SecretKey长度过短")
+		return fmt.Errorf("SecretKey is too short")
 	}
 
 	return nil
@@ -137,7 +137,7 @@ func GenerateJWTToken(ak, sk string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString([]byte(sk))
 	if err != nil {
-		return "", fmt.Errorf("生成 JWT token 失败: %w", err)
+		return "", fmt.Errorf("failed to generate JWT token: %w", err)
 	}
 
 	return tokenString, nil
@@ -149,7 +149,7 @@ func GetCredentialsAndGenerateToken(channel *model.Channel, keyIndex int) (strin
 	// 1. 加载渠道配置
 	cfg, err := channel.LoadConfig()
 	if err != nil {
-		return "", fmt.Errorf("加载渠道配置失败: %w", err)
+		return "", fmt.Errorf("failed to load channel config: %w", err)
 	}
 
 	// 2. 获取凭证
@@ -158,7 +158,7 @@ func GetCredentialsAndGenerateToken(channel *model.Channel, keyIndex int) (strin
 		// 尝试直接从 Key 字段解析 AK|SK 格式
 		parts := strings.Split(channel.Key, "|")
 		if len(parts) != 2 {
-			return "", fmt.Errorf("无效的 Kling 密钥格式 (期望 AK|SK): %w", err)
+			return "", fmt.Errorf("invalid Kling key format (expected AK|SK): %w", err)
 		}
 		credentials = &KelingCredentials{
 			AK: strings.TrimSpace(parts[0]),
@@ -168,7 +168,7 @@ func GetCredentialsAndGenerateToken(channel *model.Channel, keyIndex int) (strin
 
 	// 3. 验证凭证
 	if err := ValidateKelingCredentials(credentials); err != nil {
-		return "", fmt.Errorf("凭证验证失败: %w", err)
+		return "", fmt.Errorf("credential validation failed: %w", err)
 	}
 
 	// 4. 生成 JWT Token

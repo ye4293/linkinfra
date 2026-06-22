@@ -105,17 +105,17 @@ func disableChannelInternalWithStatusCode(channel *model.Channel, channelId int,
 	}
 
 	// 发送邮件和其他通知
-	subject := fmt.Sprintf("渠道「%s」（#%d）已被禁用", channelName, channelId)
+	subject := fmt.Sprintf("Channel \"%s\" (#%d) has been disabled", channelName, channelId)
 	content := fmt.Sprintf(`
-<h3>渠道自动禁用通知</h3>
-<p><strong>渠道名称：</strong>%s</p>
-<p><strong>渠道ID：</strong>#%d</p>
-<p><strong>触发模型：</strong>%s</p>
-<p><strong>状态码：</strong>%d</p>
-<p><strong>禁用原因：</strong>%s</p>
-<p><strong>禁用时间：</strong>%s</p>
+<h3>Channel Auto-Disabled</h3>
+<p><strong>Channel name:</strong> %s</p>
+<p><strong>Channel ID:</strong> #%d</p>
+<p><strong>Model:</strong> %s</p>
+<p><strong>Status code:</strong> %d</p>
+<p><strong>Reason:</strong> %s</p>
+<p><strong>Disabled at:</strong> %s</p>
 <hr>
-<p>该渠道因出现错误已被系统自动禁用，请检查渠道配置和密钥的有效性。</p>
+<p>This channel was automatically disabled due to errors. Please verify the channel configuration and API key validity.</p>
 `, channelName, channelId, modelName, statusCode, reason, time.Now().Format("2006-01-02 15:04:05"))
 	notifyRootUserWithoutFeishu(subject, content)
 }
@@ -157,9 +157,9 @@ func MetricDisableChannel(channelId int, successRate float64) {
 			channelId, successRate*100))
 
 		// 发送通知但不禁用
-		subject := fmt.Sprintf("多Key渠道 #%d 成功率过低", channelId)
-		content := fmt.Sprintf("多Key渠道（#%d）在最近 %d 次调用中成功率为 %.2f%%，低于阈值 %.2f%%。由于这是多Key渠道，系统未自动禁用，请手动检查各个Key的状态。",
-			channelId, config.MetricQueueSize, successRate*100, config.MetricSuccessRateThreshold*100)
+		subject := fmt.Sprintf("Multi-key channel #%d has a low success rate", channelId)
+		content := fmt.Sprintf("Multi-key channel #%d had a %.2f%% success rate over the last %d requests (threshold: %.2f%%). The channel was not auto-disabled because it has multiple keys — please check each key manually.",
+			channelId, successRate*100, config.MetricQueueSize, config.MetricSuccessRateThreshold*100)
 		notifyRootUser(subject, content)
 		return
 	}
@@ -177,8 +177,8 @@ func EnableChannel(channelId int, channelName string) {
 		logger.SysError(fmt.Sprintf("Failed to enable channel %d: %s", channelId, err.Error()))
 	}
 	logger.SysLog(fmt.Sprintf("channel #%d has been enabled", channelId))
-	subject := fmt.Sprintf("渠道「%s」（#%d）已被启用", channelName, channelId)
-	content := fmt.Sprintf("渠道「%s」（#%d）已被启用", channelName, channelId)
+	subject := fmt.Sprintf("Channel \"%s\" (#%d) has been re-enabled", channelName, channelId)
+	content := fmt.Sprintf("Channel \"%s\" (#%d) has been re-enabled.", channelName, channelId)
 	notifyRootUser(subject, content)
 }
 
@@ -203,17 +203,17 @@ func StartKeyNotificationListener() {
 			}
 
 			// 构建邮件主题和内容
-			subject := fmt.Sprintf("多Key渠道「%s」（#%d）中的Key已被禁用", notification.ChannelName, notification.ChannelId)
+			subject := fmt.Sprintf("Key disabled in channel \"%s\" (#%d)", notification.ChannelName, notification.ChannelId)
 			content := fmt.Sprintf(`
-<h3>多Key渠道Key自动禁用通知</h3>
-<p><strong>渠道名称：</strong>%s</p>
-<p><strong>渠道ID：</strong>#%d</p>
-<p><strong>被禁用的Key：</strong>Key #%d (%s)</p>
-<p><strong>禁用原因：</strong>%s</p>
-<p><strong>状态码：</strong>%d</p>
-<p><strong>禁用时间：</strong>%s</p>
+<h3>Key Auto-Disabled</h3>
+<p><strong>Channel name:</strong> %s</p>
+<p><strong>Channel ID:</strong> #%d</p>
+<p><strong>Disabled key:</strong> Key #%d (%s)</p>
+<p><strong>Reason:</strong> %s</p>
+<p><strong>Status code:</strong> %d</p>
+<p><strong>Disabled at:</strong> %s</p>
 <hr>
-<p>该Key因出现错误已被系统自动禁用，请检查Key的有效性。如果所有Key都被禁用，整个渠道也将被禁用。</p>
+<p>This key was automatically disabled due to errors. If all keys are disabled, the channel will also be disabled.</p>
 `, notification.ChannelName, notification.ChannelId, notification.KeyIndex, notification.MaskedKey,
 				notification.ErrorMessage, notification.StatusCode, notification.DisabledTime.Format("2006-01-02 15:04:05"))
 
@@ -238,15 +238,15 @@ func StartKeyNotificationListener() {
 			}
 
 			// 构建邮件主题和内容
-			subject := fmt.Sprintf("多Key渠道「%s」（#%d）已被完全禁用", notification.ChannelName, notification.ChannelId)
+			subject := fmt.Sprintf("Channel \"%s\" (#%d) fully disabled — all keys exhausted", notification.ChannelName, notification.ChannelId)
 			content := fmt.Sprintf(`
-<h3>多Key渠道完全禁用通知</h3>
-<p><strong>渠道名称：</strong>%s</p>
-<p><strong>渠道ID：</strong>#%d</p>
-<p><strong>禁用原因：</strong>%s</p>
-<p><strong>禁用时间：</strong>%s</p>
+<h3>Channel Fully Disabled</h3>
+<p><strong>Channel name:</strong> %s</p>
+<p><strong>Channel ID:</strong> #%d</p>
+<p><strong>Reason:</strong> %s</p>
+<p><strong>Disabled at:</strong> %s</p>
 <hr>
-<p>该渠道的所有Key都已被禁用，因此整个渠道已被系统自动禁用。请检查并修复所有Key的问题后重新启用。</p>
+<p>All keys in this channel have been disabled, so the channel has been automatically disabled. Please fix the key issues and re-enable the channel.</p>
 `, notification.ChannelName, notification.ChannelId, notification.Reason, notification.DisabledTime.Format("2006-01-02 15:04:05"))
 
 			// 发送邮件和其他通知（不包括飞书，避免重复发送）
