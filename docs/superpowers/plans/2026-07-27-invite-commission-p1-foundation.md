@@ -404,7 +404,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 - [ ] **Step 1: 在 CHANGELOG.md 顶部插入本期记录**
 
-按项目 CLAUDE.md 规定的格式，插入在文件现有内容之前（保持最新日期在上）：
+按项目 CLAUDE.md 规定的格式，插入到文件的 `---` 分隔线之后、现有最新条目 `## 2026-06-11` 之前（`docs/CHANGELOG.md` 按日期倒序排列，第 1-7 行是文件头说明与 `---`，不要动）：
 
 ```markdown
 ## 2026-07-27
