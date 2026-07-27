@@ -59,10 +59,8 @@ func CryptCallback(c *gin.Context) {
 		c.String(http.StatusUnauthorized, err.Error())
 		return
 	}
-	err = UserLevelUpgrade(userId)
-	if err != nil {
-		return
-	}
-
+	// 等级重算已在 model.CreateOrUpdateOrder 事务提交后完成。
+	// 这里原本调用 UserLevelUpgrade，但那个函数的条件写反（超过下一级门槛
+	// 反而不升级），一次大额充值的用户永远卡在原地。
 	c.String(http.StatusOK, "ok")
 }
