@@ -163,18 +163,34 @@ func TestGetModelNameFromRequest(t *testing.T) {
 		want   string
 	}{
 		{
-			name:   "有model",
-			params: map[string]interface{}{"model": "kling-v1-5-std"},
+			// Kling API 用的是 model_name，不是 model。
+			// Adaptor.ConvertRequest 会把 gin context 里的 model 注入成
+			// model_name 后 delete(requestBody, "model")，见 adaptor.go:73-82。
+			name:   "有model_name",
+			params: map[string]interface{}{"model_name": "kling-v1-5-std"},
 			want:   "kling-v1-5-std",
 		},
 		{
-			name:   "无model",
+			// 只有 model 字段时必须取不到 —— 这条固定 Kling 的字段契约，
+			// 防止有人把 GetModelNameFromRequest 改回读 model 而不改 adaptor。
+			name:   "只有model字段（Kling 不使用）",
+			params: map[string]interface{}{"model": "kling-v1-5-std"},
+			want:   "",
+		},
+		{
+			name:   "无model_name",
 			params: map[string]interface{}{"other": "value"},
 			want:   "",
 		},
 		{
 			name:   "空params",
 			params: map[string]interface{}{},
+			want:   "",
+		},
+		{
+			// 类型不匹配时不能 panic
+			name:   "model_name非字符串",
+			params: map[string]interface{}{"model_name": 123},
 			want:   "",
 		},
 	}

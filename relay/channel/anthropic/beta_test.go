@@ -50,10 +50,22 @@ func TestFilterBetaFlags(t *testing.T) {
 			want:    []string{"context-management-2025-06-27"},
 		},
 		{
-			name:    "vertex allows files-api",
+			// Vertex 同样不支持 files-api：该 flag 已于 2026-06-11 从
+			// VertexAllowedBetaFlags 移除（经官方文档交叉验证，Vertex 上
+			// 无对应功能，见 docs/CHANGELOG.md）。这条用例原先断言 Vertex
+			// 允许它，是改了代码没跟着改测试留下的陈旧断言。
+			name:    "vertex rejects files-api",
 			header:  "files-api-2025-04-14,context-management-2025-06-27",
 			allowed: VertexAllowedBetaFlags,
-			want:    []string{"files-api-2025-04-14", "context-management-2025-06-27"},
+			want:    []string{"context-management-2025-06-27"},
+		},
+		{
+			// Vertex 独有、Bedrock 不支持的 flag，用来证明两个白名单确实不同，
+			// 而不是上面那条改成 reject 后就再也测不出差异了。
+			name:    "vertex allows fast-mode",
+			header:  "fast-mode-2026-02-01,context-management-2025-06-27",
+			allowed: VertexAllowedBetaFlags,
+			want:    []string{"fast-mode-2026-02-01", "context-management-2025-06-27"},
 		},
 	}
 
