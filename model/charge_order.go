@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/helper"
 	"github.com/songquanpeng/one-api/common/logger"
@@ -155,17 +156,95 @@ func stripeChargeFraud() {
 }
 
 func stripeChargeRefund(charge *stripe.Charge) error {
-	if charge.Status == "succeeded" {
-		//获取meta数据里的订单id
-		orderId := charge.Metadata["appOrderId"]
-		userId := charge.Metadata["userId"]
+	if charge.Status != "succeeded" {
+		return nil
+	}
 
-		// 使用原子性数据库操作防止分布式并发
-		// 只有成功状态的订单才能退款
-		success := UpdateChargeOrderStatusWithCondition(orderId, userId, StatusMap["success"], StatusMap["refund"])
-		if !success {
+	//获取meta数据里的订单id
+	orderId := charge.Metadata["appOrderId"]
+	userId := charge.Metadata["userId"]
+
+	var reversedInviterId int
+	var refundedUserId int
+
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		// 原子改单：只有成功状态的订单才能退款
+		if !UpdateChargeOrderStatusWithConditionTx(tx, orderId, userId,
+			StatusMap["success"], StatusMap["refund"]) {
 			// 订单已被处理或状态不符合预期，直接返回
 			return nil
+		}
+
+		var order ChargeOrder
+		if err := tx.Where("app_order_id = ? AND user_id = ?", orderId, userId).
+			First(&order).Error; err != nil {
+			return err
+		}
+		refundedUserId = order.UserId
+
+		// 扣回充值方自己的额度与累计充值。原实现只改订单状态，导致退款用户的
+		// 余额与 topup_quota 都虚高，等级也虚高。
+		// 余额不足时扣到 0 为止，绝不产生负余额。
+		quotaToRevoke := AmountToQuota(order.Amount)
+		var u User
+		if err := tx.Where("id = ?", order.UserId).First(&u).Error; err != nil {
+			return err
+		}
+		actualQuota := quotaToRevoke
+		if u.Quota < actualQuota {
+			actualQuota = u.Quota
+		}
+		if actualQuota < 0 {
+			actualQuota = 0
+		}
+		actualTopup := quotaToRevoke
+		if u.TopupQuota < actualTopup {
+			actualTopup = u.TopupQuota
+		}
+		if actualTopup < 0 {
+			actualTopup = 0
+		}
+		if err := tx.Model(&User{}).Where("id = ?", order.UserId).
+			Updates(map[string]interface{}{
+				"quota":       gorm.Expr("quota - ?", actualQuota),
+				"topup_quota": gorm.Expr("topup_quota - ?", actualTopup),
+			}).Error; err != nil {
+			return err
+		}
+		if actualQuota < quotaToRevoke {
+			logger.SysError(fmt.Sprintf(
+				"refund for order %s: revoked %d of %d quota from user %d (balance insufficient)",
+				orderId, actualQuota, quotaToRevoke, order.UserId))
+		}
+
+		// 冲正这笔充值产生的邀请返现，防「充值→拿返现→退款」套利
+		inviterId, reversed, err := ReverseCommission(tx, orderId)
+		if err != nil {
+			return err
+		}
+		if inviterId > 0 && reversed > 0 {
+			reversedInviterId = inviterId
+			RecordLog(inviterId, LogTypeAffCommission, fmt.Sprintf(
+				"referral commission reversed %s due to order %s refund",
+				common.LogQuota(reversed), orderId))
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// 事务外刷缓存。
+	// 刻意不调 RecalcUserLevelAndRefreshCache：等级只升不降是有意的产品决定，
+	// 避免用户等级反复跳动引发客诉。若将来要支持降级，需显式实现而非依赖此处副作用。
+	if refundedUserId > 0 {
+		if err := CacheUpdateUserQuota2(refundedUserId); err != nil {
+			logger.SysError("failed to refresh quota cache after refund: " + err.Error())
+		}
+	}
+	if reversedInviterId > 0 {
+		if err := CacheUpdateUserQuota2(reversedInviterId); err != nil {
+			logger.SysError("failed to refresh inviter quota cache after refund: " + err.Error())
 		}
 	}
 	return nil
@@ -182,9 +261,16 @@ func stripeChargeSuccess(charge *stripe.Charge) error {
 		if err := DB.Model(&ChargeOrder{}).Where("app_order_id = ? ", orderId).Where("user_id = ?", userId).First(&chargeOrder).Error; err != nil {
 			return err
 		}
+
+		var commissionInviterId int
+		var commissionQuota int64
+
 		if err := DB.Transaction(func(tx *gorm.DB) error {
-			// 使用原子性数据库操作防止分布式并发
-			success := UpdateChargeOrderStatusWithCondition(orderId, userId, StatusMap["create"], StatusMap["success"])
+			// 使用原子性数据库操作防止分布式并发。
+			// 必须用 tx 版本：原实现调的是走全局 DB 的版本，改单动作根本不在
+			// 事务里，事务回滚时不会被撤销。
+			success := UpdateChargeOrderStatusWithConditionTx(tx, orderId, userId,
+				StatusMap["create"], StatusMap["success"])
 			if !success {
 				// 订单已被处理或状态不符合预期，直接返回
 				return errors.New("order has already been processed or has an unexpected status")
@@ -193,19 +279,37 @@ func stripeChargeSuccess(charge *stripe.Charge) error {
 			amount := float64(charge.Amount / 100)
 			orderCost := amount*0.029 + 0.3
 			realAmount := amount - orderCost
-			if err := DB.Model(&chargeOrder).Updates(ChargeOrder{Status: StatusMap["success"], RealAmount: realAmount, OrderCost: orderCost, OrderNo: charge.ID, Amount: amount}).Error; err != nil {
-				return err
-			}
-			//更新余额 待定手续费和用户组别的变更
-			err := IncreaseUserQuota(chargeOrder.UserId, AmountToQuota(amount))
-			if err != nil {
+			if err := tx.Model(&chargeOrder).Updates(ChargeOrder{Status: StatusMap["success"], RealAmount: realAmount, OrderCost: orderCost, OrderNo: charge.ID, Amount: amount}).Error; err != nil {
 				return err
 			}
 
-			if err := DB.Model(&Bill{}).Where("source_id = ?", orderId).First(&bill).Error; err != nil {
+			// quota 是可用余额，topup_quota 是累计真实充值（等级判定的唯一依据）。
+			// 不用 IncreaseUserQuota：它走全局 DB 且受 BatchUpdateEnabled 影响，
+			// 会脱离当前事务。
+			quotaToAdd := AmountToQuota(amount)
+			if err := tx.Model(&User{}).Where("id = ?", chargeOrder.UserId).
+				Updates(map[string]interface{}{
+					"quota":       gorm.Expr("quota + ?", quotaToAdd),
+					"topup_quota": gorm.Expr("topup_quota + ?", quotaToAdd),
+				}).Error; err != nil {
 				return err
 			}
-			if err := DB.Model(&bill).Updates(Bill{Status: StatusMap["success"]}).Error; err != nil {
+
+			// 返现与入账同事务，source_no 用 app_order_id。
+			// 用 := 接局部变量再赋给外层：闭包签名是 func(tx *gorm.DB) error。
+			inviterId, cq, gErr := GrantCommission(
+				tx, chargeOrder.UserId, amount, quotaToAdd,
+				SourceTypeStripeCharge, chargeOrder.AppOrderId)
+			if gErr != nil {
+				return gErr
+			}
+			commissionInviterId = inviterId
+			commissionQuota = cq
+
+			if err := tx.Model(&Bill{}).Where("source_id = ?", orderId).First(&bill).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&bill).Updates(Bill{Status: StatusMap["success"]}).Error; err != nil {
 				return err
 			}
 
@@ -213,6 +317,21 @@ func stripeChargeSuccess(charge *stripe.Charge) error {
 		}); err != nil {
 			return err
 		}
+
+		// 以下都在事务外：Redis 不参与事务回滚
+		if err := CacheUpdateUserQuota2(chargeOrder.UserId); err != nil {
+			logger.SysError("failed to refresh quota cache: " + err.Error())
+		}
+		if commissionInviterId > 0 && commissionQuota > 0 {
+			if err := CacheUpdateUserQuota2(commissionInviterId); err != nil {
+				logger.SysError("failed to refresh inviter quota cache: " + err.Error())
+			}
+			RecordLog(commissionInviterId, LogTypeAffCommission, fmt.Sprintf(
+				"referral commission %s from invitee %d top-up",
+				common.LogQuota(commissionQuota), chargeOrder.UserId))
+		}
+		RecalcUserLevelAndRefreshCache(chargeOrder.UserId)
+
 		//支付成功处理一下其它
 		AfterChargeSuccess(chargeOrder.UserId, float64(charge.Amount/100-charge.ApplicationFeeAmount/100))
 	}
@@ -293,8 +412,18 @@ func HandleStripeCallback(req *http.Request) error {
 // UpdateChargeOrderStatusWithCondition 原子性更新订单状态，防止分布式并发冲突
 // 只有当当前状态等于expectedStatus时才更新为newStatus
 func UpdateChargeOrderStatusWithCondition(appOrderId, userId string, expectedStatus, newStatus int) bool {
+	return UpdateChargeOrderStatusWithConditionTx(DB, appOrderId, userId, expectedStatus, newStatus)
+}
+
+// UpdateChargeOrderStatusWithConditionTx 是上面那个的事务版本，也是真正的实现。
+//
+// 退款冲正与充值入账都需要「改单状态」与后续的额度变动原子。原实现在事务
+// 闭包内调用走全局 DB 的版本，导致改单动作根本不在事务里 —— 事务回滚时
+// 状态改动不会被撤销，订单会停在已处理状态而额度却没到账。
+func UpdateChargeOrderStatusWithConditionTx(tx *gorm.DB, appOrderId, userId string,
+	expectedStatus, newStatus int) bool {
 	// 使用WHERE条件确保原子性更新
-	result := DB.Model(&ChargeOrder{}).
+	result := tx.Model(&ChargeOrder{}).
 		Where("app_order_id = ? AND user_id = ? AND status = ?", appOrderId, userId, expectedStatus).
 		Update("status", newStatus)
 
