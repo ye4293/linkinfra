@@ -6,6 +6,15 @@
 
 ---
 
+## 2026-07-28
+
+### fix(test): 修复 3 个既有失败测试，`go test ./...` 恢复全绿
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `common/image/image_test.go`、`relay/channel/anthropic/beta_test.go`、`relay/channel/kling/util_test.go`
+- **说明**: 三个失败均为测试自身写错、被测代码正确，且在基线 commit `e84f162`（本轮改动介入之前）实测确认为既有失败，与邀请返现体系无关。① kling `TestGetModelNameFromRequest` 传 `model` 键，但 Kling API 用 `model_name`（`adaptor.go:73-82` 注入 `model_name` 后 `delete(model)`），修正键名并补「只有 model 字段必须取不到」的契约用例与类型不匹配用例；② anthropic `TestFilterBetaFlags` 仍断言 Vertex 允许 `files-api`，而该 flag 已于 2026-06-11 从白名单移除，属改代码未改测试，改为断言 reject 并补 `fast-mode` 用例以保住两个白名单的差异覆盖；③ `common/image` 四个测试依赖 5 个 Wikimedia URL，其中 `2560px-Gfp-wisconsin...jpg` 因站点限制缩略图尺寸返回 HTTP 400、原图路径亦 404，而测试既不检查 `StatusCode` 又用 `assert` 而非 `require`，导致 HTML 错误页被喂给 `image.Decode` 后对 nil 结果调 `Bounds()` 触发 panic，炸掉整个测试二进制并吞掉同包其它测试结果。改为完全离线：jpeg/png/gif 用标准库现场编码（尺寸各异且非正方形，宽高颠倒必被断言抓到），webp 内嵌 34 字节 fixture（`x/image/webp` 仅有解码器，代价是尺寸仅 1×1），URL 分支改用 `httptest` 本地 server 以保住 `IsImageUrl` 内容嗅探与 `GetImageSizeFromUrl` 的覆盖，断言全部换为 `require`。全仓已无测试发起真实外网请求；耗时 1.3s → 0.13s。
+- **关联计划**: 无
+
 ## 2026-07-27
 
 ### fix(topup): 统一充值金额换算口径并修复邮件金额 bug
