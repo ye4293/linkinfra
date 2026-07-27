@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/helper"
 	"github.com/songquanpeng/one-api/common/logger"
 	"gorm.io/gorm"
@@ -121,7 +120,7 @@ func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride
 			return nil
 		}
 
-		quotaToAdd = int64(float64(topUp.Amount) * config.QuotaPerUnit)
+		quotaToAdd = AmountToQuota(float64(topUp.Amount))
 		if quotaToAdd <= 0 {
 			return errors.New("invalid top-up quota")
 		}

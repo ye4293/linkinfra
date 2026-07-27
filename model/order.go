@@ -79,7 +79,7 @@ func CreateOrUpdateOrder(response CryptCallbackResponse, username string) error 
 
 					//更新余额 待定手续费和用户组别的变更
 					addAmount := response.ValueForwardedCoin
-					err = IncreaseUserQuota(response.UserId, int64(addAmount*500000))
+					err = IncreaseUserQuota(response.UserId, AmountToQuota(addAmount))
 					if err != nil {
 						return err
 					}

@@ -197,7 +197,7 @@ func stripeChargeSuccess(charge *stripe.Charge) error {
 				return err
 			}
 			//更新余额 待定手续费和用户组别的变更
-			err := IncreaseUserQuota(chargeOrder.UserId, int64(amount*500000))
+			err := IncreaseUserQuota(chargeOrder.UserId, AmountToQuota(amount))
 			if err != nil {
 				return err
 			}
