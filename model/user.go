@@ -39,6 +39,12 @@ type User struct {
 	UserRemindThreshold     int64  `json:"user_remind_threshold"`
 	UserLastNoticeTime int64 `json:"user_last_notice_time" gorm:"default:0"`
 	ChannelRatios           string `json:"channel_ratios" gorm:"type:text"`
+	// GiftQuota 累计获赠总额（注册奖励 + 邀请返现），只增不减；
+	// 退款冲正是唯一例外。这是累计量，不是可用余额——可用余额始终是 Quota。
+	GiftQuota int64 `json:"gift_quota" gorm:"type:bigint;default:0;column:gift_quota"`
+	// TopupQuota 累计真实充值总额（仅 Stripe 入账），只增不减；退款冲正例外。
+	// 用户等级升级以此为唯一依据，赠金不计入。
+	TopupQuota int64 `json:"topup_quota" gorm:"type:bigint;default:0;column:topup_quota"`
 }
 
 // GetChannelRatiosMap 解析 ChannelRatios JSON 为 map[channelType]ratio。
