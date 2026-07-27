@@ -6,8 +6,43 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/songquanpeng/one-api/common"
+	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/model"
 )
+
+// persistGroupRatio 把内存中的 common.GroupRatio 持久化到 options 表。
+//
+// 原实现只改内存不写 options 表：重启后 model.InitOptionMap 会用 options
+// 表的旧值覆盖内存，但 group_configs 表仍是新值，两处永久漂移，管理员
+// 在后台改的折扣重启就丢。
+//
+// 注意 commission_rate 与 upgrade_threshold 不走 options 表、也不进内存
+// map —— 它们只在充值回调里被读取（低频），每次直接查 group_configs，
+// 从根本上避免这一类缓存漂移。
+func persistGroupRatio() {
+	if err := model.UpdateOption("GroupRatio", common.GroupRatio2JSONString()); err != nil {
+		logger.SysError("failed to persist GroupRatio to options: " + err.Error())
+	}
+}
+
+// validateGroupConfigRanges 校验 discount / commission_rate / upgrade_threshold 的取值范围。
+// 返回空串表示通过。
+func validateGroupConfigRanges(config *model.GroupConfig) string {
+	// discount 是计费乘数：1.0 = 无折扣，0.5 = 五折，0 = 免费。
+	// 任何 > 1 的值都会让该分组的所有请求被放大 N 倍，必须挡住。
+	if config.Discount < 0 || config.Discount > 1 {
+		return "discount must be between 0 and 1 (multiplier; 1 = no discount)."
+	}
+	// commission_rate 是返现比例。> 1 意味着返的比充的多，直接资金漏洞。
+	if config.CommissionRate < 0 || config.CommissionRate > 1 {
+		return "commission_rate must be between 0 and 1."
+	}
+	// 负门槛会让等级判定行为不可预期
+	if config.UpgradeThreshold < 0 {
+		return "upgrade_threshold must not be negative."
+	}
+	return ""
+}
 
 // GetAllGroupConfigs 获取所有分组等级配置
 func GetAllGroupConfigs(c *gin.Context) {
@@ -45,12 +80,10 @@ func CreateGroupConfigHandler(c *gin.Context) {
 		return
 	}
 
-	// discount 是计费乘数：1.0 = 无折扣，0.5 = 五折，0 = 免费。
-	// 任何 > 1 的值都会让当前分组的所有请求被放大 N 倍，必须挡住。
-	if config.Discount < 0 || config.Discount > 1 {
+	if msg := validateGroupConfigRanges(&config); msg != "" {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "discount must be between 0 and 1 (multiplier; 1 = no discount).",
+			"message": msg,
 		})
 		return
 	}
@@ -63,8 +96,9 @@ func CreateGroupConfigHandler(c *gin.Context) {
 		return
 	}
 
-	// 同步更新 common.GroupRatio
+	// 同步内存并持久化到 options 表，两者缺一都会导致重启后配置漂移
 	common.GroupRatio[config.GroupKey] = config.Discount
+	persistGroupRatio()
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -91,11 +125,10 @@ func UpdateGroupConfigHandler(c *gin.Context) {
 		return
 	}
 
-	// 同 Create：discount 必须在 [0, 1] 区间内，防止 UI 以外的客户端误把百分比传进来
-	if config.Discount < 0 || config.Discount > 1 {
+	if msg := validateGroupConfigRanges(&config); msg != "" {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "discount must be between 0 and 1 (multiplier; 1 = no discount).",
+			"message": msg,
 		})
 		return
 	}
@@ -108,8 +141,9 @@ func UpdateGroupConfigHandler(c *gin.Context) {
 		return
 	}
 
-	// 同步更新 common.GroupRatio
+	// 同步内存并持久化到 options 表
 	common.GroupRatio[config.GroupKey] = config.Discount
+	persistGroupRatio()
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -147,8 +181,9 @@ func DeleteGroupConfigHandler(c *gin.Context) {
 		return
 	}
 
-	// 同步删除 common.GroupRatio 中的条目
+	// 同步内存并持久化到 options 表
 	delete(common.GroupRatio, config.GroupKey)
+	persistGroupRatio()
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

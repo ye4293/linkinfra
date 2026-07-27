@@ -78,8 +78,11 @@ func CreateOrUpdateOrder(response CryptCallbackResponse, username string) error 
 					}
 
 					//更新余额 待定手续费和用户组别的变更
-					addAmount := response.ValueForwardedCoin
-					err = IncreaseUserQuota(response.UserId, int64(addAmount*500000))
+					// 这里必须是赋值而非 := 声明：外层 addAmount 在事务提交后
+					// 要传给 AfterChargeSuccess 发送充值成功邮件。用 := 会新建
+					// 一个闭包内变量，导致邮件金额恒为 0。
+					addAmount = response.ValueForwardedCoin
+					err = IncreaseUserQuota(response.UserId, AmountToQuota(addAmount))
 					if err != nil {
 						return err
 					}

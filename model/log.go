@@ -56,6 +56,9 @@ const (
 	LogTypeManage
 	LogTypeSystem
 	LogTypeError
+	// LogTypeAffCommission 邀请返现（发放与冲正）。
+	// 必须追加在末尾：iota 值变动会让历史日志的 type 语义全部漂移。
+	LogTypeAffCommission
 )
 
 func RecordLog(userId int, logType int, content string) {
