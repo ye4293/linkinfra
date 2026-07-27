@@ -216,3 +216,90 @@ func GrantCommission(tx *gorm.DB, inviteeId int, topupAmount float64,
 
 	return inviterId, commissionQuota, nil
 }
+
+// ReverseCommission 冲正一笔已发放的返现（对应充值被退款）。
+//
+// 必须在改单状态的同一事务内调用。
+// 返回 (inviterId, actualReversedQuota, error)；无需冲正时返回 (0, 0, nil)。
+//
+// 余额不足时扣到 0 为止，绝不产生负余额 —— 邀请人可能已经把返现花掉了，
+// 强行扣成负数会让他后续所有请求都被拒。差额（commission_quota -
+// reversed_quota）是运营的真实损失，记在明细里并告警，可事后查账。
+//
+// 幂等：status != Granted 时直接返回，重复冲正不会二次扣款。
+func ReverseCommission(tx *gorm.DB, sourceNo string) (int, int64, error) {
+	if sourceNo == "" {
+		return 0, 0, nil
+	}
+
+	var record AffCommissionRecord
+	if err := tx.Where("source_no = ?", sourceNo).First(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// 那笔充值本来就没有返现（无邀请人、比例为 0 等）
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+
+	if record.Status != AffCommissionStatusGranted {
+		// 已冲正过
+		return 0, 0, nil
+	}
+
+	var inviter User
+	if err := tx.Where("id = ?", record.InviterId).First(&inviter).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// 邀请人已注销：只标记记录，无处可扣
+			if markErr := markCommissionReversed(tx, &record, 0); markErr != nil {
+				return 0, 0, markErr
+			}
+			logger.SysError(fmt.Sprintf(
+				"commission reversal for %s: inviter %d no longer exists, %d quota unrecoverable",
+				sourceNo, record.InviterId, record.CommissionQuota))
+			return record.InviterId, 0, nil
+		}
+		return 0, 0, err
+	}
+
+	actualReverse := record.CommissionQuota
+	if inviter.Quota < actualReverse {
+		actualReverse = inviter.Quota
+	}
+	if actualReverse < 0 {
+		actualReverse = 0
+	}
+
+	if actualReverse > 0 {
+		// gift_quota 与 quota 同步递减。gift_quota 平时只增，
+		// 退款冲正是唯一的例外 —— 那笔钱事实上没有发生。
+		if err := tx.Model(&User{}).Where("id = ?", record.InviterId).
+			Updates(map[string]interface{}{
+				"quota":      gorm.Expr("quota - ?", actualReverse),
+				"gift_quota": gorm.Expr("gift_quota - ?", actualReverse),
+			}).Error; err != nil {
+			return 0, 0, err
+		}
+	}
+
+	if err := markCommissionReversed(tx, &record, actualReverse); err != nil {
+		return 0, 0, err
+	}
+
+	if actualReverse < record.CommissionQuota {
+		logger.SysError(fmt.Sprintf(
+			"commission reversal for %s incomplete: reversed %d of %d from inviter %d (balance insufficient)",
+			sourceNo, actualReverse, record.CommissionQuota, record.InviterId))
+	}
+
+	return record.InviterId, actualReverse, nil
+}
+
+// markCommissionReversed 把记录标记为已冲正。
+func markCommissionReversed(tx *gorm.DB, record *AffCommissionRecord, reversedQuota int64) error {
+	return tx.Model(&AffCommissionRecord{}).Where("id = ?", record.Id).
+		Updates(map[string]interface{}{
+			"status":         AffCommissionStatusReversed,
+			"reversed_quota": reversedQuota,
+			"reversed_at":    helper.GetTimestamp(),
+		}).Error
+}

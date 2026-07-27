@@ -340,3 +340,167 @@ func TestGrantCommissionRounding(t *testing.T) {
 		t.Errorf("记录数 = %d, want 0（返现额为 0 不该产生记录）", count)
 	}
 }
+
+func TestReverseCommission(t *testing.T) {
+	setupTestDB(t, &User{}, &GroupConfig{}, &AffCommissionRecord{}, &Log{})
+	inviter, invitee := grantFixture(t)
+
+	// 先正常发放
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		_, _, err := GrantCommission(tx, invitee.Id, 100, 50000000,
+			SourceTypeStripeCharge, "order-refund")
+		return err
+	})
+	if err != nil {
+		t.Fatalf("grant failed: %v", err)
+	}
+
+	// 再冲正
+	var gotInviter int
+	var reversed int64
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		gotInviter, reversed, err = ReverseCommission(tx, "order-refund")
+		return err
+	})
+	if err != nil {
+		t.Fatalf("reverse failed: %v", err)
+	}
+	if gotInviter != inviter.Id {
+		t.Errorf("inviterId = %d, want %d", gotInviter, inviter.Id)
+	}
+	if reversed != 4000000 {
+		t.Errorf("reversed = %d, want 4000000", reversed)
+	}
+
+	var after User
+	_ = DB.First(&after, inviter.Id).Error
+	if after.Quota != 0 {
+		t.Errorf("Quota = %d, want 0", after.Quota)
+	}
+	if after.GiftQuota != 0 {
+		t.Errorf("GiftQuota = %d, want 0", after.GiftQuota)
+	}
+
+	rec, _ := GetAffCommissionRecordBySourceNo("order-refund")
+	if rec == nil {
+		t.Fatal("record disappeared")
+	}
+	if rec.Status != AffCommissionStatusReversed {
+		t.Errorf("Status = %d, want %d", rec.Status, AffCommissionStatusReversed)
+	}
+	if rec.ReversedQuota != 4000000 {
+		t.Errorf("ReversedQuota = %d, want 4000000", rec.ReversedQuota)
+	}
+	if rec.ReversedAt == 0 {
+		t.Error("ReversedAt 未设置")
+	}
+}
+
+// TestReverseCommissionInsufficientBalance 邀请人已把返现花掉时，
+// 扣到 0 为止，绝不产生负余额。差额记在 reversed_quota 与 commission_quota
+// 的落差里，是运营的真实损失。
+func TestReverseCommissionInsufficientBalance(t *testing.T) {
+	setupTestDB(t, &User{}, &GroupConfig{}, &AffCommissionRecord{}, &Log{})
+	inviter, invitee := grantFixture(t)
+
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		_, _, err := GrantCommission(tx, invitee.Id, 100, 50000000,
+			SourceTypeStripeCharge, "order-spent")
+		return err
+	})
+	if err != nil {
+		t.Fatalf("grant failed: %v", err)
+	}
+
+	// 邀请人把大部分返现花掉，只剩 1000000
+	if err := DB.Model(&User{}).Where("id = ?", inviter.Id).
+		Update("quota", 1000000).Error; err != nil {
+		t.Fatalf("update quota failed: %v", err)
+	}
+
+	var reversed int64
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		var err error
+		_, reversed, err = ReverseCommission(tx, "order-spent")
+		return err
+	})
+	if err != nil {
+		t.Fatalf("reverse failed: %v", err)
+	}
+	if reversed != 1000000 {
+		t.Errorf("reversed = %d, want 1000000（只能扣到 0）", reversed)
+	}
+
+	var after User
+	_ = DB.First(&after, inviter.Id).Error
+	if after.Quota != 0 {
+		t.Errorf("Quota = %d, want 0（绝不能为负）", after.Quota)
+	}
+
+	rec, _ := GetAffCommissionRecordBySourceNo("order-spent")
+	if rec.ReversedQuota != 1000000 {
+		t.Errorf("ReversedQuota = %d, want 1000000", rec.ReversedQuota)
+	}
+	if rec.CommissionQuota != 4000000 {
+		t.Errorf("CommissionQuota 应保留原值 4000000, got %d", rec.CommissionQuota)
+	}
+}
+
+func TestReverseCommissionIdempotentAndMissing(t *testing.T) {
+	t.Run("重复冲正只生效一次", func(t *testing.T) {
+		setupTestDB(t, &User{}, &GroupConfig{}, &AffCommissionRecord{}, &Log{})
+		inviter, invitee := grantFixture(t)
+
+		_ = DB.Transaction(func(tx *gorm.DB) error {
+			_, _, err := GrantCommission(tx, invitee.Id, 100, 50000000,
+				SourceTypeStripeCharge, "order-twice")
+			return err
+		})
+		// 额外给邀请人一些余额，确保第二次冲正若生效会被察觉
+		_ = DB.Model(&User{}).Where("id = ?", inviter.Id).
+			Update("quota", gorm.Expr("quota + ?", 9000000)).Error
+
+		for i := 0; i < 3; i++ {
+			err := DB.Transaction(func(tx *gorm.DB) error {
+				_, _, err := ReverseCommission(tx, "order-twice")
+				return err
+			})
+			if err != nil {
+				t.Fatalf("第 %d 次冲正报错: %v", i+1, err)
+			}
+		}
+
+		var after User
+		_ = DB.First(&after, inviter.Id).Error
+		// 4000000 + 9000000 - 4000000 = 9000000
+		if after.Quota != 9000000 {
+			t.Errorf("Quota = %d, want 9000000（只该扣一次）", after.Quota)
+		}
+	})
+
+	t.Run("记录不存在时按无返现处理", func(t *testing.T) {
+		setupTestDB(t, &User{}, &GroupConfig{}, &AffCommissionRecord{}, &Log{})
+		err := DB.Transaction(func(tx *gorm.DB) error {
+			inviterId, reversed, err := ReverseCommission(tx, "never-existed")
+			if inviterId != 0 || reversed != 0 {
+				t.Errorf("got (%d, %d), want (0, 0)", inviterId, reversed)
+			}
+			return err
+		})
+		if err != nil {
+			t.Errorf("记录不存在不该报错: %v", err)
+		}
+	})
+
+	t.Run("空sourceNo直接返回", func(t *testing.T) {
+		setupTestDB(t, &User{}, &GroupConfig{}, &AffCommissionRecord{}, &Log{})
+		err := DB.Transaction(func(tx *gorm.DB) error {
+			_, _, err := ReverseCommission(tx, "")
+			return err
+		})
+		if err != nil {
+			t.Errorf("空 sourceNo 不该报错: %v", err)
+		}
+	})
+}
