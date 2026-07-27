@@ -130,6 +130,18 @@ func InvalidateUserChannelRatiosCache(id int) {
 	}
 }
 
+// InvalidateUserGroupCache 清除指定用户的分组缓存。
+// 等级升级后必须调用，否则计费仍按旧分组的折扣走，最长陈旧一个
+// config.SyncFrequency 周期。
+func InvalidateUserGroupCache(id int) {
+	if id <= 0 || !common.RedisEnabled {
+		return
+	}
+	if err := common.RedisDel(fmt.Sprintf("user_group:%d", id)); err != nil {
+		logger.SysError("Redis del user group error: " + err.Error())
+	}
+}
+
 // decodeChannelRatiosJSON 把 JSON 字符串解析为 map[channelType]ratio，过滤非法值。
 func decodeChannelRatiosJSON(s string) (map[int]float64, error) {
 	raw := map[string]float64{}
