@@ -12,10 +12,10 @@ on:
 
 env:
   DOCKER_REGISTRY: ye4293xx7
-  IMAGE_NAME: one-api
+  IMAGE_NAME: linkinfra
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -187,3 +187,27 @@ jobs:
           echo "docker tag ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }} ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
           echo "docker-compose restart one-api" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: 创建 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          body: |
+            ## 镜像
+
+            - `${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}`
+            - `${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest`
+            - `ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}`
+
+            ```bash
+            docker pull ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ```
+
+            ## Changelog
+
+            以下由 GitHub 自动生成：
+          draft: false
+          prerelease: false

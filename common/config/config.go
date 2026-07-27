@@ -57,14 +57,6 @@ var StripeUnitPrice = 8.0
 var StripeMinTopUp = 1
 var StripePromotionCodesEnabled = false
 
-var EpayPaymentEnabled = false
-var EpayPayAddress = ""
-var EpayId = ""
-var EpayKey = ""
-var EpayPrice = 7.3
-var EpayMinTopUp = 1
-var EpayCallbackAddress = ""
-
 var CfR2storeEnabled = true
 var CfBucketFileName = "ezlinkai-file"
 

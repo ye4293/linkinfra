@@ -8,7 +8,7 @@ on:
 
 env:
   DOCKER_REGISTRY: ye4293xx7
-  IMAGE_NAME: one-api-test
+  IMAGE_NAME: linkinfra-test
 
 permissions:
   contents: read

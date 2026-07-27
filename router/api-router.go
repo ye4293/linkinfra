@@ -43,8 +43,6 @@ func SetApiRouter(router *gin.Engine) {
 			userRoute.POST("/register", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.Register)
 			userRoute.POST("/login", middleware.CriticalRateLimit(), controller.Login)
 			userRoute.GET("/logout", controller.Logout)
-			userRoute.POST("/epay/notify", controller.EpayNotify)
-			userRoute.GET("/epay/notify", controller.EpayNotify)
 
 			selfRoute := userRoute.Group("/")
 			selfRoute.Use(middleware.UserAuth())
@@ -55,10 +53,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/token", controller.GenerateAccessToken)
 				selfRoute.GET("/aff", controller.GetAffCode)
 				selfRoute.POST("/topup", controller.TopUp)
-				selfRoute.GET("/topup/info", controller.GetEpayTopUpInfo)
 				selfRoute.GET("/topup/self", controller.GetUserTopUps)
-				selfRoute.POST("/pay", middleware.CriticalRateLimit(), controller.RequestEpay)
-				selfRoute.POST("/amount", controller.RequestAmount)
 				selfRoute.POST("/stripe/pay", middleware.CriticalRateLimit(), controller.RequestStripePay)
 				selfRoute.POST("/stripe/amount", controller.RequestStripeAmount)
 			}
@@ -217,10 +212,6 @@ func SetApiRouter(router *gin.Engine) {
 	dashboardRoute.GET("/graph", middleware.AdminAuth(), controller.GetAllGraph)
 	dashboardRoute.GET("/self", middleware.UserAuth(), controller.GetUserDashboard)
 	dashboardRoute.GET("/graph/self", middleware.UserAuth(), controller.GetUserGraph)
-
-	mjRoute := apiRouter.Group("/mj")
-	mjRoute.GET("/self", middleware.UserAuth(), controller.GetUserMidjourney)
-	mjRoute.GET("/", middleware.AdminAuth(), controller.GetAllMidjourney)
 
 	videoRoute := apiRouter.Group("/video")
 	videoRoute.GET("/self", middleware.UserAuth(), controller.GetUserVideos)

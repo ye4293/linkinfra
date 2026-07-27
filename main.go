@@ -157,9 +157,6 @@ func main() {
 	if config.EnableMetric {
 		logger.SysLog("metric enabled, will disable channel if too much request failed")
 	}
-	common.SafeGoroutine(func() {
-		controller.UpdateMidjourneyTaskBulk()
-	})
 	openai.InitTokenEncoders()
 
 	// 启动Key禁用通知监听器

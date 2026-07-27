@@ -71,7 +71,7 @@ const (
 	ChannelTypeGroq
 	ChannelTypeOllama
 	ChannelTypeLingYiWanWu
-	ChannelTypeMidjourneyPlus
+	_ // 32: formerly ChannelTypeMidjourneyPlus (removed)
 	ChannelTypeAwsClaude
 	ChannelTypeCoze
 	ChannelTypeCohere

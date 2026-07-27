@@ -6,7 +6,6 @@ go 1.23
 toolchain go1.24.5
 
 require (
-	github.com/Calcium-Ion/go-epay v0.0.4
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.54.2
 	github.com/gin-contrib/gzip v0.0.6
 	github.com/gin-contrib/sessions v0.0.5
@@ -49,11 +48,9 @@ require (
 	github.com/chenzhuoyu/iasm v0.9.1 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
-	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/rs/cors v1.10.1 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
-	github.com/volcengine/volcengine-go-sdk v1.2.23 // indirect
 	golang.org/x/sync v0.11.0 // indirect
 )
 

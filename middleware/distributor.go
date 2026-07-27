@@ -11,7 +11,6 @@ import (
 	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/model"
 	"github.com/songquanpeng/one-api/relay/channel/keling"
-	"github.com/songquanpeng/one-api/relay/channel/midjourney"
 	relayconstant "github.com/songquanpeng/one-api/relay/constant"
 	"github.com/songquanpeng/one-api/service"
 )
@@ -182,27 +181,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool) {
 	shouldSelectChannel := true
 	path := c.Request.URL.Path
 
-	if strings.HasPrefix(path, "/mj") {
-		relayMode := relayconstant.Path2RelayModeMidjourney(path)
-		if relayMode == relayconstant.RelayModeMidjourneyTaskFetch ||
-			relayMode == relayconstant.RelayModeMidjourneyTaskFetchByCondition ||
-			relayMode == relayconstant.RelayModeMidjourneyNotify ||
-			relayMode == relayconstant.RelayModeMidjourneyTaskImageSeed {
-			shouldSelectChannel = false
-		} else {
-			midjourneyRequest := midjourney.MidjourneyRequest{}
-			if err := common.UnmarshalBodyReusable(c, &midjourneyRequest); err == nil {
-				midjourneyModel, mjErr, success := midjourney.GetMjRequestModel(relayMode, &midjourneyRequest)
-				if mjErr == nil && midjourneyModel != "" {
-					modelRequest.Model = midjourneyModel
-				} else if !success {
-					shouldSelectChannel = false
-				}
-			}
-		}
-		c.Set("relay_mode", relayMode)
-
-	} else if strings.HasPrefix(path, "/v1beta/models/") || strings.HasPrefix(path, "/v1/models/") || strings.HasPrefix(path, "/v1alpha/models/") {
+	if strings.HasPrefix(path, "/v1beta/models/") || strings.HasPrefix(path, "/v1/models/") || strings.HasPrefix(path, "/v1alpha/models/") {
 		// Gemini API 路径处理
 		relayMode := relayconstant.Path2RelayModeGemini(path)
 		if relayMode != relayconstant.RelayModeUnknown {
