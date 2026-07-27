@@ -182,6 +182,10 @@ func InitDB(envName string) (db *gorm.DB, err error) {
 		if err != nil {
 			return nil, err
 		}
+		err = db.AutoMigrate(&AffCommissionRecord{})
+		if err != nil {
+			return nil, err
+		}
 		logger.SysLog("database migrated")
 		if err := InitGroupConfigs(db); err != nil {
 			logger.SysError("failed to init group configs: " + err.Error())

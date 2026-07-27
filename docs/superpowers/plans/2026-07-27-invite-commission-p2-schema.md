@@ -671,9 +671,11 @@ func GetAffCommissionSummary(inviterId int) (totalQuota int64, count int64, err 
 
 - [ ] **Step 5: 运行确认通过**
 
-Run: `go test ./model/ -run TestAffCommission -v`
+Run: `go test ./model/ -run "AffCommission" -v`
 
 Expected: 3 个测试全 PASS
+
+注意 `-run` 的模式不要写成 `TestAffCommission` —— Go 的 `-run` 是对测试名做非锚定正则匹配，`TestGetAffCommissionRecordBySourceNo` 与 `TestGetAffCommissionSummary` 并不包含 `TestAffCommission` 这个子串，会被漏掉。用 `AffCommission` 才能匹配全部三个。
 
 - [ ] **Step 6: 提交**
 
