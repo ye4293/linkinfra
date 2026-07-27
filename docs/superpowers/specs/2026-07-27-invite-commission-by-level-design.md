@@ -292,7 +292,41 @@ func ReverseCommission(tx *gorm.DB, sourceNo string) error
 
 同时在 `stripeChargeRefund` 中扣回**被邀请人自己**的充值额度与 `topup_quota`（同样不允许负余额），否则退款用户的余额与 `topup_quota` 都虚高，等级也虚高。
 
-### 5.4 完整数据流
+### 5.4 Redis 缓存失效
+
+`model/cache.go` 对用户数据有两层 Redis 缓存，TTL 均为 `config.SyncFrequency`（`cache.go:22-28`）：
+
+| 缓存 key | 读取函数 | 影响 |
+|---|---|---|
+| `user_quota:%d` | `CacheGetUserQuota`（`cache.go:186`） | 不失效则邀请人在 TTL 内看不到、也用不了刚到账的返现 |
+| `user_group:%d` | `CacheGetUserGroup`（`cache.go:60`） | 不失效则等级升级后仍按旧分组折扣计费 |
+
+**必须在事务提交后失效**（不能在事务内——事务可能回滚，而 Redis 操作不参与回滚，会造成缓存与 DB 不一致）：
+
+- `GrantCommission` 成功 → `CacheUpdateUserQuota2(inviterId)`（`cache.go:217`，已存在，直接从 DB 重读并回写）
+- `ReverseCommission` 成功 → 同上
+- 充值入账 → `CacheUpdateUserQuota2(inviteeId)`
+- `RecalcUserLevel` 改变了等级 → 失效 group 缓存
+
+`user_group` 目前**没有**失效函数，需要在 `model/cache.go` 新增（与已有的 `InvalidateUserChannelRatiosCache`（`cache.go:124`）同构）：
+
+```go
+// InvalidateUserGroupCache 清除指定用户的分组缓存。
+func InvalidateUserGroupCache(id int) {
+    if id <= 0 || !common.RedisEnabled {
+        return
+    }
+    if err := common.RedisDel(fmt.Sprintf("user_group:%d", id)); err != nil {
+        logger.SysError("Redis del user group error: " + err.Error())
+    }
+}
+```
+
+缓存操作失败一律只记 log、不返回错误——资金已经落库，缓存最多陈旧一个 TTL，不能因为 Redis 抖动就让充值回调返回失败触发 Stripe 重试。
+
+**已知的既有缺陷（本次不扩大范围）**：`model/topup.go:146` 与 `model/charge_order.go:200` 现有的充值入账本来就没有失效 quota 缓存。本次在这两处补上，但其他历史路径（如兑换码 `model/redemption.go`）不在本次范围内。
+
+### 5.5 完整数据流
 
 ```
 Stripe webhook 到达
@@ -310,7 +344,9 @@ Stripe webhook 到达
        └─ 邀请人 quota += c, gift_quota += c
 [事务提交]
   ↓
-RecalcUserLevel(inviteeId)                          ← 事务外
+CacheUpdateUserQuota2(inviteeId)                    ← 事务外，刷新充值方余额缓存
+CacheUpdateUserQuota2(inviterId)                    ← 事务外，刷新返现方余额缓存
+RecalcUserLevel(inviteeId)                          ← 事务外，等级变化时失效 group 缓存
 RecordLog(inviterId, LogTypeAffCommission, ...)     ← 事务外
 AfterChargeSuccess(...)                             ← 事务外，现有邮件通知
 ```
@@ -465,6 +501,7 @@ go build ./... && go vet ./...
 | `model/charge_order.go` | Bug 1（`QuotaPerUnit`）；累加 `topup_quota`；调 `GrantCommission`；`stripeChargeRefund` 接冲正 |
 | `model/order.go` | Bug 4（`addAmount` 遮蔽）；`AfterChargeSuccess` 改结构体签名 |
 | `model/log.go` | 新增 `LogTypeAffCommission` |
+| `model/cache.go` | 新增 `InvalidateUserGroupCache` |
 | `model/main.go` | AutoMigrate 追加 `AffCommissionRecord`；调用两个回填函数 |
 | `controller/group_config.go` | Bug 2（持久化 `GroupRatio`）；新增 2 字段校验 |
 | `controller/stripeCharge.go` | 删除 `UserLevelUpgrade` 与调用点 `:105-106` |

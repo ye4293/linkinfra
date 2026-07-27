@@ -12,7 +12,10 @@ build
 logs
 data
 /web/node_modules
-./.claude/settings.local.json
+# 注意：gitignore 不支持 "./" 前缀，原先的 "./.claude/settings.local.json"
+# 实际从未生效。改为不带前缀的形式。
+.claude/settings.local.json
+.claude/worktrees/
 .env
 agents.md
 graphify-out
