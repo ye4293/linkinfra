@@ -2,7 +2,12 @@ package model
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
+	"github.com/songquanpeng/one-api/common/config"
+	"github.com/songquanpeng/one-api/common/helper"
+	"github.com/songquanpeng/one-api/common/logger"
 	"gorm.io/gorm"
 )
 
@@ -90,4 +95,124 @@ func GetAffCommissionSummary(inviterId int) (totalQuota int64, count int64, err 
 	}
 
 	return totalQuota, count, nil
+}
+
+// isDuplicateKeyError 判断是否为唯一键冲突。
+//
+// GORM 的 gorm.ErrDuplicatedKey 需要在 gorm.Config 里开启 TranslateError，
+// 本项目未开启，因此只能按驱动的错误文本判断。三种数据库的措辞都覆盖到。
+func isDuplicateKeyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint") || // sqlite / postgres
+		strings.Contains(msg, "constraint failed") || // sqlite 另一种措辞
+		strings.Contains(msg, "duplicate key") || // postgres
+		strings.Contains(msg, "duplicate entry") // mysql
+}
+
+// GrantCommission 在给定事务内为被邀请人的一笔充值发放邀请返现。
+//
+// 必须在充值入账的同一事务内调用，以保证「入账 + 返现 + 明细」原子。
+// 返回 (inviterId, commissionQuota, error)；无需返现时返回 (0, 0, nil)。
+//
+// 幂等：source_no 上有唯一索引。Stripe 会重放 webhook，重复调用会在
+// INSERT 处被挡住并按成功返回，不会二次加额。
+//
+// 错误处理：除唯一键冲突外的 DB 错误一律返回 err，从而回滚整笔充值。
+// 这看似激进，但是唯一正确的选择 —— Stripe 会重试 webhook，重试时靠
+// source_no 唯一索引保证不重复入账，最终一致。反之若「返现失败只记 log
+// 不阻塞充值」，返现就会静默丢钱，事后只能靠人工对账捞回。
+//
+// 唯一的例外是邀请人分组配置缺失：此时降级为「不返现」而非报错，
+// 避免分组表的异常阻塞充值入账。
+//
+// topupAmount 取用户实付金额，不取扣手续费后的净额：对用户承诺「充值额的
+// N%」必须字面成立，毛利通过调低 commission_rate 控制，而不是隐藏基数。
+func GrantCommission(tx *gorm.DB, inviteeId int, topupAmount float64,
+	topupQuota int64, sourceType, sourceNo string) (int, int64, error) {
+
+	if inviteeId <= 0 || topupAmount <= 0 || sourceNo == "" {
+		return 0, 0, nil
+	}
+
+	// 不用 Select 挑列：group 是 SQL 保留字，整行读取避免引号处理
+	var invitee User
+	if err := tx.Where("id = ?", inviteeId).First(&invitee).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+
+	inviterId := invitee.InviterId
+	if inviterId <= 0 {
+		return 0, 0, nil
+	}
+	// 自邀请：理论上不可能，但 DB 被手工改过或未来新增绑定入口时会出现
+	if inviterId == inviteeId {
+		logger.SysError(fmt.Sprintf("user %d has itself as inviter, skipping commission", inviteeId))
+		return 0, 0, nil
+	}
+
+	var inviter User
+	if err := tx.Where("id = ?", inviterId).First(&inviter).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// 邀请人已被删除
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+
+	gc, err := GetGroupConfigByKeyTx(tx, inviter.Group)
+	if err != nil {
+		// 分组配置缺失降级为不返现，不阻塞充值入账
+		logger.SysError(fmt.Sprintf(
+			"group config %q not found for inviter %d, skipping commission: %s",
+			inviter.Group, inviterId, err.Error()))
+		return 0, 0, nil
+	}
+	if gc.CommissionRate <= 0 {
+		return 0, 0, nil
+	}
+
+	commissionQuota := int64(topupAmount * gc.CommissionRate * config.QuotaPerUnit)
+	if commissionQuota <= 0 {
+		return 0, 0, nil
+	}
+
+	record := &AffCommissionRecord{
+		InviterId:       inviterId,
+		InviteeId:       inviteeId,
+		InviterUsername: inviter.Username,
+		InviteeUsername: invitee.Username,
+		SourceType:      sourceType,
+		SourceNo:        sourceNo,
+		TopupAmount:     topupAmount,
+		TopupQuota:      topupQuota,
+		Rate:            gc.CommissionRate,
+		InviterGroup:    inviter.Group,
+		CommissionQuota: commissionQuota,
+		Status:          AffCommissionStatusGranted,
+		CreatedAt:       helper.GetTimestamp(),
+	}
+	if err := tx.Create(record).Error; err != nil {
+		if isDuplicateKeyError(err) {
+			// webhook 重放，已发放过
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+
+	// 不能用 IncreaseUserQuota：它走全局 DB 且受 BatchUpdateEnabled 影响，
+	// 会脱离当前事务
+	if err := tx.Model(&User{}).Where("id = ?", inviterId).Updates(map[string]interface{}{
+		"quota":      gorm.Expr("quota + ?", commissionQuota),
+		"gift_quota": gorm.Expr("gift_quota + ?", commissionQuota),
+	}).Error; err != nil {
+		return 0, 0, err
+	}
+
+	return inviterId, commissionQuota, nil
 }
