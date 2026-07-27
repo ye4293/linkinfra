@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/helper"
 	"github.com/songquanpeng/one-api/common/logger"
 	"gorm.io/gorm"
@@ -108,6 +109,14 @@ func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride
 	var quotaToAdd int64
 	var money float64
 	var currency string
+	var commissionInviterId int
+	var commissionQuota int64
+
+	// 管理员手工补单是运营白送的额度：既不计入 topup_quota（等级判定基准），
+	// 也不产生邀请返现 —— 否则等于白送两次。设计文档 §1.3 明确排除。
+	// manualOtherJSON 只在 CompleteTopUpOrderManual 路径下非空，
+	// 两条 Stripe 链路传的都是空串。
+	isRealPayment := manualOtherJSON == ""
 
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var topUp TopUp
@@ -142,9 +151,36 @@ func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride
 			return err
 		}
 
+		// quota 是可用余额；topup_quota 是累计真实充值，等级判定的唯一依据，
+		// 管理员补单不计入
+		userUpdates := map[string]interface{}{
+			"quota": gorm.Expr("quota + ?", quotaToAdd),
+		}
+		if isRealPayment {
+			userUpdates["topup_quota"] = gorm.Expr("topup_quota + ?", quotaToAdd)
+		}
 		if err := tx.Model(&User{}).Where("id = ?", topUp.UserId).
-			Update("quota", gorm.Expr("quota + ?", quotaToAdd)).Error; err != nil {
+			Updates(userUpdates).Error; err != nil {
 			return err
+		}
+
+		if isRealPayment {
+			// 邀请返现与充值入账同事务，靠 trade_no 唯一索引保证 webhook 重放幂等。
+			// 除唯一键冲突外的错误会回滚整笔充值 —— Stripe 会重试，最终一致。
+			//
+			// 用 := 接局部变量再赋给外层：闭包签名是 func(tx *gorm.DB) error，
+			// 内部没有名为 err 的变量可供 = 赋值。
+			//
+			// 返现基数用 topUp.Money（用户实付货币金额）而非 topUp.Amount
+			// （充值的额度单位数）—— 设计文档 §5.1 明确按用户实付金额算。
+			inviterId, cq, gErr := GrantCommission(
+				tx, topUp.UserId, topUp.Money, quotaToAdd,
+				SourceTypeStripeCheckout, topUp.TradeNo)
+			if gErr != nil {
+				return gErr
+			}
+			commissionInviterId = inviterId
+			commissionQuota = cq
 		}
 
 		userId = topUp.UserId
@@ -168,6 +204,24 @@ func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride
 		} else {
 			logger.SysLog(fmt.Sprintf("在线充值成功: userId=%d, tradeNo=%s, quota=%d, money=%.2f %s", userId, tradeNo, quotaToAdd, money, currency))
 		}
+
+		// 以下都在事务外做：Redis 不参与事务回滚，放在事务内会在回滚时留下脏缓存
+		if err := CacheUpdateUserQuota2(userId); err != nil {
+			logger.SysError("failed to refresh quota cache: " + err.Error())
+		}
+
+		if commissionInviterId > 0 && commissionQuota > 0 {
+			if err := CacheUpdateUserQuota2(commissionInviterId); err != nil {
+				logger.SysError("failed to refresh inviter quota cache: " + err.Error())
+			}
+			RecordLog(commissionInviterId, LogTypeAffCommission, fmt.Sprintf(
+				"referral commission %s from invitee %d top-up",
+				common.LogQuota(commissionQuota), userId))
+		}
+
+		// 等级重算放事务外：等级变化不影响资金正确性，失败可由下次充值自愈。
+		// 管理员补单不改 topup_quota，重算是无操作，但调用无害且保持路径统一。
+		RecalcUserLevelAndRefreshCache(userId)
 	}
 	return nil
 }
