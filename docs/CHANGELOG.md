@@ -6,6 +6,15 @@
 
 ---
 
+## 2026-07-27
+
+### fix(topup): 统一充值金额换算口径并修复邮件金额 bug
+- **分支**: `worktree-p1-foundation`
+- **类型**: fix + 测试基础设施
+- **涉及文件**: `model/testutil_test.go`、`model/quota_convert.go`、`model/quota_convert_test.go`、`model/charge_order.go`、`model/order.go`、`model/topup.go`
+- **说明**: 为 model 包建立 in-memory sqlite 测试基座（此前该包零测试）。新增 `AmountToQuota` 作为金额→quota 的唯一换算入口，替换 `charge_order.go:200` 与 `order.go:82` 中硬编码的 `500000`——此前管理员修改后台 `QuotaPerUnit` 对这两条链路无效，与 `topup.go` 口径不一致。同时修复 `order.go:81` 用 `:=` 在事务闭包内遮蔽外层 `addAmount`，导致加密货币充值成功邮件金额恒为 $0 的问题。
+- **关联计划**: `docs/superpowers/plans/2026-07-27-invite-commission-p1-foundation.md`
+
 ## 2026-06-11
 
 ### fix(anthropic): 更新 Vertex AI beta flags 白名单
