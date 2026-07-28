@@ -24,7 +24,7 @@ type TopUp struct {
 	CompleteTime  int64   `json:"complete_time"`
 	Status        string  `json:"status" gorm:"type:varchar(20);default:'pending'"`
 	// Other 扩展 JSON：管理员补单时写入 TopUpManualCompleteMeta 等，支付回调留空
-	Other string `json:"other" gorm:"type:longtext"`
+	Other string `json:"other" gorm:"type:text"`
 }
 
 // TopUpManualCompleteMeta 补单入账详情（写入 other，可继续加字段）
