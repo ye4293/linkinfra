@@ -8,6 +8,13 @@
 
 ## 2026-07-28
 
+### fix(db): 行锁改用 clause.Locking，并修 Redis 辅助函数的空指针 panic
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `model/topup.go`、`model/topup_stripe.go`、`model/redemption.go`、`model/topup_complete_test.go`、`common/redis.go`
+- **说明**: **① 行锁此前根本不存在**：三处充值/兑换用的 `Set("gorm:query_option", "FOR UPDATE")` 是 GORM v1 的 API，v2 里只往 Statement settings 存了个值、不生成任何 SQL（实测 `ToSQL` 输出裸 SELECT），并发全靠事务内的 status 判断兜底。改用 `clause.Locking{Strength: LockingStrengthUpdate}`，无需方言分支——sqlite 驱动的 `"FOR"` ClauseBuilder 注释 `SQLite3 does not support row-level locking` 后直接 return（已实测静默剥离），PG 无覆盖走默认渲染 `FOR UPDATE`，MySQL 的覆盖只改写 `SHARE`。**② Redis 辅助函数会 panic**：写回归测试时发现 `common.RedisEnabled` 默认值是 `true`，只有 `InitRedisClient()` 发现没配 `REDIS_CONN_STRING` 才置 false；而 `RedisSet`/`RedisGet`/`RedisDel`/`RedisDecrease` 四个裸函数直接 `RDB.Set(...)` 没有 nil 检查，任何在 `InitRedisClient()` 之前或没走完整启动流程的场景调用都会空指针 panic。同文件的 `RedisLockAcquire`/`RedisLockRelease`/`RedisIncrMod` 本就是 `!RedisEnabled || RDB == nil` 双条件守卫，只有这四个漏了，已补齐。**③ 补测试**：`completeTopUpOrder` 此前零测试覆盖，而 P3 往里加了 `topup_quota` 累加与返现发放——正是这个缺口让上述 panic 一直没被发现。新增两条测试覆盖 Stripe Checkout 完整入账链路与管理员补单不返现的分支。
+- **关联计划**: 无（PG 兼容专项的后续）
+
 ### fix(pg): PostgreSQL 兼容性修复（15 处 / 9 个文件）
 - **分支**: `main`
 - **类型**: fix
