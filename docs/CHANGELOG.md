@@ -8,6 +8,13 @@
 
 ## 2026-07-28
 
+### fix(invite): 修随机串重复、邀请码碰撞、注册赠额漏记 gift_quota
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `common/helper/helper.go`、`common/helper/random_test.go`、`model/channel.go`、`model/user.go`、`model/user_aff_test.go`、`controller/user.go`
+- **说明**: **① 根因：`GetRandomString` 连续调用返回相同结果**。`common/helper` 里 `GenerateKey`/`GetRandomString`/`GetRandomNumberString` 每次调用都执行 `rand.Seed(time.Now().UnixNano())`，`init()` 里还有一次。Windows 时钟精度约 0.5~15ms，同一 tick 内的多次调用拿到相同种子、返回完全相同的串（实测连续 5 次 `GetRandomString(4)` 全部返回 `"CXo1"`）。实际影响：`aff_code`（有 uniqueIndex）同 tick 注册撞码致后者注册失败；`appOrderId`（充值订单号，也是邀请返现的幂等键 `source_no`）撞号致第二笔订单被误判为 webhook 重放而跳过返现；OAuth `state`（CSRF 防护参数）撞值；多 Key 渠道的随机选 key 退化成固定值、负载全压一把 key。Go 1.20+ 全局 rand 已自动播种、`rand.Seed` 已废弃且会切出无锁快路径，删掉全部 Seed 调用并加回归测试守住。**② 邀请码没有碰撞重试**：即使随机串修好，62^4 空间按生日问题在约 4800 个用户时仍有 50% 碰撞概率。新增 `GenerateUniqueAffCode`（先查再取，每 3 次失败加长一位），`Insert` 与 controller 的懒生成路径都改用它；残留的先查再插竞态已在注释中说明。**③ 注册赠额漏记**：`Insert` 里三笔注册奖励只加 `quota` 不加 `gift_quota`，导致「累计获赠」偏小。新增 `IncreaseUserQuotaAndGift` 一条 SQL 更新两列（刻意不走 `BatchUpdateEnabled`，那个机制只处理 `quota` 一列）。
+- **关联计划**: 无（P1–P4 的收尾）
+
 ### fix(db): 行锁改用 clause.Locking，并修 Redis 辅助函数的空指针 panic
 - **分支**: `main`
 - **类型**: fix
