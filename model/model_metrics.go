@@ -185,7 +185,7 @@ func AggregateLogsForHour(hourStart, hourEnd int64) ([]aggregatedRow, error) {
 			COUNT(*) as total_requests,
 			SUM(CASE WHEN type = ? THEN 1 ELSE 0 END) as success_requests,
 			SUM(CASE WHEN type = ? THEN 1 ELSE 0 END) as error_requests,
-			SUM(CASE WHEN is_stream = 1 THEN 1 ELSE 0 END) as stream_requests,
+			SUM(CASE WHEN is_stream THEN 1 ELSE 0 END) as stream_requests,
 			COALESCE(SUM(prompt_tokens + completion_tokens), 0) as total_tokens,
 			COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
 			COALESCE(SUM(completion_tokens), 0) as completion_tokens,

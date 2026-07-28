@@ -293,7 +293,7 @@ func SearchUserLogs(userId int, keyword string) (logs []*Log, err error) {
 }
 
 func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, channel int) (quota int64) {
-	tx := LOG_DB.Table("logs").Select("ifnull(sum(quota),0)")
+	tx := LOG_DB.Table("logs").Select("COALESCE(SUM(quota),0)")
 	// 时间范围转 id 范围
 	tx = applyLogIdRange(tx, startTimestamp, endTimestamp)
 	if username != "" {
@@ -313,7 +313,7 @@ func SumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 }
 
 func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string) (token int) {
-	tx := LOG_DB.Table("logs").Select("ifnull(sum(prompt_tokens),0) + ifnull(sum(completion_tokens),0)")
+	tx := LOG_DB.Table("logs").Select("COALESCE(SUM(prompt_tokens),0) + COALESCE(SUM(completion_tokens),0)")
 	// 时间范围转 id 范围
 	tx = applyLogIdRange(tx, startTimestamp, endTimestamp)
 	if username != "" {
@@ -348,99 +348,107 @@ type HourlyData struct {
 	Amount int64  `json:"amount"`
 }
 
-func GetAllGraph(timestamp int64, target string) ([]HourlyData, error) {
-	var hourlyData []HourlyData
-	startOfDay := time.Unix(timestamp, 0).UTC().Truncate(24 * time.Hour)
-	endOfDay := startOfDay.Add(24 * time.Hour)
+// hourBucketExpr 把 created_at（Unix 秒）截断到整小时的桶起点。
+//
+// 只用减法与取模，不依赖任何日期函数 —— 原实现用的
+// LPAD(HOUR(FROM_UNIXTIME(created_at)), 2, '0') 里 FROM_UNIXTIME 与
+// HOUR 都是 MySQL 专有，PG 上仪表盘曲线整个挂掉。
+//
+// 也不用 (created_at % 86400) / 3600 直接取小时数：MySQL 的 `/` 是浮点
+// 除法（13/1 得 13.0000），PG 与 sqlite 是整数除法，三库结果不一致。
+// 减取模得到的桶起点在三库里都是整数，语义完全一致 —— 这与本文件
+// 后面 bucketExpr 的思路相同。
+//
+// 小时数的换算与零填充移到 Go 侧（见 fillHourlyData）。
+const hourBucketExpr = "(created_at - created_at % 3600)"
 
-	// 初始化每个小时的数据为0
+// hourBucketRow hourBucketExpr 的扫描目标。
+type hourBucketRow struct {
+	Bucket int64 `gorm:"column:bucket"`
+	Amount int64 `gorm:"column:amount"`
+}
+
+// newEmptyHourlyData 生成 00~23 全零的槽位。
+func newEmptyHourlyData() []HourlyData {
+	hourlyData := make([]HourlyData, 0, 24)
 	for i := 0; i < 24; i++ {
 		hourlyData = append(hourlyData, HourlyData{Hour: fmt.Sprintf("%02d", i), Amount: 0})
 	}
+	return hourlyData
+}
 
-	// 构建查询
-	var field string
-	hourExpr := "LPAD(HOUR(FROM_UNIXTIME(created_at)), 2, '0')"
+// graphSelectField 按统计目标拼出 SELECT 子句。
+func graphSelectField(target string) (string, error) {
 	switch target {
 	case "quota":
-		field = fmt.Sprintf("COALESCE(SUM(quota), 0) as amount, %s as hour", hourExpr)
+		return fmt.Sprintf("COALESCE(SUM(quota), 0) as amount, %s as bucket", hourBucketExpr), nil
 	case "token":
-		field = fmt.Sprintf("COALESCE(SUM(prompt_tokens + completion_tokens), 0) as amount, %s as hour", hourExpr)
+		return fmt.Sprintf("COALESCE(SUM(prompt_tokens + completion_tokens), 0) as amount, %s as bucket", hourBucketExpr), nil
 	case "count":
-		field = fmt.Sprintf("COALESCE(COUNT(*), 0) as amount, %s as hour", hourExpr)
+		return fmt.Sprintf("COALESCE(COUNT(*), 0) as amount, %s as bucket", hourBucketExpr), nil
 	default:
-		return nil, errors.New("invalid target")
+		return "", errors.New("invalid target")
 	}
+}
 
-	// 执行查询
-	var results []HourlyData
-	tx := LOG_DB.Model(&Log{}).Select(field)
-	tx = applyLogIdRange(tx, startOfDay.Unix(), endOfDay.Unix()-1)
-	err := tx.Group(hourExpr).
-		Scan(&results).Error
-
-	if err != nil {
-		return nil, err
-	}
-
-	// 更新数据
-	for _, result := range results {
-		for i, h := range hourlyData {
-			if h.Hour == result.Hour {
-				hourlyData[i].Amount = result.Amount
+// fillHourlyData 把桶起点换算成 UTC 小时并填进槽位。
+//
+// 用 UTC 与调用方的 startOfDay（time.Unix(...).UTC().Truncate(24h)）保持
+// 一致；原实现的 HOUR(FROM_UNIXTIME()) 取的是数据库服务器时区，与 UTC
+// 的日边界本来就对不齐，这里顺带修正。
+func fillHourlyData(hourlyData []HourlyData, rows []hourBucketRow) {
+	for _, r := range rows {
+		hour := fmt.Sprintf("%02d", time.Unix(r.Bucket, 0).UTC().Hour())
+		for i := range hourlyData {
+			if hourlyData[i].Hour == hour {
+				hourlyData[i].Amount = r.Amount
 				break
 			}
 		}
 	}
+}
 
+func GetAllGraph(timestamp int64, target string) ([]HourlyData, error) {
+	startOfDay := time.Unix(timestamp, 0).UTC().Truncate(24 * time.Hour)
+	endOfDay := startOfDay.Add(24 * time.Hour)
+
+	hourlyData := newEmptyHourlyData()
+
+	field, err := graphSelectField(target)
+	if err != nil {
+		return nil, err
+	}
+
+	var rows []hourBucketRow
+	tx := LOG_DB.Model(&Log{}).Select(field)
+	tx = applyLogIdRange(tx, startOfDay.Unix(), endOfDay.Unix()-1)
+	if err := tx.Group(hourBucketExpr).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	fillHourlyData(hourlyData, rows)
 	return hourlyData, nil
 }
 
 func GetUserGraph(userId int, timestamp int64, target string) ([]HourlyData, error) {
-	var hourlyData []HourlyData
 	startOfDay := time.Unix(timestamp, 0).UTC().Truncate(24 * time.Hour)
 	endOfDay := startOfDay.Add(24 * time.Hour)
 
-	// 初始化每个小时的数据为0
-	for i := 0; i < 24; i++ {
-		hourlyData = append(hourlyData, HourlyData{Hour: fmt.Sprintf("%02d", i), Amount: 0})
-	}
+	hourlyData := newEmptyHourlyData()
 
-	// 构建查询
-	var field string
-	hourExpr := "LPAD(HOUR(FROM_UNIXTIME(created_at)), 2, '0')"
-	switch target {
-	case "quota":
-		field = fmt.Sprintf("COALESCE(SUM(quota), 0) as amount, %s as hour", hourExpr)
-	case "token":
-		field = fmt.Sprintf("COALESCE(SUM(prompt_tokens + completion_tokens), 0) as amount, %s as hour", hourExpr)
-	case "count":
-		field = fmt.Sprintf("COALESCE(COUNT(*), 0) as amount, %s as hour", hourExpr)
-	default:
-		return nil, errors.New("invalid target")
-	}
-
-	// 执行查询
-	var results []HourlyData
-	tx := LOG_DB.Model(&Log{}).Select(field).Where("user_id = ?", userId)
-	tx = applyLogIdRange(tx, startOfDay.Unix(), endOfDay.Unix()-1)
-	err := tx.Group(hourExpr).
-		Scan(&results).Error
-
+	field, err := graphSelectField(target)
 	if err != nil {
 		return nil, err
 	}
 
-	// 更新数据
-	for _, result := range results {
-		for i, h := range hourlyData {
-			if h.Hour == result.Hour {
-				hourlyData[i].Amount = result.Amount
-				break
-			}
-		}
+	var rows []hourBucketRow
+	tx := LOG_DB.Model(&Log{}).Select(field).Where("user_id = ?", userId)
+	tx = applyLogIdRange(tx, startOfDay.Unix(), endOfDay.Unix()-1)
+	if err := tx.Group(hourBucketExpr).Scan(&rows).Error; err != nil {
+		return nil, err
 	}
 
+	fillHourlyData(hourlyData, rows)
 	return hourlyData, nil
 }
 
