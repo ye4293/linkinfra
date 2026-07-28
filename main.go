@@ -107,6 +107,22 @@ func main() {
 	if err != nil {
 		logger.FatalLog("database init error: " + err.Error())
 	}
+
+	// --preview-levels：只读打印等级重算的影响面后退出，不启动服务。
+	// 放在 DB 初始化之后（需要读 users 与 group_configs），但在其余一切
+	// 副作用之前 —— Redis、缓存预热、定时任务、HTTP 服务都不会启动。
+	if *common.PreviewLevels {
+		preview, previewErr := model.PreviewLevelRecalc()
+		if previewErr != nil {
+			logger.FatalLog("failed to preview level recalculation: " + previewErr.Error())
+		}
+		fmt.Print(model.FormatLevelRecalcPreview(preview))
+		if closeErr := model.CloseDB(); closeErr != nil {
+			logger.SysError("failed to close database: " + closeErr.Error())
+		}
+		return
+	}
+
 	defer func() {
 		err := model.CloseDB()
 		if err != nil {
