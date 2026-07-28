@@ -5,9 +5,69 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/model"
 )
+
+// affCodeSessionKey session 里存放邀请码的键。
+const affCodeSessionKey = "aff_code"
+
+// readAffCode 按「查询参数优先、session 兜底」取邀请码。
+//
+// 两个通道各自覆盖一条注册流程：
+//   - 查询参数：POST /api/{provider}/login 这条前端直传流没有调用过
+//     /api/oauth/state，session 里不会有邀请码
+//   - session：GET /api/oauth/{provider}/callback 这条标准重定向流的回调
+//     URL 由 OAuth 提供商拼装，前端无法附加参数；走 session 还能让邀请码
+//     不出现在 URL 上（不进网关/CDN 访问日志）
+//
+// getSession 参数化是为了让这层取值逻辑能脱离真实 session store 测试。
+// 签名与 gin-contrib/sessions 的 Session.Get 一致（interface{} 入参），
+// 这样可以直接把 session.Get 传进来。
+func readAffCode(c *gin.Context, getSession func(key interface{}) interface{}) string {
+	if code := c.Query("aff_code"); code != "" {
+		return code
+	}
+	if getSession == nil {
+		return ""
+	}
+	if v, ok := getSession(affCodeSessionKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// resolveInviterId 解析出邀请人的用户 id；无邀请码或邀请码无效时返回 0。
+//
+// 邀请码无效不阻塞注册 —— 与密码注册流程（controller/user.go 里
+// GetUserIdByAffCode 的 error 被忽略）保持一致。
+func resolveInviterId(c *gin.Context) int {
+	session := sessions.Default(c)
+	code := readAffCode(c, session.Get)
+	if code == "" {
+		return 0
+	}
+	inviterId, err := model.GetUserIdByAffCode(code)
+	if err != nil {
+		return 0
+	}
+	return inviterId
+}
+
+// clearAffCodeSession 注册完成后清掉 session 里的邀请码，
+// 避免同一浏览器后续的 OAuth 操作误用一个陈旧的邀请码。
+func clearAffCodeSession(c *gin.Context) {
+	session := sessions.Default(c)
+	if session.Get(affCodeSessionKey) == nil {
+		return
+	}
+	session.Delete(affCodeSessionKey)
+	if err := session.Save(); err != nil {
+		logger.SysError("failed to clear aff_code from session: " + err.Error())
+	}
+}
 
 // maskUsername 对用户名脱敏：保留首尾字符，中间以 * 替代。
 // 长度 ≤ 2 时全部替代。
