@@ -13,13 +13,12 @@ const EditUser = () => {
     display_name: '',
     password: '',
     github_id: '',
-    wechat_id: '',
     email: '',
     quota: 0,
     group: 'default'
   });
   const [groupOptions, setGroupOptions] = useState([]);
-  const { username, display_name, password, github_id, wechat_id, email, quota, group } =
+  const { username, display_name, password, github_id, email, quota, group } =
     inputs;
   const handleInputChange = (e, { name, value }) => {
     setInputs((inputs) => ({ ...inputs, [name]: value }));
@@ -154,16 +153,6 @@ const EditUser = () => {
               label='已绑定的 GitHub 账户'
               name='github_id'
               value={github_id}
-              autoComplete='new-password'
-              placeholder='此项只读，需要用户通过个人设置页面的相关绑定按钮进行绑定，不可直接修改'
-              readOnly
-            />
-          </Form.Field>
-          <Form.Field>
-            <Form.Input
-              label='已绑定的微信账户'
-              name='wechat_id'
-              value={wechat_id}
               autoComplete='new-password'
               placeholder='此项只读，需要用户通过个人设置页面的相关绑定按钮进行绑定，不可直接修改'
               readOnly

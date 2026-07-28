@@ -20,9 +20,7 @@ const config = {
     top_up_link: '',
     turnstile_check: false,
     turnstile_site_key: '',
-    version: '',
-    wechat_login: false,
-    wechat_qrcode: ''
+    version: ''
   }
 };
 

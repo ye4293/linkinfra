@@ -18,10 +18,6 @@ const SystemSetting = () => {
     SMTPToken: '',
     ServerAddress: '',
     Footer: '',
-    WeChatAuthEnabled: '',
-    WeChatServerAddress: '',
-    WeChatServerToken: '',
-    WeChatAccountQRCodeImageURL: '',
     MessagePusherAddress: '',
     MessagePusherToken: '',
     TurnstileCheckEnabled: '',
@@ -70,7 +66,6 @@ const SystemSetting = () => {
       case 'PasswordRegisterEnabled':
       case 'EmailVerificationEnabled':
       case 'GitHubOAuthEnabled':
-      case 'WeChatAuthEnabled':
       case 'TurnstileCheckEnabled':
       case 'EmailDomainRestrictionEnabled':
       case 'RegisterEnabled':
@@ -109,9 +104,6 @@ const SystemSetting = () => {
       name === 'ServerAddress' ||
       name === 'GitHubClientId' ||
       name === 'GitHubClientSecret' ||
-      name === 'WeChatServerAddress' ||
-      name === 'WeChatServerToken' ||
-      name === 'WeChatAccountQRCodeImageURL' ||
       name === 'TurnstileSiteKey' ||
       name === 'TurnstileSecretKey' ||
       name === 'EmailDomainWhitelist'
@@ -158,30 +150,6 @@ const SystemSetting = () => {
       inputs.SMTPToken !== ''
     ) {
       await updateOption('EmailDomainWhitelist', inputs.EmailDomainWhitelist.join(','));
-    }
-  };
-
-  const submitWeChat = async () => {
-    if (originInputs['WeChatServerAddress'] !== inputs.WeChatServerAddress) {
-      await updateOption(
-        'WeChatServerAddress',
-        removeTrailingSlash(inputs.WeChatServerAddress)
-      );
-    }
-    if (
-      originInputs['WeChatAccountQRCodeImageURL'] !==
-      inputs.WeChatAccountQRCodeImageURL
-    ) {
-      await updateOption(
-        'WeChatAccountQRCodeImageURL',
-        inputs.WeChatAccountQRCodeImageURL
-      );
-    }
-    if (
-      originInputs['WeChatServerToken'] !== inputs.WeChatServerToken &&
-      inputs.WeChatServerToken !== ''
-    ) {
-      await updateOption('WeChatServerToken', inputs.WeChatServerToken);
     }
   };
 
@@ -308,12 +276,6 @@ const SystemSetting = () => {
               checked={inputs.GitHubOAuthEnabled === 'true'}
               label='允许通过 GitHub 账户登录 & 注册'
               name='GitHubOAuthEnabled'
-              onChange={handleInputChange}
-            />
-            <Form.Checkbox
-              checked={inputs.WeChatAuthEnabled === 'true'}
-              label='允许通过微信登录 & 注册'
-              name='WeChatAuthEnabled'
               onChange={handleInputChange}
             />
           </Form.Group>
@@ -467,50 +429,6 @@ const SystemSetting = () => {
           </Form.Group>
           <Form.Button onClick={submitGitHubOAuth}>
             保存 GitHub OAuth 设置
-          </Form.Button>
-          <Divider />
-          <Header as='h3'>
-            配置 WeChat Server
-            <Header.Subheader>
-              用以支持通过微信进行登录注册，
-              <a
-                href='https://github.com/songquanpeng/wechat-server'
-                target='_blank'
-              >
-                点击此处
-              </a>
-              了解 WeChat Server
-            </Header.Subheader>
-          </Header>
-          <Form.Group widths={3}>
-            <Form.Input
-              label='WeChat Server 服务器地址'
-              name='WeChatServerAddress'
-              placeholder='例如：https://yourdomain.com'
-              onChange={handleInputChange}
-              autoComplete='new-password'
-              value={inputs.WeChatServerAddress}
-            />
-            <Form.Input
-              label='WeChat Server 访问凭证'
-              name='WeChatServerToken'
-              type='password'
-              onChange={handleInputChange}
-              autoComplete='new-password'
-              value={inputs.WeChatServerToken}
-              placeholder='敏感信息不会发送到前端显示'
-            />
-            <Form.Input
-              label='微信公众号二维码图片链接'
-              name='WeChatAccountQRCodeImageURL'
-              onChange={handleInputChange}
-              autoComplete='new-password'
-              value={inputs.WeChatAccountQRCodeImageURL}
-              placeholder='输入一个图片链接'
-            />
-          </Form.Group>
-          <Form.Button onClick={submitWeChat}>
-            保存 WeChat Server 设置
           </Form.Button>
           <Divider />
           <Header as='h3'>

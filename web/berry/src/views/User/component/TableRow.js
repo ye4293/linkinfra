@@ -20,7 +20,7 @@ import {
 import Label from 'ui-component/Label';
 import TableSwitch from 'ui-component/Switch';
 import { renderQuota, renderNumber } from 'utils/common';
-import { IconDotsVertical, IconEdit, IconTrash, IconUser, IconBrandWechat, IconBrandGithub, IconMail } from '@tabler/icons-react';
+import { IconDotsVertical, IconEdit, IconTrash, IconUser, IconBrandGithub, IconMail } from '@tabler/icons-react';
 import { useTheme } from '@mui/material/styles';
 
 function renderRole(role) {
@@ -108,9 +108,6 @@ export default function UsersTableRow({ item, manageUser, handleOpenModal, setMo
         <TableCell>{renderRole(item.role)}</TableCell>
         <TableCell>
           <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
-            <Tooltip title={item.wechat_id ? item.wechat_id : '未绑定'} placement="top">
-              <IconBrandWechat color={item.wechat_id ? theme.palette.success.dark : theme.palette.grey[400]} />
-            </Tooltip>
             <Tooltip title={item.github_id ? item.github_id : '未绑定'} placement="top">
               <IconBrandGithub color={item.github_id ? theme.palette.grey[900] : theme.palette.grey[400]} />
             </Tooltip>

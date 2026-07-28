@@ -27,39 +27,28 @@ import { Formik } from 'formik';
 // project imports
 import useLogin from 'hooks/useLogin';
 import AnimateButton from 'ui-component/extended/AnimateButton';
-import WechatModal from 'views/Authentication/AuthForms/WechatModal';
 
 // assets
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 
 import Github from 'assets/images/icons/github.svg';
-import Wechat from 'assets/images/icons/wechat.svg';
 import { onGitHubOAuthClicked } from 'utils/common';
 
 // ============================|| FIREBASE - LOGIN ||============================ //
 
 const LoginForm = ({ ...others }) => {
   const theme = useTheme();
-  const { login, wechatLogin } = useLogin();
-  const [openWechat, setOpenWechat] = useState(false);
+  const { login } = useLogin();
   const matchDownSM = useMediaQuery(theme.breakpoints.down('md'));
   const customization = useSelector((state) => state.customization);
   const siteInfo = useSelector((state) => state.siteInfo);
   // const [checked, setChecked] = useState(true);
 
   let tripartiteLogin = false;
-  if (siteInfo.github_oauth || siteInfo.wechat_login) {
+  if (siteInfo.github_oauth) {
     tripartiteLogin = true;
   }
-
-  const handleWechatOpen = () => {
-    setOpenWechat(true);
-  };
-
-  const handleWechatClose = () => {
-    setOpenWechat(false);
-  };
 
   const [showPassword, setShowPassword] = useState(false);
   const handleClickShowPassword = () => {
@@ -95,30 +84,6 @@ const LoginForm = ({ ...others }) => {
                   使用 GitHub 登录
                 </Button>
               </AnimateButton>
-            </Grid>
-          )}
-          {siteInfo.wechat_login && (
-            <Grid item xs={12}>
-              <AnimateButton>
-                <Button
-                  disableElevation
-                  fullWidth
-                  onClick={handleWechatOpen}
-                  size="large"
-                  variant="outlined"
-                  sx={{
-                    color: 'grey.700',
-                    backgroundColor: theme.palette.grey[50],
-                    borderColor: theme.palette.grey[100]
-                  }}
-                >
-                  <Box sx={{ mr: { xs: 1, sm: 2, width: 20 }, display: 'flex', alignItems: 'center' }}>
-                    <img src={Wechat} alt="Wechat" width={25} height={25} style={{ marginRight: matchDownSM ? 8 : 16 }} />
-                  </Box>
-                  使用微信登录
-                </Button>
-              </AnimateButton>
-              <WechatModal open={openWechat} handleClose={handleWechatClose} wechatLogin={wechatLogin} qrCode={siteInfo.wechat_qrcode} />
             </Grid>
           )}
           <Grid item xs={12}>

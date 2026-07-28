@@ -39,10 +39,6 @@ const SystemSetting = () => {
     SMTPToken: '',
     ServerAddress: '',
     Footer: '',
-    WeChatAuthEnabled: '',
-    WeChatServerAddress: '',
-    WeChatServerToken: '',
-    WeChatAccountQRCodeImageURL: '',
     TurnstileCheckEnabled: '',
     TurnstileSiteKey: '',
     TurnstileSecretKey: '',
@@ -86,7 +82,6 @@ const SystemSetting = () => {
       case 'PasswordRegisterEnabled':
       case 'EmailVerificationEnabled':
       case 'GitHubOAuthEnabled':
-      case 'WeChatAuthEnabled':
       case 'TurnstileCheckEnabled':
       case 'EmailDomainRestrictionEnabled':
       case 'RegisterEnabled':
@@ -129,9 +124,6 @@ const SystemSetting = () => {
       name === 'ServerAddress' ||
       name === 'GitHubClientId' ||
       name === 'GitHubClientSecret' ||
-      name === 'WeChatServerAddress' ||
-      name === 'WeChatServerToken' ||
-      name === 'WeChatAccountQRCodeImageURL' ||
       name === 'TurnstileSiteKey' ||
       name === 'TurnstileSecretKey' ||
       name === 'EmailDomainWhitelist'
@@ -167,18 +159,6 @@ const SystemSetting = () => {
 
   const submitEmailDomainWhitelist = async () => {
     await updateOption('EmailDomainWhitelist', inputs.EmailDomainWhitelist.join(','));
-  };
-
-  const submitWeChat = async () => {
-    if (originInputs['WeChatServerAddress'] !== inputs.WeChatServerAddress) {
-      await updateOption('WeChatServerAddress', removeTrailingSlash(inputs.WeChatServerAddress));
-    }
-    if (originInputs['WeChatAccountQRCodeImageURL'] !== inputs.WeChatAccountQRCodeImageURL) {
-      await updateOption('WeChatAccountQRCodeImageURL', inputs.WeChatAccountQRCodeImageURL);
-    }
-    if (originInputs['WeChatServerToken'] !== inputs.WeChatServerToken && inputs.WeChatServerToken !== '') {
-      await updateOption('WeChatServerToken', inputs.WeChatServerToken);
-    }
   };
 
   const submitGitHubOAuth = async () => {
@@ -263,12 +243,6 @@ const SystemSetting = () => {
               <FormControlLabel
                 label="允许通过 GitHub 账户登录 & 注册"
                 control={<Checkbox checked={inputs.GitHubOAuthEnabled === 'true'} onChange={handleInputChange} name="GitHubOAuthEnabled" />}
-              />
-            </Grid>
-            <Grid xs={12} md={3}>
-              <FormControlLabel
-                label="允许通过微信登录 & 注册"
-                control={<Checkbox checked={inputs.WeChatAuthEnabled === 'true'} onChange={handleInputChange} name="WeChatAuthEnabled" />}
               />
             </Grid>
             <Grid xs={12} md={3}>
@@ -469,68 +443,6 @@ const SystemSetting = () => {
             <Grid xs={12}>
               <Button variant="contained" onClick={submitGitHubOAuth}>
                 保存 GitHub OAuth 设置
-              </Button>
-            </Grid>
-          </Grid>
-        </SubCard>
-        <SubCard
-          title="配置 WeChat Server"
-          subTitle={
-            <span>
-              用以支持通过微信进行登录注册，
-              <a href="https://github.com/songquanpeng/wechat-server" target="_blank" rel="noopener noreferrer">
-                点击此处
-              </a>
-              了解 WeChat Server
-            </span>
-          }
-        >
-          <Grid container spacing={{ xs: 3, sm: 2, md: 4 }}>
-            <Grid xs={12} md={4}>
-              <FormControl fullWidth>
-                <InputLabel htmlFor="WeChatServerAddress">WeChat Server 服务器地址</InputLabel>
-                <OutlinedInput
-                  id="WeChatServerAddress"
-                  name="WeChatServerAddress"
-                  value={inputs.WeChatServerAddress || ''}
-                  onChange={handleInputChange}
-                  label="WeChat Server 服务器地址"
-                  placeholder="例如：https://yourdomain.com"
-                  disabled={loading}
-                />
-              </FormControl>
-            </Grid>
-            <Grid xs={12} md={4}>
-              <FormControl fullWidth>
-                <InputLabel htmlFor="WeChatServerToken">WeChat Server 访问凭证</InputLabel>
-                <OutlinedInput
-                  id="WeChatServerToken"
-                  name="WeChatServerToken"
-                  value={inputs.WeChatServerToken || ''}
-                  onChange={handleInputChange}
-                  label="WeChat Server 访问凭证"
-                  placeholder="敏感信息不会发送到前端显示"
-                  disabled={loading}
-                />
-              </FormControl>
-            </Grid>
-            <Grid xs={12} md={4}>
-              <FormControl fullWidth>
-                <InputLabel htmlFor="WeChatAccountQRCodeImageURL">微信公众号二维码图片链接</InputLabel>
-                <OutlinedInput
-                  id="WeChatAccountQRCodeImageURL"
-                  name="WeChatAccountQRCodeImageURL"
-                  value={inputs.WeChatAccountQRCodeImageURL || ''}
-                  onChange={handleInputChange}
-                  label="微信公众号二维码图片链接"
-                  placeholder="输入一个图片链接"
-                  disabled={loading}
-                />
-              </FormControl>
-            </Grid>
-            <Grid xs={12}>
-              <Button variant="contained" onClick={submitWeChat}>
-                保存 WeChat Server 设置
               </Button>
             </Grid>
           </Grid>

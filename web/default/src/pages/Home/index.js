@@ -99,12 +99,6 @@ const Home = () => {
                           : '未启用'}
                       </p>
                       <p>
-                        微信身份验证：
-                        {statusState?.status?.wechat_login === true
-                          ? '已启用'
-                          : '未启用'}
-                      </p>
-                      <p>
                         Turnstile 用户校验：
                         {statusState?.status?.turnstile_check === true
                           ? '已启用'

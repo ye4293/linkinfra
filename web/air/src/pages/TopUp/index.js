@@ -280,15 +280,6 @@ const TopUp = () => {
                                         }>
                                             支付宝
                                         </Button>
-                                        <Button style={{backgroundColor: 'rgba(var(--semi-green-5), 1)'}}
-                                                type={'primary'}
-                                                theme={'solid'} onClick={
-                                            async () => {
-                                                preTopUp('wx')
-                                            }
-                                        }>
-                                            微信
-                                        </Button>
                                     </Space>
                                 </Form>
                             </div> */}

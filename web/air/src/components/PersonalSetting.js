@@ -10,7 +10,6 @@ import {
   Button,
   Card,
   Descriptions,
-  Image,
   Input,
   InputNumber,
   Layout,
@@ -27,7 +26,6 @@ const PersonalSetting = () => {
   let navigate = useNavigate();
 
   const [inputs, setInputs] = useState({
-    wechat_verification_code: '',
     email_verification_code: '',
     email: '',
     self_account_deletion_confirmation: '',
@@ -36,7 +34,6 @@ const PersonalSetting = () => {
   });
   const [status, setStatus] = useState({});
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
-  const [showWeChatBindModal, setShowWeChatBindModal] = useState(false);
   const [showEmailBindModal, setShowEmailBindModal] = useState(false);
   const [showAccountDeleteModal, setShowAccountDeleteModal] = useState(false);
   const [turnstileEnabled, setTurnstileEnabled] = useState(false);
@@ -170,20 +167,6 @@ const PersonalSetting = () => {
     }
   };
 
-  const bindWeChat = async () => {
-    if (inputs.wechat_verification_code === '') return;
-    const res = await API.get(
-      `/api/oauth/wechat/bind?code=${inputs.wechat_verification_code}`
-    );
-    const { success, message } = res.data;
-    if (success) {
-      showSuccess('微信账户绑定成功！');
-      setShowWeChatBindModal(false);
-    } else {
-      showError(message);
-    }
-  };
-
   const changePassword = async () => {
     if (inputs.set_new_password !== inputs.set_new_password_confirmation) {
       showError('两次输入的密码不一致！');
@@ -198,7 +181,6 @@ const PersonalSetting = () => {
     const { success, message } = res.data;
     if (success) {
       showSuccess('密码修改成功！');
-      setShowWeChatBindModal(false);
     } else {
       showError(message);
     }
@@ -418,24 +400,6 @@ const PersonalSetting = () => {
                 </div>
               </div>
               <div style={{ marginTop: 10 }}>
-                <Typography.Text strong>微信</Typography.Text>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <div>
-                    <Input
-                      value={userState.user && userState.user.wechat_id !== '' ? '已绑定' : '未绑定'}
-                      readonly={true}
-                    ></Input>
-                  </div>
-                  <div>
-                    <Button disabled={(userState.user && userState.user.wechat_id !== '') || !status.wechat_login}>
-                      {
-                        status.wechat_login ? '绑定' : '未启用'
-                      }
-                    </Button>
-                  </div>
-                </div>
-              </div>
-              <div style={{ marginTop: 10 }}>
                 <Typography.Text strong>GitHub</Typography.Text>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <div>
@@ -498,39 +462,6 @@ const PersonalSetting = () => {
                     style={{ marginTop: '10px' }}
                   />
                 )}
-                {
-                  status.wechat_login && (
-                    <Button
-                      onClick={() => {
-                        setShowWeChatBindModal(true);
-                      }}
-                    >
-                      绑定微信账号
-                    </Button>
-                  )
-                }
-                <Modal
-                  onCancel={() => setShowWeChatBindModal(false)}
-                  // onOpen={() => setShowWeChatBindModal(true)}
-                  visible={showWeChatBindModal}
-                  size={'mini'}
-                >
-                  <Image src={status.wechat_qrcode} />
-                  <div style={{ textAlign: 'center' }}>
-                    <p>
-                      微信扫码关注公众号，输入「验证码」获取验证码（三分钟内有效）
-                    </p>
-                  </div>
-                  <Input
-                    placeholder="验证码"
-                    name="wechat_verification_code"
-                    value={inputs.wechat_verification_code}
-                    onChange={(v) => handleInputChange('wechat_verification_code', v)}
-                  />
-                  <Button color="" fluid size="large" onClick={bindWeChat}>
-                    绑定
-                  </Button>
-                </Modal>
               </div>
             </Card>
             <Modal
