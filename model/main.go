@@ -186,6 +186,11 @@ func InitDB(envName string) (db *gorm.DB, err error) {
 		if err := InitGroupConfigs(db); err != nil {
 			logger.SysError("failed to init group configs: " + err.Error())
 		}
+		// 回填失败只记 log 不阻止启动：等级判定会偏保守（只升不降保住现状），
+		// 管理员可修好问题后删除 options 表里的 MigratedTopupQuotaV1 再重启。
+		if err := BackfillTopupQuota(db); err != nil {
+			logger.SysError("failed to backfill topup_quota: " + err.Error())
+		}
 		return db, err
 	} else {
 		logger.FatalLog(err)

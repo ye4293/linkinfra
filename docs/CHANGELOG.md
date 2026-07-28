@@ -8,6 +8,13 @@
 
 ## 2026-07-28
 
+### feat(invite): 按等级返现的核心逻辑与充值链路接入
+- **分支**: `worktree-p3-logic`
+- **类型**: feat + fix
+- **涉及文件**: `model/user_level.go`、`model/aff_commission.go`、`model/migration_topup_quota.go`、`model/topup.go`、`model/charge_order.go`、`model/order.go`、`model/main.go`、`controller/stripeCharge.go`、`controller/cryptoPay.go`
+- **说明**: 实现 `RecalcUserLevel`（按 `topup_quota` 取满足门槛的最高等级，只升不降，门槛并列时取 `sort_order` 较小者）、`GrantCommission`（在充值事务内按邀请人等级发放返现，`source_no` 唯一索引保证 Stripe webhook 重放幂等；除唯一键冲突外的错误回滚整笔充值以保证最终一致，仅分组配置缺失时降级为不返现）、`ReverseCommission`（退款冲正，余额不足扣到 0 绝不产生负余额，差额记入 `reversed_quota` 并告警）。两条 Stripe 链路接入返现与 `topup_quota` 累加，事务提交后刷新 Redis 余额缓存、等级变化时失效分组缓存。`topup_quota` 历史回填从 P4 提前到本期，使 P3 自身安全可上线而不依赖部署顺序。同时修四个 bug：① 删除从未生效过的 `UserLevelUpgrade`（条件写成 `totalQuota <= levelMap[nextLevel]` 导致跨级充值不升级，且 `StripeCallback` 调用点从无登录态的 webhook context 取 userId 恒为 0）；② `stripeChargeRefund` 原本只改订单状态，既不扣回充值方的 `quota`/`topup_quota`（余额与等级虚高）也不冲正返现（「充值→拿返现→退款」可免费套利）；③ `stripeChargeSuccess` 事务闭包内三处误用全局 `DB` 而非 `tx`，改单状态、订单详情、账单状态的写入不在事务里、回滚时不会被撤销；④ 管理员手工补单原会与 Stripe 走同一入账路径，现用 `manualOtherJSON == ""` 闸门排除其计入 `topup_quota` 与返现（运营白送的额度不应白送两次）。删除 `UserLevelUpgrade` 时发现加密货币路径的 userId 来自 `response.UserId`（真实值）、升级确实在跑，为避免功能回退，在加密货币入账中补上 `topup_quota` 累加与等级重算（该渠道仍不接返现，`source_type` 已预留扩展位）。`model` 包测试 22 个全部通过。
+- **关联计划**: `docs/superpowers/plans/2026-07-27-invite-commission-p3-logic.md`
+
 ### fix(test): 修复 3 个既有失败测试，`go test ./...` 恢复全绿
 - **分支**: `main`
 - **类型**: fix

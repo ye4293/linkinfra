@@ -82,8 +82,19 @@ func CreateOrUpdateOrder(response CryptCallbackResponse, username string) error 
 					// 要传给 AfterChargeSuccess 发送充值成功邮件。用 := 会新建
 					// 一个闭包内变量，导致邮件金额恒为 0。
 					addAmount = response.ValueForwardedCoin
-					err = IncreaseUserQuota(response.UserId, AmountToQuota(addAmount))
-					if err != nil {
+					// quota 是可用余额，topup_quota 是累计真实充值（等级判定的唯一
+					// 依据）。加密货币是真实付费，必须计入 —— 否则删掉 controller
+					// 层那个失效的 UserLevelUpgrade 之后，加密货币充值将完全不影响
+					// 等级，构成功能回退。
+					//
+					// 本期不给加密货币接返现（设计文档 §1.3 只覆盖 Stripe），
+					// aff_commission_records.source_type 已预留扩展位。
+					quotaToAdd := AmountToQuota(addAmount)
+					if err = tx.Model(&User{}).Where("id = ?", response.UserId).
+						Updates(map[string]interface{}{
+							"quota":       gorm.Expr("quota + ?", quotaToAdd),
+							"topup_quota": gorm.Expr("topup_quota + ?", quotaToAdd),
+						}).Error; err != nil {
 						return err
 					}
 					// 返回 nil 提交事务
@@ -91,6 +102,12 @@ func CreateOrUpdateOrder(response CryptCallbackResponse, username string) error 
 				}); err != nil {
 					return err
 				}
+
+				// 事务外：刷新余额缓存并重算等级
+				if cacheErr := CacheUpdateUserQuota2(response.UserId); cacheErr != nil {
+					logger.SysError("failed to refresh quota cache after crypto top-up: " + cacheErr.Error())
+				}
+				RecalcUserLevelAndRefreshCache(response.UserId)
 
 				//crypt支付成功处理一下其它
 				AfterChargeSuccess(response.UserId, addAmount)
