@@ -7,6 +7,7 @@ import (
 	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/helper"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Redemption struct {
@@ -113,7 +114,11 @@ func Redeem(key string, userId int) (quota int64, err error) {
 	}
 
 	err = DB.Transaction(func(tx *gorm.DB) error {
-		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(keyCol+" = ?", key).First(redemption).Error
+		// clause.Locking 而非 GORM v1 的 Set("gorm:query_option", ...)，
+		// 后者在 v2 里是 no-op —— 兑换码的行锁此前根本不存在，
+		// 并发兑换全靠后面的 status 判断兜底。理由同 topup.go 的注释。
+		err := tx.Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
+			Where(keyCol+" = ?", key).First(redemption).Error
 		if err != nil {
 			return errors.New("invalid redemption code")
 		}

@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -12,6 +13,18 @@ import (
 
 var RDB *redis.Client
 var RedisEnabled = true
+
+// errRedisUnavailable Redis 未启用或未初始化时的统一错误。
+//
+// RedisEnabled 的默认值是 true（见上一行），只有 InitRedisClient() 发现没配
+// REDIS_CONN_STRING 时才置为 false。这意味着任何在 InitRedisClient() 之前、
+// 或没走完整启动流程的场景（单元测试、一次性 CLI 任务）里调用 RedisSet /
+// RedisGet / RedisDel / RedisDecrease，RDB 都还是 nil —— 原实现直接
+// RDB.Set(...) 会空指针 panic。
+//
+// 同文件的 RedisLockAcquire / RedisLockRelease / RedisIncrMod 本来就写的是
+// `!RedisEnabled || RDB == nil` 双条件守卫，只有这四个裸函数漏了。
+var errRedisUnavailable = errors.New("redis is not available")
 
 // InitRedisClient This function is called after init()
 func InitRedisClient() (err error) {
@@ -51,21 +64,33 @@ func ParseRedisOption() *redis.Options {
 }
 
 func RedisSet(key string, value string, expiration time.Duration) error {
+	if !RedisEnabled || RDB == nil {
+		return errRedisUnavailable
+	}
 	ctx := context.Background()
 	return RDB.Set(ctx, key, value, expiration).Err()
 }
 
 func RedisGet(key string) (string, error) {
+	if !RedisEnabled || RDB == nil {
+		return "", errRedisUnavailable
+	}
 	ctx := context.Background()
 	return RDB.Get(ctx, key).Result()
 }
 
 func RedisDel(key string) error {
+	if !RedisEnabled || RDB == nil {
+		return errRedisUnavailable
+	}
 	ctx := context.Background()
 	return RDB.Del(ctx, key).Err()
 }
 
 func RedisDecrease(key string, value int64) error {
+	if !RedisEnabled || RDB == nil {
+		return errRedisUnavailable
+	}
 	ctx := context.Background()
 	return RDB.DecrBy(ctx, key, value).Err()
 }

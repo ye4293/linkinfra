@@ -10,6 +10,7 @@ import (
 	"github.com/songquanpeng/one-api/common/helper"
 	"github.com/songquanpeng/one-api/common/logger"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type TopUp struct {
@@ -120,7 +121,16 @@ func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride
 
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var topUp TopUp
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").
+		// 行锁：原先写的 Set("gorm:query_option", "FOR UPDATE") 是 GORM v1
+		// 的 API，在 v2 里只是往 Statement 里存了个值、不生成任何 SQL ——
+		// 实测生成的是裸 SELECT，行锁从来就不存在，并发全靠后面的
+		// status != "pending" 早退兜底。
+		//
+		// clause.Locking 无需方言分支：sqlite 驱动会静默剥离它
+		// （driver/sqlite/sqlite.go 的 "FOR" ClauseBuilder 里注释
+		// "SQLite3 does not support row-level locking" 后直接 return），
+		// PG 无覆盖、走默认渲染出 FOR UPDATE，MySQL 的覆盖只改写 SHARE。
+		if err := tx.Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
 			Where("trade_no = ?", tradeNo).First(&topUp).Error; err != nil {
 			return errors.New("top-up order not found")
 		}

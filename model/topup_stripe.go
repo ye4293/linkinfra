@@ -6,6 +6,7 @@ import (
 
 	"github.com/songquanpeng/one-api/common/helper"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const StripeTopUpPaymentMethod = "stripe"
@@ -52,7 +53,9 @@ func ExpireTopUpOrder(tradeNo string) error {
 
 	return DB.Transaction(func(tx *gorm.DB) error {
 		var topUp TopUp
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").
+		// clause.Locking 而非 GORM v1 的 Set("gorm:query_option", ...)，
+		// 后者在 v2 里是 no-op、不生成任何 SQL。理由同 topup.go 的注释。
+		if err := tx.Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
 			Where("trade_no = ?", tradeNo).First(&topUp).Error; err != nil {
 			return errors.New("top-up order not found")
 		}
