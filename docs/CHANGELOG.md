@@ -8,6 +8,13 @@
 
 ## 2026-07-28
 
+### fix(pg): PostgreSQL 兼容性修复（15 处 / 9 个文件）
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `model/channel.go`、`model/topup.go`、`model/user.go`、`model/ability.go`、`model/model_metrics.go`、`model/log.go`、`model/redemption.go`、`model/charge_config.go`、`model/order.go`
+- **说明**: 本项目的 PG 分支此前从未被真正验证过——`AutoMigrate` 的第一张表（`Channel`，`type:mediumtext`）就会失败。修复三类问题：**① 三个启动阻断点**：`mediumtext`/`longtext` 在 PG 不存在（PG 只有 `text`，无长度分级）；`Quota`/`UsedQuota` 是 Go `int64` 却标 `type:int`，PG 的 4 字节 int 装不下 `main.go:39` 给 root 账号写的 `500000000000000`，root 用户建不出来（顺带修掉 MySQL 上的静默截断，并与 P2 的 `gift_quota`/`topup_quota` 对齐）。**② 反引号与保留字**：`ability.go:37/235` 硬编码反引号且没用同函数 `:24-29` 已备好的 `groupCol` 分支（选渠道是核心路径，PG 上等于服务不可用）；`charge_config.go:21` 的 `order`；`channel.go:331` 漏掉的 `keyCol` 分支。**③ 方言语义**：`Ability.Enabled`/`Log.IsStream` 是 Go `bool` → PG `boolean`，与 `0`/`1` 比较报 `operator does not exist`；PG 不支持 `UPDATE t JOIN` 且 `SET` 子句不允许表限定名，原代码把 MySQL 与 PG 归为一类，已拆成独立分支；`ifnull` → `COALESCE`；`HOUR(FROM_UNIXTIME())` 改为「减取模得桶起点」（没用 `(x % 86400) / 3600`，因为 MySQL 的 `/` 是浮点除法、三库结果不一致），小时换算与零填充移到 Go 侧，顺带修正了原实现用数据库服务器时区、而调用方用 UTC 的时区错配；用户输入的字符串比给 int 列改用 `helper.String2Int`。**⚠️ 本机无 docker/psql，未能在真实 PG 上端到端验证**，正确性依赖静态判断与 PG 语义的硬事实，上线前需在真实 PG 实例上按计划文档末尾的 6 项清单验证。
+- **关联计划**: `docs/superpowers/plans/2026-07-28-postgres-compat.md`
+
 ### feat(invite): 邀请返现查询接口
 - **分支**: `worktree-p4-api`
 - **类型**: feat
