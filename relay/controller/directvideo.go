@@ -743,7 +743,10 @@ func handleRunwayImageBilling(c *gin.Context, meta *util.RelayMeta, modelName st
 		tokenName := c.GetString("token_name")
 		xRequestID := c.GetString("X-Request-ID")
 		// 记录详细的扣费日志
-		logContent := fmt.Sprintf("Runway Image Generation  model: %s, mode: %s, image count: %d, total cost: $%.6f", modelName, mode, n, float64(quota)/5000000)
+		// 除数是 500000（$1 = 500000 quota）。此处曾误写为 5000000（多一个零），
+		// 导致 Runway 图像生成的扣费日志把成本显示为实际的 1/10。
+		// 同文件 Runway 视频那段（"Runway Video Generation"）一直是正确的 500000。
+		logContent := fmt.Sprintf("Runway Image Generation  model: %s, mode: %s, image count: %d, total cost: $%.6f", modelName, mode, n, float64(quota)/500000)
 		dbmodel.RecordConsumeLogWithRequestID(context.Background(), meta.UserId, meta.ChannelId, 0, 0, modelName, tokenName, quota, logContent, 0, title, referer, false, 0.0, xRequestID)
 		dbmodel.UpdateUserUsedQuotaAndRequestCount(meta.UserId, quota)
 		channelId := c.GetInt("channel_id")
