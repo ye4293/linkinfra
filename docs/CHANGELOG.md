@@ -8,6 +8,13 @@
 
 ## 2026-07-28
 
+### refactor: 移除内置前端与 i18n 里全部微信相关代码
+- **分支**: `main`
+- **类型**: refactor
+- **涉及文件**: `web/default/`（5 个）、`web/air/`（6 个，含删除 `WeChatIcon.js`）、`web/berry/`（8 个，含删除 `WechatModal.js` 与 `assets/images/icons/wechat.svg`）、`i18n/en.json`
+- **说明**: 承接上一条（后端微信移除），清掉仓库内剩余的微信引用。三套内置主题分别移除：微信登录按钮与扫码 Modal、微信绑定入口、`WeChatAuthEnabled` 开关与 WeChat Server 三个配置输入框、`Home` 页的「微信身份验证」行、`EditUser`/`TableRow` 的 `wechat_id` 展示、以及相应的 state/handler/import；`web/air` 另移除注释块里的微信支付按钮；`web/berry` 的 `useLogin.js` 删除 `wechatLogin` 并同步返回值、`config.js` 移除 `siteInfo` 的两个微信字段。`i18n/en.json` 从 651 个 key 降到 631（grep 出 23 行但含 3 组重复键）。**验证**：用 esbuild `--loader:.js=jsx` 对全部 17 个改动文件做 JSX 语法校验且改动前已建立基线，无 error；`WeChatIcon`/`WechatModal`/`wechat.svg` 的残留引用为 0；`i18n/en.json` 经 `JSON.parse` 验证合法并逐 key 比对确认删除精确；后端 `go build`/`go vet`/`go test`（11 包）全绿。**未改动**：`request.sh` 里一篇新闻正文提到「微信公众号」，与微信登录无关。
+- **关联计划**: 无
+
 ### refactor: 移除微信登录相关的全部后端代码
 - **分支**: `main`
 - **类型**: refactor
