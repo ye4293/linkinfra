@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -349,7 +350,16 @@ func updateOptionMap(key string, value string) (err error) {
 	case "ChannelDisableThreshold":
 		config.ChannelDisableThreshold, _ = strconv.ParseFloat(value, 64)
 	case "QuotaPerUnit":
-		config.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
+		// 非法值或 <= 0 会让所有充值入账 0 quota（AmountToQuota 的守卫），
+		// 而消费侧仍照常扣费。宁可保留旧值也不接受坏值。
+		// controller/option.go 的 validateOptionUpdate 会挡住 API 入口，
+		// 这里是从 DB 加载配置时的第二道防线（DB 可能被手工改过）。
+		if v, err := strconv.ParseFloat(value, 64); err != nil || v <= 0 {
+			logger.SysError(fmt.Sprintf(
+				"invalid QuotaPerUnit %q in options, keeping current value %v", value, config.QuotaPerUnit))
+		} else {
+			config.QuotaPerUnit = v
+		}
 	case "Theme":
 		config.Theme = value
 	case "CryptCallbackUrl":

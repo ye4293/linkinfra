@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/songquanpeng/one-api/common/config"
@@ -45,6 +46,18 @@ func validateOptionUpdate(option model.Option) string {
 	case "StripePaymentEnabled":
 		if option.Value == "true" && (config.StripeApiSecret == "" || config.StripeWebhookSecret == "" || config.StripePriceId == "") {
 			return "Cannot enable Stripe payment. Please fill in the Stripe API Secret, Webhook Secret, and Price ID first."
+		}
+	case "QuotaPerUnit":
+		// QuotaPerUnit 是「$1 换多少 quota」的汇率，充值入账直接乘它。
+		// model/option.go 里的 strconv.ParseFloat 会丢弃错误，非法输入会让
+		// 它静默变成 0 —— 之后所有充值都入账 0 quota，而消费侧仍照常扣费，
+		// 用户付了钱拿不到额度。必须在写入前挡住。
+		v, err := strconv.ParseFloat(strings.TrimSpace(option.Value), 64)
+		if err != nil {
+			return "QuotaPerUnit must be a number."
+		}
+		if v <= 0 {
+			return "QuotaPerUnit must be greater than 0."
 		}
 	}
 	return ""
