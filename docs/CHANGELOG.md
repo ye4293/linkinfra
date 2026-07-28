@@ -8,6 +8,13 @@
 
 ## 2026-07-28
 
+### feat(invite): 邀请返现查询接口
+- **分支**: `worktree-p4-api`
+- **类型**: feat
+- **涉及文件**: `model/aff_query.go`、`model/aff_query_test.go`、`controller/aff.go`、`controller/aff_test.go`、`router/api-router.go`
+- **说明**: 新增 4 个只读查询接口供前端（`~/code/ezlinkai-web`，独立仓库）对接：`GET /api/user/aff/stats`（邀请汇总：邀请码、人数、已充值人数、累计返现、当前等级与返现比例）、`GET /api/user/aff/records`（返现明细分页，按时间倒序，已冲正记录也返回以便用户看到「这笔为什么被扣回」）、`GET /api/user/invitees`（被邀请人分页）、`GET /api/aff/report`（管理员全局报表：发放/冲正总额、因邀请人余额不足没扣回的差额、Top 推广人排行）。前三个接口的被邀请人用户名一律脱敏（保留首尾、中间打星，按 rune 处理避免中文乱码），返现明细投影成 DTO 而非直接返回 model 结构体，避免暴露 `source_no`、`inviter_username` 等内部字段。列表用 `[]T{}` 初始化而非 nil，防止前端拿到 `null`。端到端验证（临时 sqlite + 真实 HTTP 服务）确认：四个接口均返回 `success:true`、`zhangsan → z******n`、`王小明同学 → 王***学`、`ab → **`、已冲正记录出现在明细但不计入累计收益、分页 `total` 不受当前页影响、管理员报表不脱敏、gin 无路由冲突（仓库已有 `/api/affinity` 组）。本文件同时是 `controller` 包的第一个测试。
+- **关联计划**: `docs/superpowers/plans/2026-07-27-invite-commission-p4-api.md`
+
 ### fix(runway): 修 Runway 图像扣费日志成本显示为实际 1/10
 - **分支**: `main`
 - **类型**: fix
