@@ -2,6 +2,8 @@ package model
 
 import (
 	"errors"
+
+	"github.com/songquanpeng/one-api/common"
 )
 
 type ChargeConfig struct {
@@ -17,8 +19,14 @@ type ChargeConfig struct {
 }
 
 func GetChargeConfigs() (chargeConfigs []*ChargeConfig, err error) {
+	// order 是 SQL 保留字：PG 用双引号，MySQL/sqlite 用反引号。
+	// 原来硬编码反引号，PG 上直接语法错误、套餐列表接口 500。
+	orderCol := "`order`"
+	if common.UsingPostgreSQL {
+		orderCol = `"order"`
+	}
 	// 获取所有充值项,可以根据条件过滤
-	err = DB.Model(&ChargeConfig{}).Where("status = ?", 1).Order("`order` asc").Find(&chargeConfigs).Error
+	err = DB.Model(&ChargeConfig{}).Where("status = ?", 1).Order(orderCol + " asc").Find(&chargeConfigs).Error
 	// 然后获取满足条件的充值数据
 	if err != nil {
 		return nil, err

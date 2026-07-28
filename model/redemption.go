@@ -52,8 +52,11 @@ func SearchRedemptionsAndCount(keyword string, status *int, page int, pageSize i
 	// 用于LIKE查询的关键词格式
 	likeKeyword := "%" + keyword + "%"
 
-	// 构建基础查询
-	baseQuery := DB.Model(&Redemption{}).Where("id = ? OR name LIKE ?", keyword, likeKeyword)
+	// 构建基础查询。
+	// Redemption.Id 是 int：把用户输入的字符串直接比给整型列，PG 会报
+	// invalid input syntax for type integer。与 user.go:146、
+	// channel.go:459 的既有处理一致。
+	baseQuery := DB.Model(&Redemption{}).Where("id = ? OR name LIKE ?", helper.String2Int(keyword), likeKeyword)
 
 	// 如果status不为nil，加入status作为查询条件
 	if status != nil {
@@ -81,7 +84,7 @@ func SearchRedemptionsAndCount(keyword string, status *int, page int, pageSize i
 }
 
 func SearchRedemptions(keyword string) (redemptions []*Redemption, err error) {
-	err = DB.Where("id = ? or name LIKE ?", keyword, keyword+"%").Find(&redemptions).Error
+	err = DB.Where("id = ? or name LIKE ?", helper.String2Int(keyword), keyword+"%").Find(&redemptions).Error
 	return redemptions, err
 }
 

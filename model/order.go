@@ -15,7 +15,11 @@ import (
 type Order struct {
 	Id                 int     `json:"id"`
 	Username           string  `json:"username" gorm:"index" validate:"max=12"`
-	UserId             int     `json:"user_id" gorm:"type:varchar(20);index"`
+	// UserId 是 Go int，原先却标 type:varchar(20)。PG 会照着建成 varchar，
+	// 而 GetUserBillsAndCount 用 Where("user_id = ?", userId) 传的是 int，
+	// 报 operator does not exist: character varying = integer。
+	// 去掉错误的列类型，让 GORM 按 Go 类型推出整型列。
+	UserId             int     `json:"user_id" gorm:"index"`
 	Type               string  `json:"type"`
 	Uuid               string  `json:"uuid" gorm:"type:varchar(100);index"`
 	Status             int     `json:"status" gorm:"default:1"`

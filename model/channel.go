@@ -328,7 +328,12 @@ func GetAllChannelsForTest(startIdx int, num int, scope string) ([]*Channel, err
 }
 
 func SearchChannelsAndCount(keyword string, status *int, channelType *int, page int, pageSize int) (channels []*Channel, total int64, typeCounts map[int]int64, err error) {
+	// key 在 MySQL 是保留字（PG 里不是，但反引号在 PG 是语法错误）。
+	// cache.go:31 与 redemption.go:107 都有这个方言分支，唯独渠道搜索漏了。
 	keyCol := "`key`"
+	if common.UsingPostgreSQL {
+		keyCol = `"key"`
+	}
 
 	// 用于LIKE查询的关键词格式
 	likeKeyword := "%" + keyword + "%"
