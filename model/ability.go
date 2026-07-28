@@ -34,7 +34,14 @@ func GetRandomSatisfiedChannel(group string, model string) (*Channel, error) {
 
 	err := DB.Table("channels").
 		Joins("JOIN abilities ON channels.id = abilities.channel_id").
-		Where("`abilities`.`group` = ? AND abilities.model = ? AND abilities.enabled = ? AND abilities.priority = (?)", group, model, trueVal, maxPrioritySubQuery).
+		// 用 groupCol 而非硬编码反引号：PG 的标识符引号是双引号，反引号
+		// 是语法错误。上面 :24-29 已经备好方言分支，这里必须用上。
+		//
+		// enabled 传 Go 的 true 字面量而非 trueVal 字符串 —— trueVal 的
+		// 设计意图是拼进 SQL 文本（见 :33 的 maxPrioritySubQuery），
+		// 当绑定参数传给 boolean 列是靠隐式转型侥幸能过。
+		Where("abilities."+groupCol+" = ? AND abilities.model = ? AND abilities.enabled = ? AND abilities.priority = (?)",
+			group, model, true, maxPrioritySubQuery).
 		Find(&channels).Error
 
 	if err != nil {
@@ -152,7 +159,11 @@ func CheckDataConsistency() error {
 	var inconsistentCount int64
 	err := DB.Table("abilities a").
 		Joins("JOIN channels c ON a.channel_id = c.id").
-		Where("(c.status = ? AND a.enabled = 0) OR (c.status != ? AND a.enabled = 1)", common.ChannelStatusEnabled, common.ChannelStatusEnabled).
+		// 用 false/true 而非 0/1：Ability.Enabled 是 Go bool → PG boolean，
+		// PG 不允许 boolean 与 integer 比较（operator does not exist）。
+		// 传 Go 字面量三库都认。
+		Where("(c.status = ? AND a.enabled = ?) OR (c.status != ? AND a.enabled = ?)",
+			common.ChannelStatusEnabled, false, common.ChannelStatusEnabled, true).
 		Count(&inconsistentCount).Error
 
 	if err != nil {
@@ -165,16 +176,29 @@ func CheckDataConsistency() error {
 
 		// 修复不一致的数据 - 根据数据库类型使用不同语法
 		var result *gorm.DB
-		if common.UsingMySQL || common.UsingPostgreSQL {
-			// MySQL/PostgreSQL: 支持UPDATE JOIN语法
+		if common.UsingMySQL {
+			// MySQL: UPDATE ... JOIN 语法，enabled 是 tinyint(1)，用 1/0
 			result = DB.Exec(`
 				UPDATE abilities a
 				JOIN channels c ON a.channel_id = c.id
-				SET a.enabled = CASE 
+				SET a.enabled = CASE
 					WHEN c.status = ? THEN 1
 					ELSE 0
 				END
 				WHERE (c.status = ? AND a.enabled = 0) OR (c.status != ? AND a.enabled = 1)
+			`, common.ChannelStatusEnabled, common.ChannelStatusEnabled, common.ChannelStatusEnabled)
+		} else if common.UsingPostgreSQL {
+			// PostgreSQL 与 MySQL 有三处不同，不能共用一条语句：
+			// 1. PG 不支持 UPDATE t JOIN ...，只支持 UPDATE t SET ... FROM ...
+			// 2. PG 的 SET 子句不允许表限定名（SET a.enabled = ... 是语法错误）
+			// 3. abilities.enabled 是 boolean，不能赋 1/0、也不能与 0/1 比较
+			result = DB.Exec(`
+				UPDATE abilities
+				SET enabled = (c.status = ?)
+				FROM channels c
+				WHERE c.id = abilities.channel_id
+				  AND ((c.status = ? AND abilities.enabled = false)
+					OR (c.status <> ? AND abilities.enabled = true))
 			`, common.ChannelStatusEnabled, common.ChannelStatusEnabled, common.ChannelStatusEnabled)
 		} else {
 			// SQLite: 使用子查询语法
@@ -228,11 +252,18 @@ func SyncChannelAbilities(channelId int) error {
 func FindEnabledModelsByGroup(group string) ([]string, error) {
 	var models []string
 
+	// group 是 SQL 保留字：PG 用双引号，MySQL/sqlite 用反引号。
+	// 与 GetRandomSatisfiedChannel :24-29 同构。
+	groupCol := "`group`"
+	if common.UsingPostgreSQL {
+		groupCol = `"group"`
+	}
+
 	// 构建查询，选择不同的model，确保enabled为true，属于给定的group
 	// 并且按照priority降序排列
 	err := DB.Model(&Ability{}).
 		Select("DISTINCT model").
-		Where("`group` = ? AND enabled = ?", group, true).
+		Where(groupCol+" = ? AND enabled = ?", group, true).
 		Order("priority DESC").
 		Pluck("model", &models).Error // 使用Pluck来选择model列，填充到models切片中
 
