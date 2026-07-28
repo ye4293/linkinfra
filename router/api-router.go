@@ -52,6 +52,9 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.DELETE("/self", controller.DeleteSelf)
 				selfRoute.GET("/token", controller.GenerateAccessToken)
 				selfRoute.GET("/aff", controller.GetAffCode)
+				selfRoute.GET("/aff/stats", controller.GetAffStats)
+				selfRoute.GET("/aff/records", controller.GetAffCommissionRecords)
+				selfRoute.GET("/invitees", controller.GetInvitees)
 				selfRoute.POST("/topup", controller.TopUp)
 				selfRoute.GET("/topup/self", controller.GetUserTopUps)
 				selfRoute.POST("/stripe/pay", middleware.CriticalRateLimit(), controller.RequestStripePay)
@@ -72,6 +75,11 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.GET("/topup", controller.GetUserTopUps)
 			    adminRoute.POST("/topup/complete", controller.CompleteTopUp)
 			}
+		}
+		affRoute := apiRouter.Group("/aff")
+		affRoute.Use(middleware.AdminAuth())
+		{
+			affRoute.GET("/report", controller.GetAffReport)
 		}
 		optionRoute := apiRouter.Group("/option")
 		optionRoute.Use(middleware.RootAuth())
