@@ -8,6 +8,13 @@
 
 ## 2026-07-28
 
+### refactor: 移除微信登录相关的全部后端代码
+- **分支**: `main`
+- **类型**: refactor
+- **涉及文件**: `controller/wechat.go`（删除）、`router/api-router.go`、`common/config/config.go`、`model/option.go`、`controller/option.go`、`controller/misc.go`、`model/user.go`
+- **说明**: 后续不再采用微信登录，清理整条链路：删除 `controller/wechat.go`；移除 `/api/oauth/wechat` 与 `/api/oauth/wechat/bind` 两条路由；移除 `WeChatAuthEnabled`/`WeChatServerAddress`/`WeChatServerToken`/`WeChatAccountQRCodeImageURL` 四个配置变量及其 `OptionMap` 初始化、`updateOptionMap` 分支与启用校验；`/api/status` 不再返回 `wechat_qrcode`/`wechat_login`；移除 `User.WeChatId` 字段与 `FillUserByWeChatId`、`IsWeChatIdAlreadyTaken`。**数据库**：GORM 的 AutoMigrate 从不删除列，因此移除字段不会动到已有数据，`users.wechat_id` 会成为孤立列；本次目标库是全新 PG 库，该列根本不会被创建，若要在存量库清掉需手工 `ALTER TABLE`（由用户决策）。`options` 表里残留的 `WeChat*` 配置行同理无害。**未改动**：`web/air`/`web/berry`/`web/default` 三套内置前端有 18 个文件引用微信，但 `web/build` 只有 `.gitkeep`、这三套主题未被编译进二进制（生产前端是外部构建产物，实际前端在 `~/code/ezlinkai-web`），改它们是纯 churn；`i18n/en.json` 的微信文案属历史遗留，全仓 Go 代码不引用该目录。
+- **关联计划**: 无
+
 ### fix(invite): 修随机串重复、邀请码碰撞、注册赠额漏记 gift_quota
 - **分支**: `main`
 - **类型**: fix
