@@ -266,9 +266,21 @@ func (user *User) Insert(inviterId int) error {
 			return err
 		}
 	}
+	// 注册赠额同时记入 gift_quota（累计获赠总额）。
+	// 原实现只设 Quota，导致注册赠额完全漏记，邀请汇总接口里的
+	// 「累计获赠」会偏小。
 	user.Quota = config.QuotaForNewUser
+	user.GiftQuota = config.QuotaForNewUser
 	user.AccessToken = helper.GetUUID()
-	user.AffCode = helper.GetRandomString(4)
+	// 不能用裸的 helper.GetRandomString(4)：aff_code 上有 uniqueIndex，
+	// 碰撞会让整个注册失败。见 GenerateUniqueAffCode 的注释。
+	if user.AffCode == "" {
+		affCode, affErr := GenerateUniqueAffCode()
+		if affErr != nil {
+			return affErr
+		}
+		user.AffCode = affCode
+	}
 	result := DB.Create(user)
 	if result.Error != nil {
 		return result.Error
@@ -278,11 +290,11 @@ func (user *User) Insert(inviterId int) error {
 	}
 	if inviterId != 0 {
 		if config.QuotaForInvitee > 0 {
-			_ = IncreaseUserQuota(user.Id, config.QuotaForInvitee)
+			_ = IncreaseUserQuotaAndGift(user.Id, config.QuotaForInvitee)
 			RecordLog(user.Id, LogTypeSystem, fmt.Sprintf("invited by referral bonus %s", common.LogQuota(config.QuotaForInvitee)))
 		}
 		if config.QuotaForInviter > 0 {
-			_ = IncreaseUserQuota(inviterId, config.QuotaForInviter)
+			_ = IncreaseUserQuotaAndGift(inviterId, config.QuotaForInviter)
 			RecordLog(inviterId, LogTypeSystem, fmt.Sprintf("referral bonus %s", common.LogQuota(config.QuotaForInviter)))
 		}
 	}
@@ -492,6 +504,62 @@ func IncreaseUserQuota(id int, quota int64) (err error) {
 		return nil
 	}
 	return increaseUserQuota(id, quota)
+}
+
+// IncreaseUserQuotaAndGift 同时累加可用余额与累计获赠额。
+//
+// 用于注册奖励、邀请奖励这类赠送场景 —— gift_quota 的语义是「累计获赠
+// 总额」，只加 quota 不加 gift_quota 会让赠额漏记。
+//
+// 刻意不走 BatchUpdateEnabled 的批量通道：那个机制只处理 quota 一列，
+// 无法带上 gift_quota；而赠送是低频操作，直接一条 SQL 更新两列反而更
+// 简单、更准确。
+func IncreaseUserQuotaAndGift(id int, quota int64) error {
+	if id <= 0 || quota <= 0 {
+		return nil
+	}
+	return DB.Model(&User{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"quota":      gorm.Expr("quota + ?", quota),
+		"gift_quota": gorm.Expr("gift_quota + ?", quota),
+	}).Error
+}
+
+const (
+	// affCodeBaseLength 邀请码初始长度。字符集 62 位，4 位 = 1477 万组合。
+	affCodeBaseLength = 4
+	// affCodeMaxAttempts 最多尝试次数；每 3 次失败加长一位，
+	// 因此最坏情况会尝试到 7 位（62^7 ≈ 3.5 万亿组合）。
+	affCodeMaxAttempts = 9
+)
+
+// GenerateUniqueAffCode 生成一个当前未被占用的邀请码。
+//
+// aff_code 列上有 uniqueIndex，而原实现直接用 helper.GetRandomString(4)
+// 不做任何检查。按生日问题，62^4 的空间在约 4800 个用户时就有 50% 概率
+// 出现碰撞，之后新用户注册会直接因唯一键冲突失败。
+//
+// 每 3 次失败加长一位，保证用户量增长后仍能拿到可用的码。
+//
+// 已知的残留竞态：这是「先查再插」，两个并发注册理论上可能选到同一个码，
+// 此时靠 uniqueIndex 兜底、后者的 DB.Create 失败。但那要求两次注册在同一
+// 瞬间从 1477 万个值里选中同一个，概率可以忽略；相比原实现（用户量到几千
+// 就必然频繁碰撞）已是天壤之别。
+func GenerateUniqueAffCode() (string, error) {
+	length := affCodeBaseLength
+	for attempt := 0; attempt < affCodeMaxAttempts; attempt++ {
+		if attempt > 0 && attempt%3 == 0 {
+			length++
+		}
+		code := helper.GetRandomString(length)
+		var count int64
+		if err := DB.Model(&User{}).Where("aff_code = ?", code).Count(&count).Error; err != nil {
+			return "", err
+		}
+		if count == 0 {
+			return code, nil
+		}
+	}
+	return "", errors.New("failed to generate a unique aff code")
 }
 
 func increaseUserQuota(id int, quota int64) (err error) {

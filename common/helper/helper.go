@@ -138,12 +138,25 @@ func GetUUID() string {
 const keyChars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 const keyNumbers = "0123456789"
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
+// 这里刻意不调用 rand.Seed：
+//
+// 原实现在 init() 以及 GenerateKey / GetRandomString / GetRandomNumberString
+// 里每次调用都执行 rand.Seed(time.Now().UnixNano())。Windows 的时钟精度很粗
+// （约 0.5~15ms），同一个时钟 tick 内的多次调用会拿到相同的种子，于是返回
+// 完全相同的随机串 —— 实测连续 5 次 GetRandomString(4) 全部返回 "CXo1"。
+//
+// 造成的实际问题：
+//   - model/user.go 的 aff_code 有 uniqueIndex，两个用户在同一 tick 内注册
+//     会拿到同一个邀请码，后者注册直接失败
+//   - model/charge_order.go 的 appOrderId 是充值订单号，也是邀请返现的
+//     幂等键（source_no），碰撞会让第二笔订单被误判为 webhook 重放
+//   - controller/github.go 的 OAuth state 是 CSRF 防护参数，碰撞会削弱防护
+//
+// Go 1.20 起全局 rand 源已自动随机播种，rand.Seed 也随之废弃；调用它反而
+// 会把全局源切出自动播种的快路径。删掉所有 Seed 调用后，每次取值都会推进
+// PRNG 状态，连续调用自然得到不同结果。
 
 func GenerateKey() string {
-	rand.Seed(time.Now().UnixNano())
 	key := make([]byte, 48)
 	for i := 0; i < 16; i++ {
 		key[i] = keyChars[rand.Intn(len(keyChars))]
@@ -160,7 +173,6 @@ func GenerateKey() string {
 }
 
 func GetRandomString(length int) string {
-	rand.Seed(time.Now().UnixNano())
 	key := make([]byte, length)
 	for i := 0; i < length; i++ {
 		key[i] = keyChars[rand.Intn(len(keyChars))]
@@ -169,7 +181,6 @@ func GetRandomString(length int) string {
 }
 
 func GetRandomNumberString(length int) string {
-	rand.Seed(time.Now().UnixNano())
 	key := make([]byte, length)
 	for i := 0; i < length; i++ {
 		key[i] = keyNumbers[rand.Intn(len(keyNumbers))]

@@ -375,7 +375,17 @@ func GetAffCode(c *gin.Context) {
 		return
 	}
 	if user.AffCode == "" {
-		user.AffCode = helper.GetRandomString(4)
+		// 不能用裸的 helper.GetRandomString(4)：aff_code 上有 uniqueIndex，
+		// 碰撞会让 Update 失败。见 model.GenerateUniqueAffCode 的注释。
+		affCode, err := model.GenerateUniqueAffCode()
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+		user.AffCode = affCode
 		if err := user.Update(false); err != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,

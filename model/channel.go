@@ -1063,8 +1063,11 @@ func (channel *Channel) GetNextAvailableKey() (string, int, error) {
 
 	switch channel.MultiKeyInfo.KeySelectionMode {
 	case KeySelectionRandom:
-		// 随机选择
-		rand.Seed(time.Now().UnixNano())
+		// 随机选择。
+		// 不调用 rand.Seed：Windows 时钟精度约 0.5~15ms，同一 tick 内的并发
+		// 请求会拿到相同种子、选中同一个 key index，"随机"退化成固定值，
+		// 负载全压在一把 key 上。Go 1.20+ 全局 rand 已自动播种，且调用 Seed
+		// 会把全局源切出无锁快路径、在这条热路径上增加竞争。
 		selectedIdx := enabledIndices[rand.Intn(len(enabledIndices))]
 		return keys[selectedIdx], selectedIdx, nil
 
@@ -1588,7 +1591,7 @@ func (channel *Channel) GetNextAvailableKeyWithRetry(excludeIndices []int) (stri
 	// 根据选择模式选择Key
 	switch channel.MultiKeyInfo.KeySelectionMode {
 	case KeySelectionRandom:
-		rand.Seed(time.Now().UnixNano())
+		// 不调用 rand.Seed，理由同 GetNextAvailableKey 里的说明
 		selectedIdx := availableIndices[rand.Intn(len(availableIndices))]
 		return keys[selectedIdx], selectedIdx, nil
 
