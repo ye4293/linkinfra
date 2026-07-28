@@ -30,7 +30,6 @@ func InitOptionMap() {
 	config.OptionMap["EmailVerificationEnabled"] = strconv.FormatBool(config.EmailVerificationEnabled)
 	config.OptionMap["GitHubOAuthEnabled"] = strconv.FormatBool(config.GitHubOAuthEnabled)
 	config.OptionMap["GoogleOAuthEnabled"] = strconv.FormatBool(config.GoogleOAuthEnabled)
-	config.OptionMap["WeChatAuthEnabled"] = strconv.FormatBool(config.WeChatAuthEnabled)
 	config.OptionMap["TurnstileCheckEnabled"] = strconv.FormatBool(config.TurnstileCheckEnabled)
 	config.OptionMap["RegisterEnabled"] = strconv.FormatBool(config.RegisterEnabled)
 	config.OptionMap["AutomaticDisableChannelEnabled"] = strconv.FormatBool(config.AutomaticDisableChannelEnabled)
@@ -64,9 +63,6 @@ func InitOptionMap() {
 	config.OptionMap["GoogleClientId"] = ""
 	config.OptionMap["GoogleClientSecret"] = ""
 	config.OptionMap["GoogleRedirectUri"] = ""
-	config.OptionMap["WeChatServerAddress"] = ""
-	config.OptionMap["WeChatServerToken"] = ""
-	config.OptionMap["WeChatAccountQRCodeImageURL"] = ""
 	config.OptionMap["MessagePusherAddress"] = ""
 	config.OptionMap["MessagePusherToken"] = ""
 	config.OptionMap["TurnstileSiteKey"] = ""
@@ -220,8 +216,6 @@ func updateOptionMap(key string, value string) (err error) {
 			config.GitHubOAuthEnabled = boolValue
 		case "GoogleOAuthEnabled":
 			config.GoogleOAuthEnabled = boolValue
-		case "WeChatAuthEnabled":
-			config.WeChatAuthEnabled = boolValue
 		case "TurnstileCheckEnabled":
 			config.TurnstileCheckEnabled = boolValue
 		case "RegisterEnabled":
@@ -297,12 +291,6 @@ func updateOptionMap(key string, value string) (err error) {
 		config.SystemName = value
 	case "Logo":
 		config.Logo = value
-	case "WeChatServerAddress":
-		config.WeChatServerAddress = value
-	case "WeChatServerToken":
-		config.WeChatServerToken = value
-	case "WeChatAccountQRCodeImageURL":
-		config.WeChatAccountQRCodeImageURL = value
 	case "MessagePusherAddress":
 		config.MessagePusherAddress = value
 	case "MessagePusherToken":

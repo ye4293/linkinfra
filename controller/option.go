@@ -31,10 +31,6 @@ func validateOptionUpdate(option model.Option) string {
 		if option.Value == "true" && len(config.EmailDomainWhitelist) == 0 {
 			return "Cannot enable email domain restriction. Please fill in the allowed email domains first."
 		}
-	case "WeChatAuthEnabled":
-		if option.Value == "true" && config.WeChatServerAddress == "" {
-			return "Cannot enable WeChat login. Please fill in the WeChat login configuration first."
-		}
 	case "TurnstileCheckEnabled":
 		if option.Value == "true" && config.TurnstileSiteKey == "" {
 			return "Cannot enable Turnstile verification. Please fill in the Turnstile configuration first."

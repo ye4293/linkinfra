@@ -38,7 +38,6 @@ var PasswordLoginEnabled = true
 var PasswordRegisterEnabled = true
 var EmailVerificationEnabled = false
 var GitHubOAuthEnabled = false
-var WeChatAuthEnabled = false
 var TurnstileCheckEnabled = false
 var RegisterEnabled = true
 
@@ -109,9 +108,6 @@ var GoogleClientSecret = ""
 var GoogleRedirectUri = ""
 var StripeKey = ""
 
-var WeChatServerAddress = ""
-var WeChatServerToken = ""
-var WeChatAccountQRCodeImageURL = ""
 
 var MessagePusherAddress = ""
 var MessagePusherToken = ""

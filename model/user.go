@@ -27,7 +27,6 @@ type User struct {
 	Email                   string `json:"email" gorm:"index" validate:"max=50"`
 	GitHubId                string `json:"github_id" gorm:"column:github_id;index"`
 	GoogleId                string `json:"google_id" gorm:"column:google_id;index"`
-	WeChatId                string `json:"wechat_id" gorm:"column:wechat_id;index"`
 	VerificationCode        string `json:"verification_code" gorm:"-:all"`                                    // this field is only for Email verification, don't save it to database!
 	AccessToken             string `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
 	Quota                   int64  `json:"quota" gorm:"type:bigint;default:0"`
@@ -385,13 +384,6 @@ func (user *User) FillUserByGoogleId() error {
 	DB.Where(User{GoogleId: user.GoogleId}).First(user)
 	return nil
 }
-func (user *User) FillUserByWeChatId() error {
-	if user.WeChatId == "" {
-		return errors.New("WeChat id is required")
-	}
-	DB.Where(User{WeChatId: user.WeChatId}).First(user)
-	return nil
-}
 
 func (user *User) FillUserByUsername() error {
 	if user.Username == "" {
@@ -403,10 +395,6 @@ func (user *User) FillUserByUsername() error {
 
 func IsEmailAlreadyTaken(email string) bool {
 	return DB.Where("email = ?", email).Find(&User{}).RowsAffected == 1
-}
-
-func IsWeChatIdAlreadyTaken(wechatId string) bool {
-	return DB.Where("wechat_id = ?", wechatId).Find(&User{}).RowsAffected == 1
 }
 
 func IsGitHubIdAlreadyTaken(githubId string) bool {

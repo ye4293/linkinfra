@@ -34,8 +34,6 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/oauth/github/callback", middleware.CriticalRateLimit(), controller.GithubOAuthCallback)
 		apiRouter.GET("/oauth/google", middleware.CriticalRateLimit(), controller.GoogleOAuth)
 		apiRouter.GET("/oauth/google/callback", middleware.CriticalRateLimit(), controller.GoogleOAuthCallback)
-		apiRouter.GET("/oauth/wechat", middleware.CriticalRateLimit(), controller.WeChatAuth)
-		apiRouter.GET("/oauth/wechat/bind", middleware.CriticalRateLimit(), middleware.UserAuth(), controller.WeChatBind)
 		apiRouter.GET("/oauth/email/bind", middleware.CriticalRateLimit(), middleware.UserAuth(), controller.EmailBind)
 
 		userRoute := apiRouter.Group("/user")
