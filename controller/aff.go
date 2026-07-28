@@ -1,7 +1,12 @@
 package controller
 
 import (
+	"net/http"
+	"strconv"
 	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/songquanpeng/one-api/model"
 )
 
 // maskUsername 对用户名脱敏：保留首尾字符，中间以 * 替代。
@@ -21,4 +26,129 @@ func maskUsername(name string) string {
 	default:
 		return string(runes[0]) + strings.Repeat("*", len(runes)-2) + string(runes[len(runes)-1])
 	}
+}
+
+// affParsePaging 解析分页参数。仓库约定：query 参数名是 page 与 pagesize
+// （全小写），page < 1 归一为 1，pagesize <= 0 默认 10。
+func affParsePaging(c *gin.Context) (page, pageSize int) {
+	page, _ = strconv.Atoi(c.Query("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ = strconv.Atoi(c.Query("pagesize"))
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+	return page, pageSize
+}
+
+// affFail 按仓库约定返回失败：HTTP 200 + success:false。
+func affFail(c *gin.Context, msg string) {
+	c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
+}
+
+// GetAffStats GET /api/user/aff/stats —— 当前用户的邀请汇总。
+func GetAffStats(c *gin.Context) {
+	stats, err := model.GetAffStats(c.GetInt("id"))
+	if err != nil {
+		affFail(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    stats,
+	})
+}
+
+// GetAffCommissionRecords GET /api/user/aff/records —— 当前用户的返现明细。
+// 被邀请人用户名脱敏后返回。
+func GetAffCommissionRecords(c *gin.Context) {
+	page, pageSize := affParsePaging(c)
+	records, total, err := model.GetAffCommissionRecords(c.GetInt("id"), page, pageSize)
+	if err != nil {
+		affFail(c, err.Error())
+		return
+	}
+
+	// 不直接把 model 结构体丢给前端：里面有 inviter_username、source_no
+	// 等无需暴露的内部字段，而 invitee_username 必须脱敏
+	type item struct {
+		CreatedAt       int64   `json:"created_at"`
+		InviteeUsername string  `json:"invitee_username"`
+		SourceType      string  `json:"source_type"`
+		TopupAmount     float64 `json:"topup_amount"`
+		Rate            float64 `json:"rate"`
+		CommissionQuota int64   `json:"commission_quota"`
+		Status          int     `json:"status"`
+		ReversedQuota   int64   `json:"reversed_quota"`
+	}
+	list := make([]item, 0, len(records))
+	for _, r := range records {
+		list = append(list, item{
+			CreatedAt:       r.CreatedAt,
+			InviteeUsername: maskUsername(r.InviteeUsername),
+			SourceType:      r.SourceType,
+			TopupAmount:     r.TopupAmount,
+			Rate:            r.Rate,
+			CommissionQuota: r.CommissionQuota,
+			Status:          r.Status,
+			ReversedQuota:   r.ReversedQuota,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"list":        list,
+			"currentPage": page,
+			"pageSize":    pageSize,
+			"total":       total,
+		},
+	})
+}
+
+// GetInvitees GET /api/user/invitees —— 当前用户邀请的人，用户名脱敏。
+func GetInvitees(c *gin.Context) {
+	page, pageSize := affParsePaging(c)
+	invitees, total, err := model.GetInvitees(c.GetInt("id"), page, pageSize)
+	if err != nil {
+		affFail(c, err.Error())
+		return
+	}
+	for i := range invitees {
+		invitees[i].Username = maskUsername(invitees[i].Username)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"list":        invitees,
+			"currentPage": page,
+			"pageSize":    pageSize,
+			"total":       total,
+		},
+	})
+}
+
+// GetAffReport GET /api/aff/report —— 管理员侧全局返现报表。
+//
+// 管理员本就能查看用户完整信息，这里不脱敏。
+func GetAffReport(c *gin.Context) {
+	topN, _ := strconv.Atoi(c.Query("top"))
+	if topN <= 0 || topN > 100 {
+		topN = 10
+	}
+	report, err := model.GetAffReport(topN)
+	if err != nil {
+		affFail(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    report,
+	})
 }
