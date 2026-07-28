@@ -8,6 +8,15 @@
 
 ## 2026-07-28
 
+### fix(invite): OAuth 注册不再丢失邀请关系
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `controller/aff.go`、`controller/aff_test.go`、`controller/github.go`、`controller/google.go`
+- **说明**: GitHub / Google 的四个注册点（`GitHubLogin`、`GithubOAuthCallback`、`GoogleLogin`、`GoogleOAuthCallback`）此前全部硬编码 `Insert(0)`，通过 OAuth 注册的用户邀请关系直接丢弃——邀请人既拿不到注册奖励，也拿不到该用户后续所有充值的返现。新增双通道邀请码解析 `readAffCode`/`resolveInviterId`：**查询参数优先、session 兜底**。两个通道各覆盖一条流程——`POST /api/{provider}/login` 是前端直传、没调过 `/api/oauth/state` 所以 session 里没有邀请码；`GET /api/oauth/{provider}/callback` 的回调 URL 由 OAuth 提供商拼装、前端无法附加参数，只能走 session（顺带让邀请码不进网关/CDN 日志）。`/api/oauth/state` 现接收 `?aff=xxx` 并寄存进 session（参数名与注册页 URL 上的 `aff` 一致，前端可直接透传），注册成功后清除以免同一浏览器后续操作误用陈旧邀请码。**关键点**：四处都必须同时设置 struct 的 `InviterId` 字段**并且**传 `Insert(inviterId)`——`model.Insert` 只用参数发放奖励、不回填该字段，只做后者会造成「奖励发了但 `users.inviter_id` 是 0」，而 `GrantCommission` 读的是 `invitee.InviterId`，后续所有充值返现永远不触发，是个看起来能用的半修。`controller/user.go` 的 `Insert(0)` 不动（管理员手工创建用户本就不该有邀请人）。
+
+  **前端契约**（`~/code/ezlinkai-web` 二选一即可）：方式 A 调 `GET /api/oauth/state?aff=<邀请码>`，之后回调自动从 session 取回；方式 B 调 `POST /api/{github,google}/login?aff_code=<邀请码>`。两者同时提供时查询参数优先；邀请码无效时按无邀请人处理，不阻塞注册。
+- **关联计划**: `docs/superpowers/plans/2026-07-28-oauth-invite-relation.md`
+
 ### refactor: 移除内置前端与 i18n 里全部微信相关代码
 - **分支**: `main`
 - **类型**: refactor
