@@ -26,7 +26,11 @@ const migratedTopupQuotaOptionKey = "MigratedTopupQuotaV1"
 // 误以为该字段自诞生起就数据完整。
 func BackfillTopupQuota(db *gorm.DB) error {
 	var opt Option
-	err := db.Where("key = ?", migratedTopupQuotaOptionKey).First(&opt).Error
+	// 用结构体条件而非 Where("key = ?")：key 在 MySQL 是保留字，裸写会语法错误
+	// （PG 里 key 非保留字，所以只有 MySQL 部署会踩）。结构体形式让 GORM 按
+	// 方言自己加引号，与 model/option.go:192 的
+	// FirstOrCreate(&option, Option{Key: key}) 一致。
+	err := db.Where(&Option{Key: migratedTopupQuotaOptionKey}).First(&opt).Error
 	if err == nil {
 		return nil // 已迁移过
 	}

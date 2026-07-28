@@ -96,7 +96,7 @@ func TestBackfillTopupQuotaIdempotent(t *testing.T) {
 	}
 
 	var opt Option
-	if err := DB.Where("key = ?", migratedTopupQuotaOptionKey).First(&opt).Error; err != nil {
+	if err := DB.Where(&Option{Key: migratedTopupQuotaOptionKey}).First(&opt).Error; err != nil {
 		t.Errorf("标记位未写入 options 表: %v", err)
 	}
 }
