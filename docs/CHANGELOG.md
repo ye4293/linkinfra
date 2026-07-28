@@ -8,6 +8,20 @@
 
 ## 2026-07-28
 
+### fix(runway): 修 Runway 图像扣费日志成本显示为实际 1/10
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `relay/controller/directvideo.go`
+- **说明**: `directvideo.go:746` 的除数误写为 `5000000`（多一个零），而 `$1 = 500000 quota`，导致 Runway 图像生成的扣费日志把成本显示成实际的十分之一。同文件的 Runway 视频段（`:777`）一直是正确的 `500000`，两处相差一个零、肉眼极难发现。实际扣除的 quota 正确，仅日志字符串错——属展示与对账问题而非计费问题，但会让用户看到错误成本、财务对账偏差 10 倍。该 bug 曾记录于 `docs/superpowers/plans/2026-04-25-runway-rewrite.md:450` 但未修复。
+- **关联计划**: 无
+
+### fix(config): QuotaPerUnit 拒绝非法值，避免充值静默入账 0 quota
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `controller/option.go`、`model/option.go`、`model/option_quota_test.go`
+- **说明**: `model/option.go` 中 `config.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)` 丢弃了错误。管理员在后台输入框里填入非数字时 `QuotaPerUnit` 会静默变成 0，之后所有充值入账 0 quota（被 `AmountToQuota` 的守卫拦下），而消费侧硬编码的 `500000` 仍照常扣费——用户付了钱拿不到额度还继续被扣。该风险是 P1 放大的：P1 之前 `charge_order.go` 硬编码 `500000`，改该配置对那条链路无效；P1 之后两条充值链路都真正跟随它。加两道防线：`validateOptionUpdate` 挡住 API 入口（非数字或 ≤ 0 直接拒绝），`updateOptionMap` 从 DB 加载时保留旧值并告警（DB 可能被手工改过）。测试覆盖 5 种非法输入与 3 种合法输入。
+- **关联计划**: 无
+
 ### feat(level): 新增 `--preview-levels` 只读预览等级重算影响面
 - **分支**: `main`
 - **类型**: feat
