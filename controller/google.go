@@ -46,6 +46,8 @@ func GoogleLogin(c *gin.Context) {
 			user.Name = fmt.Sprintf("%s_%d", user.Name, maxId+1)
 		}
 
+		inviterId := resolveInviterId(c)
+
 		// 创建新用户
 		newUser := model.User{
 			DisplayName: user.Name,
@@ -54,9 +56,14 @@ func GoogleLogin(c *gin.Context) {
 			Email:       user.Email,
 			GoogleId:    user.Id,
 			Role:        1,
+			// InviterId 字段与 Insert 参数都必须给：model.Insert 只用参数
+			// 发放注册奖励、不会回填这个字段。漏了它会造成「奖励发了但
+			// users.inviter_id 是 0」，而 GrantCommission 读的是
+			// invitee.InviterId —— 后续所有充值返现都不会触发。
+			InviterId: inviterId,
 		}
 
-		if err = newUser.Insert(0); err != nil {
+		if err = newUser.Insert(inviterId); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,
 				"message": "Failed to create user: " + err.Error(),
@@ -64,6 +71,7 @@ func GoogleLogin(c *gin.Context) {
 			return
 		}
 
+		clearAffCodeSession(c)
 		setupLogin(&newUser, c) // 使用统一的登录处理函数
 		return
 	}
@@ -187,14 +195,18 @@ func GoogleOAuthCallback(c *gin.Context) {
 			user.Email = googleUser.Email
 			user.Role = common.RoleCommonUser
 			user.Status = common.UserStatusEnabled
+			// 字段与 Insert 参数都要给，理由同 GoogleLogin 里的说明
+			inviterId := resolveInviterId(c)
+			user.InviterId = inviterId
 
-			if err := user.Insert(0); err != nil {
+			if err := user.Insert(inviterId); err != nil {
 				c.JSON(http.StatusOK, gin.H{
 					"success": false,
 					"message": err.Error(),
 				})
 				return
 			}
+			clearAffCodeSession(c)
 			email := googleUser.Email
 			subject := fmt.Sprintf("%s's register notification email", config.SystemName)
 			content := fmt.Sprintf("<p>hello,You have successfully registered an account in %s, Please update your username and password as well as the warning threshold in your personal settings as soon as possible</p>"+"<p>Congratulations on getting one step closer to the AI world!</p>", config.SystemName)
