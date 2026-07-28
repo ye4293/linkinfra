@@ -8,6 +8,13 @@
 
 ## 2026-07-28
 
+### feat(level): 新增 `--preview-levels` 只读预览等级重算影响面
+- **分支**: `main`
+- **类型**: feat
+- **涉及文件**: `model/user_level_preview.go`、`model/user_level_preview_test.go`、`common/init.go`、`main.go`
+- **说明**: P3 上线后 `RecalcUserLevel` 会在每笔充值后自动跑，而历史上的 `UserLevelUpgrade` 因两处 bug 从未生效，意味着会有一批用户被补到本该早就到达的等级、折扣随之变低，此前无法在改动发生前评估影响面。新增只读的 `PreviewLevelRecalc`，按与 `RecalcUserLevel` 完全一致的判定逻辑输出变更总数、`from -> to` 分布与最多 20 条样本；严格不写用户表、不写日志、不动缓存（测试中有专门断言守住）。CLI 开关 `--preview-levels` 在 DB 初始化之后、Redis/缓存预热/定时任务/HTTP 服务启动之前打印报告并退出。端到端验证（临时 sqlite、6 个用户）正确识别 3 个应升级用户且运行后库中分组全部未变；该验证同时实证了 P3 的两处设计生效——`charge_orders` 表不存在时回填跳过而非崩溃、第二次运行不再重跑回填。
+- **关联计划**: 无（P3 的运维配套）
+
 ### feat(invite): 按等级返现的核心逻辑与充值链路接入
 - **分支**: `worktree-p3-logic`
 - **类型**: feat + fix
