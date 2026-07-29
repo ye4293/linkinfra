@@ -261,13 +261,18 @@ func FindEnabledModelsByGroup(group string) ([]string, error) {
 		groupCol = `"group"`
 	}
 
-	// 构建查询，选择不同的model，确保enabled为true，属于给定的group
-	// 并且按照priority降序排列
+	// 构建查询：按 group 取去重后的 model，并按各 model 的最高 priority 降序。
+	//
+	// 不能写成 SELECT DISTINCT model ... ORDER BY priority DESC —— PG 会报
+	// "for SELECT DISTINCT, ORDER BY expressions must appear in select list"，
+	// 而 MySQL/sqlite 宽容通过，属于只在 PG 上才炸的写法。
+	// 改用 GROUP BY model + ORDER BY MAX(priority)，三库都合法且语义等价。
 	err := DB.Model(&Ability{}).
-		Select("DISTINCT model").
+		Select("model").
 		Where(groupCol+" = ? AND enabled = ?", group, true).
-		Order("priority DESC").
-		Pluck("model", &models).Error // 使用Pluck来选择model列，填充到models切片中
+		Group("model").
+		Order("MAX(priority) DESC").
+		Pluck("model", &models).Error
 
 	if err != nil {
 		return nil, err

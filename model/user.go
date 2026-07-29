@@ -140,20 +140,17 @@ func GetAllUsers(startIdx int, num int) (users []*User, err error) {
 
 func SearchUsersAndCount(keyword string, page int, pageSize int, status *int) (users []*User, total int64, err error) {
 	likeKeyword := "%" + keyword + "%"
-	query := DB.Omit("password")
-
-	if !common.UsingPostgreSQL {
-		// Add status to the query condition if not nil
-		query = query.Where("id = ? or username LIKE ? or email LIKE ? or display_name LIKE ?", keyword, likeKeyword, likeKeyword, likeKeyword)
-		if status != nil {
-			query = query.Where("status = ?", *status)
-		}
-	} else {
-		// Add status to the query condition for PostgreSQL if not nil
-		query = query.Where("username LIKE ? or email LIKE ? or display_name LIKE ?", likeKeyword, likeKeyword, likeKeyword)
-		if status != nil {
-			query = query.Where("status = ?", *status)
-		}
+	// 统一走 helper.String2Int：id 是整型列，直接把用户输入的字符串比给它
+	// 在 PG 上会报 invalid input syntax for type integer。
+	//
+	// 原实现是给 PG 单开一个分支、把 id 条件整个删掉 —— 那不是兼容而是
+	// 放弃功能：管理员在 PG 上输入用户 ID 会搜不到人，且不报错。
+	// 与 channel.go / redemption.go / log.go 的处理方式对齐。
+	query := DB.Omit("password").
+		Where("id = ? or username "+likeOp()+" ? or email "+likeOp()+" ? or display_name "+likeOp()+" ?",
+			helper.String2Int(keyword), likeKeyword, likeKeyword, likeKeyword)
+	if status != nil {
+		query = query.Where("status = ?", *status)
 	}
 
 	// 先计算总数
@@ -171,11 +168,11 @@ func SearchUsersAndCount(keyword string, page int, pageSize int, status *int) (u
 }
 
 func SearchUsers(keyword string) (users []*User, err error) {
-	if !common.UsingPostgreSQL {
-		err = DB.Omit("password").Where("id = ? or username LIKE ? or email LIKE ? or display_name LIKE ?", keyword, keyword+"%", keyword+"%", keyword+"%").Find(&users).Error
-	} else {
-		err = DB.Omit("password").Where("username LIKE ? or email LIKE ? or display_name LIKE ?", keyword+"%", keyword+"%", keyword+"%").Find(&users).Error
-	}
+	// 同上：统一用 String2Int，不再为 PG 砍掉 id 搜索
+	err = DB.Omit("password").
+		Where("id = ? or username "+likeOp()+" ? or email "+likeOp()+" ? or display_name "+likeOp()+" ?",
+			helper.String2Int(keyword), keyword+"%", keyword+"%", keyword+"%").
+		Find(&users).Error
 	return users, err
 }
 

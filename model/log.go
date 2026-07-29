@@ -286,7 +286,7 @@ func SearchAllLogs(keyword string) (logs []*Log, err error) {
 	// Log.Type 是 int：直接把用户输入的字符串比给整型列，PG 会报
 	// invalid input syntax for type integer，任何非数字关键词都 500。
 	// 与 model/channel.go:459 的既有处理一致。
-	err = LOG_DB.Where("type = ? or content LIKE ?", helper.String2Int(keyword), keyword+"%").Order("id desc").Limit(config.MaxRecentItems).Find(&logs).Error
+	err = LOG_DB.Where("type = ? or content "+likeOp()+" ?", helper.String2Int(keyword), keyword+"%").Order("id desc").Limit(config.MaxRecentItems).Find(&logs).Error
 	return logs, err
 }
 

@@ -65,7 +65,7 @@ func SearchTopUps(userId int, tradeNo string, page int, pageSize int) (topups []
 		tx = tx.Where("user_id = ?", userId)
 	}
 	if tradeNo != "" {
-		tx = tx.Where("trade_no LIKE ?", "%"+tradeNo+"%")
+		tx = tx.Where("trade_no "+likeOp()+" ?", "%"+tradeNo+"%")
 	}
 	err = tx.Count(&total).Error
 	if err != nil {

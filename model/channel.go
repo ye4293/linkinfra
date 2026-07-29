@@ -339,7 +339,7 @@ func SearchChannelsAndCount(keyword string, status *int, channelType *int, page 
 	likeKeyword := "%" + keyword + "%"
 
 	// 构建基础查询（不含类型筛选，用于统计）
-	baseQueryForCount := DB.Model(&Channel{}).Where("(id = ? OR name LIKE ? OR "+keyCol+" = ?)", helper.String2Int(keyword), likeKeyword, keyword)
+	baseQueryForCount := DB.Model(&Channel{}).Where("(id = ? OR name "+likeOp()+" ? OR "+keyCol+" = ?)", helper.String2Int(keyword), likeKeyword, keyword)
 	if status != nil {
 		baseQueryForCount = baseQueryForCount.Where("status = ?", *status)
 	}
@@ -361,7 +361,7 @@ func SearchChannelsAndCount(keyword string, status *int, channelType *int, page 
 	}
 
 	// 构建实际查询（含类型筛选）
-	baseQuery := DB.Model(&Channel{}).Where("(id = ? OR name LIKE ? OR "+keyCol+" = ?)", helper.String2Int(keyword), likeKeyword, keyword)
+	baseQuery := DB.Model(&Channel{}).Where("(id = ? OR name "+likeOp()+" ? OR "+keyCol+" = ?)", helper.String2Int(keyword), likeKeyword, keyword)
 	if status != nil {
 		baseQuery = baseQuery.Where("status = ?", *status)
 	}
@@ -461,7 +461,7 @@ func SearchChannelsAndCount(keyword string, status *int, channelType *int, page 
 }
 
 func SearchChannels(keyword string) (channels []*Channel, err error) {
-	err = DB.Omit("key").Where("id = ? or name LIKE ?", helper.String2Int(keyword), keyword+"%").Find(&channels).Error
+	err = DB.Omit("key").Where("id = ? or name "+likeOp()+" ?", helper.String2Int(keyword), keyword+"%").Find(&channels).Error
 	return channels, err
 }
 
