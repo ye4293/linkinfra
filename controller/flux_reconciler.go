@@ -33,6 +33,19 @@ var reconcilerMu sync.Mutex
 // fluxQuerySem 全局信号量，限制同时执行上游查询的 goroutine 数
 var fluxQuerySem = make(chan struct{}, fluxQueryConcurrency)
 
+// fluxInflight 记录正在对账中的 task_id。对账里包含转存（下载+上传，最长约 80s），
+// 而 tick 每 30s 触发一次且记录在 CAS 落库前仍是 submitted/processing 状态，会被后续
+// 几轮重复选中——不去重会让同一张图被并发下载多份，既浪费带宽又在 R2 留下孤儿对象。
+var fluxInflight sync.Map
+
+// tryAcquireInflight 抢占某个 task 的对账权，返回释放函数；已有 goroutine 在处理则返回 false
+func tryAcquireInflight(taskID string) (release func(), ok bool) {
+	if _, loaded := fluxInflight.LoadOrStore(taskID, struct{}{}); loaded {
+		return nil, false
+	}
+	return func() { fluxInflight.Delete(taskID) }, true
+}
+
 // isFluxReconcilerEnabled 复用 ENABLE_VIDEO_TASK_POLLER 开关（与 ali/xai/doubao 视频
 // poller 共用），保持运维侧只需管理一个变量。命名虽叫 "VIDEO"，但实际控制所有后台对账任务。
 func isFluxReconcilerEnabled() bool {
@@ -101,6 +114,14 @@ func runFluxReconcile(ctx context.Context) {
 	for _, img := range images {
 		img := img
 		go func() {
+			// 先去重再占并发槽：已在对账中的 task 直接跳过，不必白等信号量
+			release, ok := tryAcquireInflight(img.TaskId)
+			if !ok {
+				logger.Debugf(ctx, "[flux-reconciler] 该任务正在对账中，跳过: task_id=%s", img.TaskId)
+				return
+			}
+			defer release()
+
 			fluxQuerySem <- struct{}{}        // 占用一个并发槽，满额时阻塞等待
 			defer func() { <-fluxQuerySem }() // 完成后释放
 			reconcileFluxImage(ctx, img)
@@ -179,6 +200,9 @@ func fetchBFLResult(ctx context.Context, taskID, baseURL, apiKey string) (*flux.
 }
 
 func applyFluxBFLSuccess(ctx context.Context, image *model.Image, poll flux.FluxPollingResponse) {
+	// 先转存再 marshal，保证 store_url 与 result 里的 sample 都是 R2 永久 URL
+	poll.Result.Sample = flux.MirrorResultURL(ctx, image.TaskId, poll.Result.Sample)
+
 	resultBytes, _ := json.Marshal(poll)
 	image.Status = flux.TaskStatusSucceed
 	image.StoreUrl = poll.Result.Sample
@@ -259,16 +283,11 @@ func reconcileReplicateImage(ctx context.Context, image *model.Image, baseURL, a
 }
 
 func applyFluxReplicateSuccess(ctx context.Context, image *model.Image, repl flux.ReplicateResponse, imageURL string) {
-	queryResult := map[string]any{
-		"id":     repl.ID,
-		"status": "Ready",
-		"result": map[string]any{"sample": imageURL},
-	}
-	resultBytes, _ := json.Marshal(queryResult)
+	imageURL = flux.MirrorResultURL(ctx, image.TaskId, imageURL)
 
 	image.Status = flux.TaskStatusSucceed
 	image.StoreUrl = imageURL
-	image.Result = string(resultBytes)
+	image.Result = flux.BuildReadyResultJSON(repl.ID, imageURL)
 
 	applied, dbErr := image.UpdateIfNotTerminal()
 	if dbErr != nil {

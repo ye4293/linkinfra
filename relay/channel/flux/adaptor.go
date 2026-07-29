@@ -501,8 +501,12 @@ func (a *Adaptor) handleReplicateSuccess(c *gin.Context, replicateResp Replicate
 		return nil, nil
 	}
 
+	// duration 表达"上游出图耗时"，必须在转存之前定格，否则转存耗时会污染渠道耗时统计与 SLA 分析
 	now := time.Now().Unix()
 	duration := int(now - a.ImageRecord.CreatedAt)
+
+	// 转存到 R2 后再落库并返回客户端，确保客户端拿到的就是永久 URL
+	imageURL = MirrorResultURL(c.Request.Context(), replicateResp.ID, imageURL)
 
 	group, err := model.CacheGetUserGroup(a.ImageRecord.UserId)
 	if err != nil {
@@ -513,18 +517,11 @@ func (a *Adaptor) handleReplicateSuccess(c *gin.Context, replicateResp Replicate
 
 	// 任务创建成功即扣费——同步路径已拿到结果，仍按"创建成功"统一计费
 	// P2-1: 存储 BFL query 格式（{id,status:"Ready",result:{sample}}），GetFlux 可直接返回给客户端
-	queryResult := map[string]any{
-		"id":     replicateResp.ID,
-		"status": "Ready",
-		"result": map[string]any{"sample": imageURL},
-	}
-	resultBytes, _ := json.Marshal(queryResult)
-
 	a.ImageRecord.TaskId = replicateResp.ID
 	a.ImageRecord.Status = TaskStatusSucceed
 	a.ImageRecord.TotalDuration = duration
 	a.ImageRecord.StoreUrl = imageURL
-	a.ImageRecord.Result = string(resultBytes)
+	a.ImageRecord.Result = BuildReadyResultJSON(replicateResp.ID, imageURL)
 	a.ImageRecord.Detail = string(rawBody)
 	a.ImageRecord.Quota = quota
 
@@ -755,6 +752,8 @@ func handleSuccessCallback(c *gin.Context, image *model.Image, notification Flux
 	image.Status = TaskStatusSucceed
 
 	if notification.Result != nil && notification.Result.Sample != "" {
+		// 先转存再 marshal，保证 store_url 与 result 里的 sample 都是 R2 永久 URL
+		notification.Result.Sample = MirrorResultURL(c.Request.Context(), taskID, notification.Result.Sample)
 		image.StoreUrl = notification.Result.Sample
 	}
 
@@ -905,6 +904,17 @@ func (a *Adaptor) QueryResult(c *gin.Context, taskID string, baseURL string, api
 					}
 				}
 			}
+
+			// 上游 body 里的 sample 是 10 分钟后失效的临时 URL；库里若已有转存后的永久
+			// URL 就改写响应，避免 from_source=true 与 =false 返回两种寿命不同的链接
+			if ready && bflPoll.Result != nil {
+				if stored := StoredSampleURL(taskID); stored != "" && stored != bflPoll.Result.Sample {
+					bflPoll.Result.Sample = stored
+					if rewritten, mErr := json.Marshal(bflPoll); mErr == nil {
+						body = rewritten
+					}
+				}
+			}
 		}
 	}
 
@@ -966,7 +976,13 @@ func (a *Adaptor) queryReplicateResult(c *gin.Context, taskID string, baseURL st
 		"status": bflStatus,
 	}
 	if replicateResp.Status == "succeeded" {
-		bflPolling["result"] = map[string]any{"sample": string(replicateResp.Output)}
+		// 上游返回的永远是 1 小时后失效的临时 URL；库里若已有转存后的永久 URL 则优先用它，
+		// 否则 from_source=true 与 from_source=false 会返回两种寿命不同的链接
+		sample := string(replicateResp.Output)
+		if stored := StoredSampleURL(taskID); stored != "" {
+			sample = stored
+		}
+		bflPolling["result"] = map[string]any{"sample": sample}
 	}
 	if replicateResp.Error != nil {
 		bflPolling["error"] = fmt.Sprintf("%v", replicateResp.Error)
@@ -1021,12 +1037,7 @@ func HandleReplicateCallback(c *gin.Context, replicateResp ReplicateResponse, ra
 		}
 
 		// P2-1: 存储 BFL query 格式，与 queryReplicateResult 归一化输出一致
-		queryResult := map[string]any{
-			"id":     taskID,
-			"status": "Ready",
-			"result": map[string]any{"sample": imageURL},
-		}
-		resultBytes, _ := json.Marshal(queryResult)
+		imageURL = MirrorResultURL(c.Request.Context(), taskID, imageURL)
 
 		// 使用创建时（handleReplicatePending）已入库的预估 quota；若为 0 则用 metrics 重新计算
 		quota := image.Quota
@@ -1043,7 +1054,7 @@ func HandleReplicateCallback(c *gin.Context, replicateResp ReplicateResponse, ra
 
 		image.Status = TaskStatusSucceed
 		image.StoreUrl = imageURL
-		image.Result = string(resultBytes)
+		image.Result = BuildReadyResultJSON(taskID, imageURL)
 
 		applied, dbErr := image.UpdateIfNotTerminal()
 		if dbErr != nil {

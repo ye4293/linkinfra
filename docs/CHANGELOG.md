@@ -6,6 +6,30 @@
 
 ---
 
+## 2026-07-29
+
+### feat(flux): flux / replicate 生成图片自动转存 Cloudflare R2
+- **分支**: `main`
+- **类型**: feat
+- **涉及文件**: `common/cloudflare/r2.go`、`common/cloudflare/r2_mirror.go`、`common/cloudflare/r2_mirror_test.go`、`relay/channel/flux/mirror.go`、`relay/channel/flux/mirror_test.go`、`relay/channel/flux/adaptor.go`、`controller/flux_reconciler.go`
+- **说明**: BFL 与 Replicate 返回的图片 URL 都有时效（约 10 分钟 / 1 小时），过期后 `images.store_url` 与 `images.result` 里的链接全部失效。新增 `cloudflare.MirrorImageURLToR2`（下载上游图片 → 上传 R2）与 `flux.MirrorResultURL`（带短路与降级的业务封装），在**全部 5 个成功落点**落库前把 URL 换成 R2 永久链接：`handleReplicateSuccess`（同步路径，转存后才返回客户端，因此客户端首次拿到的就是永久 URL）、`handleSuccessCallback`（BFL webhook）、`HandleReplicateCallback`（Replicate webhook）、`applyFluxBFLSuccess` 与 `applyFluxReplicateSuccess`（对账兜底）。两个 BFL 路径特意**先改 `Result.Sample` 再 marshal**，否则 `store_url` 是 R2 但 `result` JSON 里仍是临时 URL，客户端读到的还是会过期的那个。
+
+  **风控细节**：**必须配置 `CfFilePublicUrl` 才会转存**——R2 的 S3 API Endpoint 不支持匿名 GET，用它拼出的 URL 需要 SigV4 签名，把上游当下可用的临时链接换成它等于制造永久 401 死链，比不转存更糟（`controller/fileGo.go` 里硬编码的 `pub-*.r2.dev` 正说明本部署的公共访问必须走独立域名）。其余：下载 25s／上传 30s 独立超时，总预算 `MirrorTotalBudget`=81s；体积上限 32MB，`io.LimitReader(max+1)` 判超限；下载走专用 `http.Client`，**不复用 `util.HTTPClient`**（后者超时由 `RELAY_TIMEOUT` 控制，可能被配成无超时导致挂死），并显式设 `Proxy: http.ProxyFromEnvironment`——手写 `Transport` 不继承 `DefaultTransport` 的代理支持，漏掉会让依赖出口代理的部署 100% 转存失败且只在日志可见；带浏览器 UA/Accept 头避免被图片 CDN 当爬虫拦截；仅网络错误与 5xx 重试 1 次，4xx 立即失败；URL scheme 限 http/https；拒绝 `text/html`/`application/json` 等 Content-Type，避免把上游过期错误页当图片存下来。**关键点**：`context.WithoutCancel` 只在 `MirrorResultURL` 一层做——内层若各自 detach 会剥离 deadline，让总预算变成拦不住任何操作的摆设；而完全不 detach 则客户端断连会中断转存。
+
+  **顺带修掉的既有隐患**：`generateFileUUID` 原本只拼时间戳，而 Windows 时钟粒度可达毫秒级，对账器 50 并发时会生成相同对象键、后写入者静默覆盖前者的图片（改用 `crypto/rand`）；`putObject` 每次调用都 `LoadDefaultConfig`（扫环境变量、读 `~/.aws/*`、非 AWS 环境还可能探测 IMDS）并新建 Transport（连接无法复用），改为按配置快照缓存 `*s3.Client`；R2 配置项是可被后台选项运行时改写的全局变量，改为一次性快照，避免并发配置变更让对象写进旧 bucket 而 URL 按新 bucket 拼出。
+
+  **一致性修复**：`from_source=true` 的两条查询路径（`QueryResult` / `queryReplicateResult`）原本直接透传上游临时 URL，而库里已是永久 URL，同一接口在 `from_source` 开关下会返回两种寿命不同的链接——改为优先用 `StoredSampleURL(taskID)` 覆写响应。`handleReplicateSuccess` 里 `duration` 改在转存**之前**定格，否则转存耗时会污染 `total_duration` 代表的上游出图耗时。对账器新增 `fluxInflight` 按 task_id 去重：转存最长 81s 而 tick 每 30s 一次且记录在 CAS 落库前仍非终态，会被重复选中并发下载同一张图。三处逐字重复的 `{id,status:"Ready",result:{sample}}` 构造收口为 `BuildReadyResultJSON`。
+
+  **降级与幂等**：R2 配置不全、未配公共域、URL 已指向本端 R2、下载或上传失败 → 原样返回上游 URL，任务仍算成功（上游图确实生成了，计费照旧），只记日志。无独立开关；无 schema 变更，`detail` 字段仍保留含原 URL 的上游原始响应。`IsR2URL` 按 host 边界匹配，避免 `cdn.example.com` 的前缀把 `cdn.example.com.evil.net` 误判成自己的域而跳过转存。
+- **关联计划**: `docs/plans/2026-07-29-flux-r2-mirror.md`
+
+### fix: code review 修掉 8 个真实缺陷
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `common/verification.go`、`common/redis.go`、`controller/aff.go`、`model/aff_commission.go`、`model/quota_convert.go`、`model/option.go`、`model/log.go`、`model/ability.go`、`model/cache.go`、`model/channel.go`、`model/redemption.go`、`model/token.go`、`model/topup.go`、`model/user.go`、`model/dialect.go`（新增）
+- **说明**: 对本轮全部改动做对抗性 code review，每个缺陷都先写出失败的测试证明其存在再修。**安全类**：① `GeneratePassword`（忘记密码流程，生成的 8 位密码直接写库并邮件发给用户）用 wall-clock 播种的 `math/rand`，实测第 2 次调用就与第 1 次生成完全相同的密码，改用 `crypto/rand`；② 四个邀请查询接口的分页无上限，`?pagesize=10000000` 可让数据库尝试返回千万行，加 `affMaxPageSize=100` 钳位。**资金与数据类**：③ `GrantCommission` 把 `GetGroupConfigByKeyTx` 的所有 error 都当「配置缺失」吞掉，包括表不存在这类真实故障——在 PG 上事务失败后进入 aborted 状态，吞掉错误会让调用方以一个与根因无关的错误失败，改为只在 `ErrRecordNotFound` 时降级；④ `QuotaPerUnit` 校验 trim 了但落库存的是未 trim 原值，粘贴 `" 500000"` 会「保存成功但汇率永远改不动」且每次重启静默失败；⑤ `fillHourlyData` 用 `=` 应为 `+=`，新 SQL 按桶起点分组（含日期）比旧的小时标签键更细，跨天同小时会后者覆盖前者静默丢数据；⑥ 金额换算用截断而非四舍五入，实测 514 个常见金额中 11 个（2.1%）单向少给用户（`.2` 得 4099999 而非 4100000），两处改用 `math.Round`。**PG 兼容类**：⑦ PG 的 `LIKE` 区分大小写而 MySQL/sqlite 不区分，新增 `likeOp()` 方言辅助，6 个文件 14 处搜索改用 ILIKE；⑧ `user.go` 的 PG 分支直接砍掉了 id 搜索（在 PG 上按 ID 搜不到人且不报错），统一改用 `helper.String2Int`。另修 `FindEnabledModelsByGroup` 的 `DISTINCT + ORDER BY`（只在 PG 报错）、`ability.go`/`cache.go` 三处 `rand.NewSource` 残留（上轮只 grep 了 `rand.Seed`）。同时补了 `PreviewLevelRecalc` 与 `RecalcUserLevel` 的一致性测试（两份独立实现的等级判定，漂移会让运营照着错误的影响面做决策），覆盖 11 个边界场景与 1 个混合场景。
+- **关联计划**: 无
+
 ## 2026-07-28
 
 ### fix(invite): OAuth 注册不再丢失邀请关系
