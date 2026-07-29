@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/songquanpeng/one-api/common/config"
@@ -167,17 +168,28 @@ func GrantCommission(tx *gorm.DB, inviteeId int, topupAmount float64,
 
 	gc, err := GetGroupConfigByKeyTx(tx, inviter.Group)
 	if err != nil {
-		// 分组配置缺失降级为不返现，不阻塞充值入账
-		logger.SysError(fmt.Sprintf(
-			"group config %q not found for inviter %d, skipping commission: %s",
-			inviter.Group, inviterId, err.Error()))
-		return 0, 0, nil
+		// 只有「这个分组确实没配」才降级为不返现（手工改过 DB 留下的野分组、
+		// 运营还没给该等级建配置等），此时不该阻塞充值入账。
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			logger.SysError(fmt.Sprintf(
+				"group config %q not found for inviter %d, skipping commission",
+				inviter.Group, inviterId))
+			return 0, 0, nil
+		}
+		// 其余是真实的 DB 故障（表不存在、连接断开……），必须返回让事务回滚。
+		// 尤其在 PostgreSQL 上：事务内任何一条语句失败后整个事务进入 aborted
+		// 状态，后续语句全部报 "current transaction is aborted"。吞掉这个错误
+		// 只会让调用方继续在一个已废的事务里做事，最终以一个与根因无关的错误
+		// 失败，排查时完全找不到方向。
+		return 0, 0, err
 	}
 	if gc.CommissionRate <= 0 {
 		return 0, 0, nil
 	}
 
-	commissionQuota := int64(topupAmount * gc.CommissionRate * config.QuotaPerUnit)
+	// 用 math.Round 而非截断，理由同 AmountToQuota：float64 的乘积常落在
+	// 真值下方一点点，直接截断会单向少给邀请人。
+	commissionQuota := int64(math.Round(topupAmount * gc.CommissionRate * config.QuotaPerUnit))
 	if commissionQuota <= 0 {
 		return 0, 0, nil
 	}
