@@ -546,9 +546,11 @@ func CacheGetRandomSatisfiedChannel(ctx context.Context, group string, model str
 		return nil, -1, errors.New("total weight of channels is zero")
 	}
 
-	randSource := rand.NewSource(time.Now().UnixNano() + int64(rand.Intn(10000)))
-	randGen := rand.New(randSource)
-	weightThreshold := randGen.Intn(totalWeight) + 1
+	// 直接用全局 rand：它在 Go 1.20+ 已自动随机播种、并发安全、走无锁快路径。
+	// 原写法先取 rand.Intn(10000) 当 jitter 再去播种一个局部生成器，既然已经
+	// 用上了全局 rand，那一层包装是纯多余（且 wall-clock 播种本身在同一时钟
+	// tick 内会退化，jitter 只是缓解而非消除）。
+	weightThreshold := rand.Intn(totalWeight) + 1
 
 	currentWeight := 0
 	for i, channel := range channels {
@@ -658,9 +660,8 @@ func CacheGetRandomSatisfiedChannelWithCapability(
 			continue
 		}
 
-		randSource := rand.NewSource(time.Now().UnixNano() + int64(rand.Intn(10000)))
-		randGen := rand.New(randSource)
-		weightThreshold := randGen.Intn(totalWeight) + 1
+		// 同上：直接用全局 rand，不再套一层 wall-clock 播种的局部生成器
+		weightThreshold := rand.Intn(totalWeight) + 1
 
 		currentWeight := 0
 		for _, channel := range filteredChannels {

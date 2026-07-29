@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
-	"time"
 
 	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/logger"
@@ -62,10 +61,13 @@ func GetRandomSatisfiedChannel(group string, model string) (*Channel, error) {
 		return nil, errors.New("no channels available with the required priority and weight")
 	}
 
-	// 生成一个随机权重阈值
-	randSource := rand.NewSource(time.Now().UnixNano())
-	randGen := rand.New(randSource)
-	weightThreshold := randGen.Intn(totalWeight) + 1
+	// 生成一个随机权重阈值。
+	//
+	// 不要写成 rand.New(rand.NewSource(time.Now().UnixNano()))：Windows 的
+	// 时钟精度约 0.5~15ms，同一 tick 内的并发请求会拿到相同种子、算出相同的
+	// 阈值，加权随机退化成固定选择，负载全压在同一个渠道上。
+	// Go 1.20+ 的全局 rand 已自动随机播种、并发安全、且走无锁快路径。
+	weightThreshold := rand.Intn(totalWeight) + 1
 
 	currentWeight := 0
 	for _, channel := range channels {

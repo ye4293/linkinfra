@@ -342,7 +342,11 @@ func updateOptionMap(key string, value string) (err error) {
 		// 而消费侧仍照常扣费。宁可保留旧值也不接受坏值。
 		// controller/option.go 的 validateOptionUpdate 会挡住 API 入口，
 		// 这里是从 DB 加载配置时的第二道防线（DB 可能被手工改过）。
-		if v, err := strconv.ParseFloat(value, 64); err != nil || v <= 0 {
+		//
+		// 必须先 TrimSpace 再解析：校验那侧也是 trim 后判断的。若这里不 trim，
+		// 管理员粘贴带空格的 " 500000" 会「校验通过 → 落库成功 → 加载失败」，
+		// 接口返回 success 但汇率永远改不动，且每次重启都静默失败一次。
+		if v, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err != nil || v <= 0 {
 			logger.SysError(fmt.Sprintf(
 				"invalid QuotaPerUnit %q in options, keeping current value %v", value, config.QuotaPerUnit))
 		} else {

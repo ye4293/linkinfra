@@ -394,17 +394,24 @@ func graphSelectField(target string) (string, error) {
 	}
 }
 
-// fillHourlyData 把桶起点换算成 UTC 小时并填进槽位。
+// fillHourlyData 把桶起点换算成 UTC 小时并累加进槽位。
 //
 // 用 UTC 与调用方的 startOfDay（time.Unix(...).UTC().Truncate(24h)）保持
 // 一致；原实现的 HOUR(FROM_UNIXTIME()) 取的是数据库服务器时区，与 UTC
 // 的日边界本来就对不齐，这里顺带修正。
+//
+// 必须是 += 而不是 =：旧实现的 SQL 分组键就是小时标签本身
+// （LPAD(HOUR(...))），跨天的同小时由 SQL 求和；新实现的分组键是桶起点
+// （含日期信息），比标签键更细。若某次查询的 id 区间横跨多天
+// （applyLogIdRange 的二分查找假设 created_at 随 id 单调，并发写入或表里
+// 存在 created_at = 0 的行时该假设会失效），同一个 "HH" 会收到多个桶，
+// 用 = 赋值就是后者覆盖前者、静默丢数据。
 func fillHourlyData(hourlyData []HourlyData, rows []hourBucketRow) {
 	for _, r := range rows {
 		hour := fmt.Sprintf("%02d", time.Unix(r.Bucket, 0).UTC().Hour())
 		for i := range hourlyData {
 			if hourlyData[i].Hour == hour {
-				hourlyData[i].Amount = r.Amount
+				hourlyData[i].Amount += r.Amount
 				break
 			}
 		}
