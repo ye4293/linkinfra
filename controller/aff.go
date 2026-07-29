@@ -88,8 +88,22 @@ func maskUsername(name string) string {
 	}
 }
 
+const (
+	// affDefaultPageSize 未指定或非法时的每页条数。
+	affDefaultPageSize = 10
+	// affMaxPageSize 每页条数上限。
+	//
+	// 这几个接口是登录用户可直接调用的、参数完全由客户端控制。没有上限时
+	// 一个 ?pagesize=10000000 就能让数据库尝试返回千万行 —— 内存打爆、
+	// 慢查询拖垮 DB，是真实的 DoS 向量。
+	//
+	// 仓库里既有的分页接口（如 controller/topup.go）同样没有上限，那是
+	// 既有问题；新接口不该照抄。
+	affMaxPageSize = 100
+)
+
 // affParsePaging 解析分页参数。仓库约定：query 参数名是 page 与 pagesize
-// （全小写），page < 1 归一为 1，pagesize <= 0 默认 10。
+// （全小写），page < 1 归一为 1，pagesize 非法时取默认值、超限时钳到上限。
 func affParsePaging(c *gin.Context) (page, pageSize int) {
 	page, _ = strconv.Atoi(c.Query("page"))
 	if page < 1 {
@@ -97,7 +111,10 @@ func affParsePaging(c *gin.Context) (page, pageSize int) {
 	}
 	pageSize, _ = strconv.Atoi(c.Query("pagesize"))
 	if pageSize <= 0 {
-		pageSize = 10
+		pageSize = affDefaultPageSize
+	}
+	if pageSize > affMaxPageSize {
+		pageSize = affMaxPageSize
 	}
 	return page, pageSize
 }
