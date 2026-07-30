@@ -27,13 +27,14 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/verification", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.SendEmailVerification)
 		apiRouter.GET("/reset_password", middleware.CriticalRateLimit(), middleware.TurnstileCheck(), controller.SendPasswordResetEmail)
 		apiRouter.POST("/user/reset", middleware.CriticalRateLimit(), controller.ResetPassword)
-		apiRouter.GET("/oauth/state", middleware.CriticalRateLimit(), controller.GenerateOAuthCode)
-		apiRouter.GET("/oauth/github", middleware.CriticalRateLimit(), controller.GithubOAuth)
+		// OAuth 只保留前端（next-auth）直传的这两条：next-auth 自己完成与
+		// GitHub / Google 的跳转与 code 交换，后端只接收已认证的用户信息。
+		// 老的重定向流程（/oauth/state、/oauth/{provider}、
+		// /oauth/{provider}/callback）已随之下线 —— 它往 github_id 存的是
+		// GitHub 登录名，而这条路径存的是 provider 数字 id，同一列两种语义，
+		// 并存会让同一个 GitHub 账号在两条路径下被认成两个人。
 		apiRouter.POST("/github/login", middleware.CriticalRateLimit(), controller.GitHubLogin)
 		apiRouter.POST("/google/login", middleware.CriticalRateLimit(), controller.GoogleLogin)
-		apiRouter.GET("/oauth/github/callback", middleware.CriticalRateLimit(), controller.GithubOAuthCallback)
-		apiRouter.GET("/oauth/google", middleware.CriticalRateLimit(), controller.GoogleOAuth)
-		apiRouter.GET("/oauth/google/callback", middleware.CriticalRateLimit(), controller.GoogleOAuthCallback)
 		apiRouter.GET("/oauth/email/bind", middleware.CriticalRateLimit(), middleware.UserAuth(), controller.EmailBind)
 
 		userRoute := apiRouter.Group("/user")
@@ -71,7 +72,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.POST("/batchdelete", controller.BatchDelteUser)
 				adminRoute.DELETE("/:id", controller.DeleteUser)
 				adminRoute.GET("/topup", controller.GetUserTopUps)
-			    adminRoute.POST("/topup/complete", controller.CompleteTopUp)
+				adminRoute.POST("/topup/complete", controller.CompleteTopUp)
 			}
 		}
 		affRoute := apiRouter.Group("/aff")
@@ -90,9 +91,9 @@ func SetApiRouter(router *gin.Engine) {
 		pricingRoute := apiRouter.Group("/pricing")
 		pricingRoute.Use(middleware.AdminAuth())
 		{
-			pricingRoute.GET("/models", controller.GetModelPrices)           // 获取所有模型价格信息
-			pricingRoute.GET("/unset", controller.GetUnsetRatioModels)       // 获取未设置倍率的模型
-			pricingRoute.PUT("/model", controller.UpdateModelRatio)          // 更新单个模型倍率
+			pricingRoute.GET("/models", controller.GetModelPrices)              // 获取所有模型价格信息
+			pricingRoute.GET("/unset", controller.GetUnsetRatioModels)          // 获取未设置倍率的模型
+			pricingRoute.PUT("/model", controller.UpdateModelRatio)             // 更新单个模型倍率
 			pricingRoute.PUT("/models/batch", controller.BatchUpdateModelRatio) // 批量更新模型倍率
 		}
 

@@ -17,8 +17,8 @@ import (
 )
 
 // newOAuthTestRouter 起一个带 session 中间件的真实 gin engine ——
-// GitHubLogin / GoogleLogin 内部会调 sessions.Default(c)（经
-// resolveInviterId），没有中间件会直接 panic。
+// 登录成功后 setupLogin 会调 sessions.Default(c) 写登录态，
+// 没有中间件会直接 panic。
 func newOAuthTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

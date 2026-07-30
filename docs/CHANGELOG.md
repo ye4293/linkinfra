@@ -6,6 +6,23 @@
 
 ---
 
+## 2026-07-31
+
+### refactor(oauth): 下线老的 OAuth 重定向流程，解除「必须先填 ClientId」的启用死锁
+- **分支**: `main`
+- **类型**: refactor
+- **涉及文件**: `router/api-router.go`、`controller/github.go`、`controller/google.go`、`controller/aff.go`、`controller/aff_test.go`、`controller/option.go`、`controller/oauth_login_test.go`
+- **说明**: 承接前一条（OAuth 改用 provider id 认人）里记为 P2 的遗留问题。净删 610 行。
+
+  **① 下线老的 OAuth 重定向流程**。删掉 5 条路由（`/oauth/state`、`/oauth/{github,google}`、`/oauth/{github,google}/callback`）与对应 handler（`GithubOAuth`、`GithubOAuthCallback`、`GitHubBind`、`getGitHubUserInfoByCode`、`GenerateOAuthCode`、`GoogleOAuth`、`GoogleOAuthCallback`、`GoogleBind`、`GetTokenByCode`、`GetGoogleUserInfoByToken`）及其专用 struct。**动机是它与新路径的 `github_id` 语义冲突**：老流程存 `githubUser.Login`（GitHub 登录名），新路径存 next-auth 的数字 id，同一列两种语义，并存会让同一个 GitHub 账号在两条路径下被认成两个人 —— 而前一条改动让身份识别依赖了这一列。删除前已确认前端（`linkinfra-web`）对这些端点零引用，且这些 handler 只被路由和彼此调用。顺带清掉了老流程里那个「注册成功后发信失败就静默 `return`、不给前端任何响应」的 bug（原 `google.go:213`），以及 `GoogleOAuthCallback` / `GithubOAuthCallback` 里 `google<id>` 与 `github_<id>` 两种不一致的用户名前缀。
+
+  **② 解除 GitHub / Google 登录的启用死锁**（实际 blocker）。`controller/option.go` 的 `validateOptionUpdate` 要求「启用 `GitHubOAuthEnabled` 前必须先填 `GitHubClientId`」，但前端设置页**只有类型定义、没有这两个输入框**（`lib/types/systemSettings.ts` 有 `GitHubClientId`，`sections/` 下无任何渲染）—— 管理员在 UI 上永远填不了 ClientId，也就永远无法启用 GitHub 登录。而前一条改动刚给 `GitHubLogin` 加了 `GitHubOAuthEnabled` 开关检查，两者叠加会让 GitHub 登录**彻底不可用**。这个校验在新架构下本就过时：code 交换由 next-auth 完成、凭证也由它持有，后端只接收已认证的用户信息，自身用不到 ClientId/ClientSecret。移除该校验（配置项本身保留，前端类型里还引用着）。这个 blocker 是在上一轮端到端验证时撞出来的。
+
+  **③ 清掉随之变成死代码的邀请码 session 通道**。`readAffCode` 原本是「查询参数优先、session 兜底」的双通道，session 通道专为老回调流程设计（回调 URL 由 OAuth 提供商拼装、前端无法附参，只能靠 `/api/oauth/state` 预先寄存）。老流程下线后没有任何地方再往 session 写邀请码，通道永远取不到值 —— 留着是「看起来还有用的死代码」，最容易误导后来人。`readAffCode` 收敛为单参数、删除 `clearAffCodeSession` 与 `affCodeSessionKey`，`aff_test.go` 同步收敛（6 个 case → 4 个）。注意 `setupLogin` 仍然使用 session 写登录态，所以 `oauth_login_test.go` 的 session 中间件必须保留，只更正了注释里过时的理由。
+
+  **验证**：`go build ./...`、`go vet ./...`、`go test ./...` 全绿（14 包）。端到端（临时 sqlite 库，未触碰仓库里的 `one-api.db`）：5 条老路由全部返回 **404**；保留的 `/api/github/login`、`/api/google/login`、`/api/oauth/email/bind` 均正常；**不填 ClientId 直接启用两个 OAuth 开关成功**（修复前被拒）。回归确认前一轮的修复未被破坏：同一 `github_id` 登录 4 次仍只有 1 个账号、邀请人只返现 1 次（额度 11000 = 5000 注册赠额 + 3000 + 3000，两个被邀请人各一次），邮箱注册的 `aff_code` 通道仍生效，昵称 `guest one` 收敛为 `guestone`，被封禁用户仍被拦。
+- **关联计划**: `docs/plans/2026-07-30-oauth-provider-id-identity.md`（P2 遗留项 ①③ 已在此条完成）
+
 ## 2026-07-30
 
 ### fix(oauth): OAuth 登录改用 provider id 认人，堵掉可无限刷额度与封禁绕过

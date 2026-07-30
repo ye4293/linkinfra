@@ -5,38 +5,22 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
-	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/model"
 )
 
-// affCodeSessionKey session 里存放邀请码的键。
-const affCodeSessionKey = "aff_code"
-
-// readAffCode 按「查询参数优先、session 兜底」取邀请码。
+// readAffCode 从查询参数取邀请码。
 //
-// 两个通道各自覆盖一条注册流程：
-//   - 查询参数：POST /api/{provider}/login 这条前端直传流没有调用过
-//     /api/oauth/state，session 里不会有邀请码
-//   - session：GET /api/oauth/{provider}/callback 这条标准重定向流的回调
-//     URL 由 OAuth 提供商拼装，前端无法附加参数；走 session 还能让邀请码
-//     不出现在 URL 上（不进网关/CDN 访问日志）
+// 只有一个通道：POST /api/{provider}/login 与 /api/user/register 都由前端
+// 直接发起，邀请码由前端从落地页 URL（或 cookie）取出后附上。
 //
-// getSession 参数化是为了让这层取值逻辑能脱离真实 session store 测试。
-// 签名与 gin-contrib/sessions 的 Session.Get 一致（interface{} 入参），
-// 这样可以直接把 session.Get 传进来。
-func readAffCode(c *gin.Context, getSession func(key interface{}) interface{}) string {
-	if code := c.Query("aff_code"); code != "" {
-		return code
-	}
-	if getSession == nil {
-		return ""
-	}
-	if v, ok := getSession(affCodeSessionKey).(string); ok {
-		return v
-	}
-	return ""
+// 早先还有一条 session 通道，服务的是 GET /api/oauth/{provider}/callback
+// 那条标准重定向流 —— 回调 URL 由 OAuth 提供商拼装、前端无法附加参数，
+// 只能靠 /api/oauth/state 预先把邀请码寄存进 session。那套流程已经下线
+// （next-auth 接管了跳转），没有任何地方再往 session 写邀请码，通道随之
+// 变成死代码，一并删除。
+func readAffCode(c *gin.Context) string {
+	return c.Query("aff_code")
 }
 
 // resolveInviterId 解析出邀请人的用户 id；无邀请码或邀请码无效时返回 0。
@@ -44,8 +28,7 @@ func readAffCode(c *gin.Context, getSession func(key interface{}) interface{}) s
 // 邀请码无效不阻塞注册 —— 与密码注册流程（controller/user.go 里
 // GetUserIdByAffCode 的 error 被忽略）保持一致。
 func resolveInviterId(c *gin.Context) int {
-	session := sessions.Default(c)
-	code := readAffCode(c, session.Get)
+	code := readAffCode(c)
 	if code == "" {
 		return 0
 	}
@@ -54,19 +37,6 @@ func resolveInviterId(c *gin.Context) int {
 		return 0
 	}
 	return inviterId
-}
-
-// clearAffCodeSession 注册完成后清掉 session 里的邀请码，
-// 避免同一浏览器后续的 OAuth 操作误用一个陈旧的邀请码。
-func clearAffCodeSession(c *gin.Context) {
-	session := sessions.Default(c)
-	if session.Get(affCodeSessionKey) == nil {
-		return
-	}
-	session.Delete(affCodeSessionKey)
-	if err := session.Save(); err != nil {
-		logger.SysError("failed to clear aff_code from session: " + err.Error())
-	}
 }
 
 // maskUsername 对用户名脱敏：保留首尾字符，中间以 * 替代。

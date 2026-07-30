@@ -88,11 +88,11 @@ func GetUserByGoogleId(googleId string) (*User, error)
 - **行为变更**：邮箱注册过的用户首次用同邮箱 OAuth 登录，会得到一个新账号（决策 1 的直接结果）。
 - 旧路由 `/api/oauth/{github,google}/callback` 不改，前端未使用。
 
-## 遗留风险（P2，本轮不修）
+## 遗留风险（P2）
 
-1. **`github_id` 一列两种语义**：`GitHubLogin` 存 next-auth 的数字 id，`GithubOAuthCallback` 存 `githubUser.Login`（登录名）。两条路由都仍注册着，同一 GitHub 账号走不同路径会被认成两个人。本轮改动让身份识别依赖这一列，因此**建议下线未使用的旧路由**，或统一取值口径。
+1. ~~**`github_id` 一列两种语义**~~ —— **已于 2026-07-31 解决**：老的 OAuth 重定向流程（5 条路由与对应 handler）整体下线，`github_id` 只剩 next-auth 数字 id 一种语义。同批还移除了过时的「启用 OAuth 前必须先填 ClientId」校验（设置页没有该输入框，与新加的开关检查叠加会让 GitHub 登录彻底不可用），并清掉了随之变成死代码的邀请码 session 通道。见 CHANGELOG 2026-07-31。
 2. **`github_id` / `google_id` / `email` 都没有唯一约束**。本轮靠"先查再建"在应用层保证唯一，但并发请求仍有竞态窗口（路由上有 `CriticalRateLimit()` 缓解）。根治需要部分唯一索引（空串不能参与，否则邮箱注册用户的 `''` 会互相冲突）。
-3. `GoogleOAuthCallback` 发信失败静默 `return`，不给前端任何响应（`google.go:213`）。
+3. ~~`GoogleOAuthCallback` 发信失败静默 `return`~~ —— 该函数已随老流程删除。
 4. `Insert` 的邀请奖励非事务且 `_ = IncreaseUserQuotaAndGift(...)` 丢弃错误。
 5. `Insert` 覆盖调用方设置的 `AccessToken`（冗余，无害）。
 
