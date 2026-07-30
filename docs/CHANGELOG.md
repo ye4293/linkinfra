@@ -8,6 +8,33 @@
 
 ## 2026-07-30
 
+### fix(oauth): OAuth 登录改用 provider id 认人，堵掉可无限刷额度与封禁绕过
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `controller/github.go`、`controller/google.go`、`controller/oauth_login.go`（新增）、`controller/oauth_login_test.go`（新增）、`controller/testutil_test.go`（新增）、`model/user.go`
+- **说明**: 接完邀请码后对 GitHub / Google / 邮箱三条注册路径做对抗性审查，发现 `POST /api/{github,google}/login`（next-auth 实际走的那条）**只用 email 识别用户，完全不用 `github_id` / `google_id`** —— 这两列以及 `FillUserByGitHubId`、`IsGitHubIdAlreadyTaken` 都存在，但只被老的 `*OAuthCallback` 流程使用。`GetUserByEmail` 对空 email 返回 error，而调用方把 error 一律当「用户不存在」去建号，由此派生出一串缺陷，每个都先写失败测试复现再修：
+
+  **P0-1 可无限刷额度（资金）**：GitHub 用户不公开邮箱时 email 为空 → 每次登录都建新号 → 每次都发一份注册赠额、邀请人每次都拿一份邀请奖励。实测（赠额 5000 / 邀请人 3000 / 被邀请人 1000）同一个 `github_id` 带邀请码登录 3 次：建 3 个账号、白拿 18000、邀请人 +9000。`model.Insert` 的发放逻辑无条件执行，所以次数无上限。**修复后：建 1 个账号、拿 6000、邀请人 +3000。**
+
+  **P0-2 封禁完全绕过**：已存在用户分支不检查 `Status`。实测把用户置为 `status=2` 后走 OAuth 仍返回 `success=true` 并拿到 session 与 access_token（`GithubOAuthCallback` 有这个检查，新路径漏了）。
+
+  **P1-1 静默账号接管**：`email` 列只有普通 index、**没有唯一约束**，可存在多个同 email 用户，`GetUserByEmail` 用 `First` 取 id 最小的那条。实测一个陌生 Google 账号用相同 email 登录，登进了受害者账号，并把其 `username` 改成自己的 display name、`google_id` 写成自己的。
+
+  **P1-2 昵称撞名导致老用户永久登不进**：更新分支 `Username: user.Name` 直接覆盖，撞唯一索引就 `UNIQUE constraint failed: users.username` 且每次登录都撞；不撞也会把用户自己改过的用户名重置成 OAuth 昵称。
+
+  **P1-3 不检查任何开关**：新路径完全不看 `RegisterEnabled` / `GitHubOAuthEnabled` / `GoogleOAuthEnabled`，管理员关闭注册后照样能注册。
+
+  **P1-4 username 校验被绕过**：邮箱注册有 `validate:"max=12"`，OAuth 路径实测落库过 28 字符含空格的 `'Zhang Weiming Very Long Name'` —— 这类用户之后进设置页保存资料会被 `Validate` 卡住且无法自救。
+
+  **修法**：身份主键改为 provider id。新增 `model.GetUserByGitHubId` / `GetUserByGoogleId`，**不复用 `FillUserByGitHubId`** —— 后者把 `First` 的 error 完全丢掉并 `return nil`，找不到记录时交回一个 `Id=0` 的空 User，据此 `setupLogin` 会建出 id=0 的 session。查询区分 `ErrRecordNotFound` 与真实 DB 故障，后者不再被当成「用户不存在」而去建号。新增 `controller/oauth_login.go` 放共用逻辑：`generateOAuthUsername` 把昵称收敛成 `[A-Za-z0-9_-]` 并截断到 12 字符，撞名或为空时回退 `gh<id>`/`gg<id>`（前缀故意用两字母而非 `github_`，后者加 6 位 id 就超 12 了），原始昵称完整保留在 `display_name`；`loginExistingOAuthUser` 检查 `Status`、**不覆盖 username/display_name**（那是用户资产，OAuth 只拥有 provider id 和 email），只在本地 email 为空时补 email 且失败不阻断登录。顺带修 `IsGitHubIdAlreadyTaken`/`IsGoogleIdAlreadyTaken`/`IsUsernameAlreadyTaken` 的 `RowsAffected == 1` → `> 0`：这几列都没有唯一约束，同一值存在两行时原判断返回 `false`，调用方会当成「未被占用」继续建号，越建越多。
+
+  **产品决策**（已与用户确认）：OAuth 只认 provider id，**不做 email 自动关联** —— 邮箱注册过的老用户首次用 OAuth 会得到一个新账号，用这个代价换彻底关掉接管面。
+
+  **验证**：新增 10 项 controller 层测试（起真实 gin engine + session 中间件，httptest 打完整请求），每项都先在旧实现上复现缺陷；`go build`/`go vet`/`go test ./...` 全绿（14 包）。另用**临时 sqlite 库**（未触碰仓库里的 `one-api.db`）起真实服务重跑全部 6 个场景，逐条从缺陷行为转为预期行为。
+
+  **遗留（P2，本轮未修）**：① `github_id` 一列两种语义 —— `GitHubLogin` 存 next-auth 的数字 id，`GithubOAuthCallback` 存 `githubUser.Login`（登录名），两条路由都仍注册着，同一 GitHub 账号走不同路径会被认成两个人；本轮让身份识别依赖这一列，**建议下线未使用的旧路由**。② `github_id`/`google_id`/`email` 都没有唯一约束，本轮靠「先查再建」在应用层保证，并发仍有竞态窗口（路由上有 `CriticalRateLimit()` 缓解），根治需要部分唯一索引（空串不能参与）。③ `GoogleOAuthCallback` 发信失败静默 `return` 不给前端响应。④ `Insert` 的邀请奖励非事务且丢弃错误。
+- **关联计划**: `docs/plans/2026-07-30-oauth-provider-id-identity.md`
+
 ### feat(invite): 前端接入邀请码，补齐 OAuth 与邮箱注册两条注册路径
 - **分支**: `main`
 - **类型**: feat

@@ -382,6 +382,37 @@ func (user *User) FillUserByGoogleId() error {
 	return nil
 }
 
+// GetUserByGitHubId 按 GitHub id 查用户，找不到时返回 gorm.ErrRecordNotFound。
+//
+// 不要用 FillUserByGitHubId 代替：那个函数把 First 的 error 完全丢掉并
+// return nil，找不到记录时会交回一个 Id=0 的空 User —— 调用方若据此
+// setupLogin，就会建出一个 id=0 的 session。
+//
+// OAuth 登录必须按 provider id 认人而不是按 email：email 可能为空
+// （GitHub 用户不公开邮箱），而 email 相同也不代表是同一个人。
+func GetUserByGitHubId(githubId string) (*User, error) {
+	if githubId == "" {
+		return nil, errors.New("GitHub id is required")
+	}
+	var user User
+	if err := DB.Where("github_id = ?", githubId).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// GetUserByGoogleId 按 Google id 查用户，语义同 GetUserByGitHubId。
+func GetUserByGoogleId(googleId string) (*User, error) {
+	if googleId == "" {
+		return nil, errors.New("Google id is required")
+	}
+	var user User
+	if err := DB.Where("google_id = ?", googleId).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 func (user *User) FillUserByUsername() error {
 	if user.Username == "" {
 		return errors.New("username is required")
@@ -395,15 +426,18 @@ func IsEmailAlreadyTaken(email string) bool {
 }
 
 func IsGitHubIdAlreadyTaken(githubId string) bool {
-	return DB.Where("github_id = ?", githubId).Find(&User{}).RowsAffected == 1
+	// 用 > 0 而不是 == 1：github_id 列上没有唯一约束，同一个 id 存在两行时
+	// == 1 会返回 false，调用方据此判断「未被占用」会继续建号，越建越多。
+	return DB.Where("github_id = ?", githubId).Find(&User{}).RowsAffected > 0
 }
 
 func IsUsernameAlreadyTaken(username string) bool {
-	return DB.Where("username = ?", username).Find(&User{}).RowsAffected == 1
+	return DB.Where("username = ?", username).Find(&User{}).RowsAffected > 0
 }
 
 func IsGoogleIdAlreadyTaken(GoogleId string) bool {
-	return DB.Where("google_id = ?", GoogleId).Find(&User{}).RowsAffected == 1
+	// 同 IsGitHubIdAlreadyTaken 的理由
+	return DB.Where("google_id = ?", GoogleId).Find(&User{}).RowsAffected > 0
 }
 
 func ResetUserPasswordByEmail(email string, password string) error {

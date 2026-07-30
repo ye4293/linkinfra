@@ -18,6 +18,7 @@ import (
 	"github.com/songquanpeng/one-api/common/helper"
 	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/model"
+	"gorm.io/gorm"
 )
 
 type GitHubOAuthResponse struct {
@@ -41,6 +42,14 @@ type NextGithubUser struct {
 	Image string `json:"image"`
 }
 
+// GitHubLogin 是前端（next-auth）走的 GitHub 登录/注册入口。
+//
+// 身份主键是 GitHub 的 provider id，不是 email。原实现按 email 查找，
+// 而 GetUserByEmail 对空 email 返回 error、调用方把 error 一律当
+// 「用户不存在」，于是 GitHub 用户不公开邮箱（email 为空）时每次登录都
+// 建一个新号 —— 每次都发一份注册赠额、邀请人每次都拿一份邀请奖励，
+// 可以无限刷。按 email 认人还让任何拥有相同 email 的 GitHub 账号可以
+// 登进别人的账号并覆盖其用户名。
 func GitHubLogin(c *gin.Context) {
 	var user NextGithubUser
 	if err := c.ShouldBindJSON(&user); err != nil {
@@ -51,70 +60,75 @@ func GitHubLogin(c *gin.Context) {
 		return
 	}
 
-	// 查找现有用户
-	existingUser, err := model.GetUserByEmail(user.Email)
-	if err != nil {
-		// 检查用户名是否已存在
-		_, err := model.GetUserByUsername(user.Name, false)
-		if err == nil { // 用户名已存在
-			// 获取最大用户ID
-			maxId := model.GetMaxUserId()
-			// 创建新的用户名 (原用户名_新ID)
-			user.Name = fmt.Sprintf("%s_%d", user.Name, maxId+1)
-		}
-
-		inviterId := resolveInviterId(c)
-
-		// 创建新用户
-		newUser := model.User{
-			DisplayName: user.Name,
-			Username:    user.Name,
-			AccessToken: helper.GetUUID(),
-			Email:       user.Email,
-			GitHubId:    user.Id,
-			Role:        1,
-			// InviterId 字段与 Insert 参数都必须给：model.Insert 只用参数
-			// 发放注册奖励、不会回填这个字段。漏了它会造成「奖励发了但
-			// users.inviter_id 是 0」，而 GrantCommission 读的是
-			// invitee.InviterId —— 后续所有充值返现都不会触发。
-			InviterId: inviterId,
-		}
-
-		if err = newUser.Insert(inviterId); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"success": false,
-				"message": "Failed to create user: " + err.Error(),
-			})
-			return
-		}
-
-		clearAffCodeSession(c)
-		setupLogin(&newUser, c) // 使用统一的登录处理函数
-		return
-	}
-
-	// 用户存在，更新信息
-	updateUser := model.User{
-		Id:          existingUser.Id,
-		GitHubId:    user.Id,
-		Username:    user.Name,
-		DisplayName: user.Name,
-		Email:       user.Email,
-		Password:    "",
-		AccessToken: existingUser.AccessToken,
-		Role:        existingUser.Role,
-	}
-
-	if err := updateUser.Update(false); err != nil {
+	// 原实现不检查任何开关：管理员关掉 GitHub 登录后这条路径照样可用。
+	if !config.GitHubOAuthEnabled {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": err.Error(),
+			"message": "The administrator has not enabled login and registration through GitHub",
 		})
 		return
 	}
 
-	setupLogin(&updateUser, c) // 使用统一的登录处理函数
+	// provider id 是身份主键，空值必须拒绝 —— 否则所有没带 id 的请求
+	// 会被认成同一个「空 id 用户」。
+	if user.Id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Invalid request data: missing GitHub user id",
+		})
+		return
+	}
 
+	existingUser, err := model.GetUserByGitHubId(user.Id)
+	if err == nil {
+		loginExistingOAuthUser(existingUser, user.Email, c)
+		return
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		// 真实的 DB 故障不能被当成「用户不存在」而去建号。
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Failed to query user: " + err.Error(),
+		})
+		return
+	}
+
+	if !config.RegisterEnabled {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": "The administrator has closed new user registration",
+		})
+		return
+	}
+
+	inviterId := resolveInviterId(c)
+
+	newUser := model.User{
+		// Username 必须收敛：OAuth 昵称可能含空格、超长、或撞上别人的
+		// 用户名。原始昵称保留在 DisplayName 里。
+		Username:    generateOAuthUsername(user.Name, "gh"),
+		DisplayName: user.Name,
+		Email:       user.Email,
+		GitHubId:    user.Id,
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		// InviterId 字段与 Insert 参数都必须给：model.Insert 只用参数
+		// 发放注册奖励、不会回填这个字段。漏了它会造成「奖励发了但
+		// users.inviter_id 是 0」，而 GrantCommission 读的是
+		// invitee.InviterId —— 后续所有充值返现都不会触发。
+		InviterId: inviterId,
+	}
+
+	if err = newUser.Insert(inviterId); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": "Failed to create user: " + err.Error(),
+		})
+		return
+	}
+
+	clearAffCodeSession(c)
+	setupLogin(&newUser, c)
 }
 
 func GithubOAuth(c *gin.Context) {
