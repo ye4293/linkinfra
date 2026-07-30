@@ -6,6 +6,25 @@
 
 ---
 
+## 2026-07-30
+
+### feat(invite): 前端接入邀请码，补齐 OAuth 与邮箱注册两条注册路径
+- **分支**: `main`
+- **类型**: feat
+- **涉及文件**: 均在**前端仓库** `~/Desktop/linkinfra-web` —— `lib/aff-code.ts`（新增）、`sections/auth/user-auth-form.tsx`、`auth.config.ts`、`sections/topup/invite-card.tsx`、`next.config.js`。后端仓库仅文档。
+- **说明**: 后端在 `5e6cc86` 修好了 OAuth 邀请关系并给出前端契约，但前端一行都没接 —— 线上实际状态是**所有注册渠道的邀请关系全部丢失**，邀请人既拿不到注册奖励也拿不到后续充值返现。本次发现是三个独立的洞：① `auth.config.ts` 调 `/api/{github,google}/login` 没带 `aff_code`；② 邮箱注册 body 里没有 `aff_code` 字段；③ `invite-card.tsx` 生成的邀请链接指向**不存在的 `/register` 路由**，落地即 404。
+
+  **架构约束**：前端是 Next.js 14 + next-auth 5.0.0-beta.27，OAuth 跳转由 next-auth 接管，后端 `GET /api/oauth/{provider}/callback` 根本不参与 —— 所以后端契约的**方式 A（`/api/oauth/state?aff=` 寄存 session）在这个架构下用不上**（后端该通道保留不动，对上游老 React 前端仍有效），只能走方式 B 的 query 参数。而 `signIn` 回调是服务端代码、跑在 `/api/auth/callback/{provider}` 里，邀请链接 URL 上的 `?aff=` 那时已经丢了，因此新增 **cookie 中转**：`UserAuthForm` 落地时把 `?aff=` 写进 cookie，`auth.config.ts` 的 `withAffCode()` 用 `next/headers` 的 `cookies()` 读回拼成 `?aff_code=`。
+
+  **关键点**：两条注册路径读邀请码的方式**不一样**，混用会造成「接口返回成功但 `inviter_id` 是 0」这种最难发现的静默失败 —— OAuth 走 **query 参数 `aff_code`**（`controller/aff.go:30` 的 `readAffCode`），而邮箱注册读的是 **JSON body 的 `aff_code` 字段**（`controller/user.go:175`，**完全不看 query**，所以靠 `ApiHandler` 的 query 透传是传不进去的）。URL 上对用户暴露的参数名仍是 `aff`，只在传给后端时才改叫 `aff_code`。其余：`cookies()` **只能在回调函数体内调，绝不能提到模块顶层** —— `middleware.ts` 也 import 这份 config 且跑在 Edge runtime，顶层调用会炸掉整个中间件；cookie 的 `SameSite` **必须是 `Lax`**，它要在从 GitHub/Google 顶层导航回来的请求上被带回，`Strict` 会拦掉；`sanitizeAffCode` 限定 `[A-Za-z0-9_-]{1,32}`（对齐后端 `GenerateUniqueAffCode` 与 `varchar(32)`）不是防御性冗余，邀请码来自 URL 且要拼进 `document.cookie`，`?aff=x; path=/; domain=evil.com` 可以污染 cookie 属性。不做 cookie 清理：`signIn` 回调返回的是 next-auth 自己构造的 redirect，`cookies().delete()` 不保证生效，靠 30 分钟 max-age 过期即可 —— 残留无害，后端只在**新用户注册**分支用 `inviterId`，已存在用户登录（含 setting 页的 GitHub 绑定）不受影响。
+
+  **顺带修掉的既有隐患**：`invite-card.tsx` 的 `getServerAddress()` 读 `localStorage` 的 `'status'`，而**本仓库从没有任何地方写入过这个 key**（上游老 React 前端的遗留约定），所以后台配了 `server_address` 也不生效、永远落到 `window.location.origin` —— 改用 `useSystemConfig()`；`user?.aff_code || 'CODE'` 的占位符会让用户复制到一条必然失效的链接，改为未就绪时禁用 Copy 按钮。`handleUserRegister` 原本标注 `z.infer<typeof formSchema>` 但实际传的是另一种结构（已有的类型谎言），补 `RegisterParams` 并保持字段可选 —— **没有用 `?? ''` 兜成空串**，那会改变发给后端的 JSON（`undefined` 被 `JSON.stringify` 省略 key，空串会真的传过去，两者在后端校验路径不同）。
+
+  **验证**：`tsc --noEmit` / `lint` / `build` 全绿（middleware 78.7 kB 无 Edge runtime 报错）。用**临时 sqlite 库**（未触碰仓库里的 `one-api.db`）起后端做端到端：注册邀请人 A（id=2, `aff_code=Recm`）后，邮箱注册走 body、OAuth 走 `?aff_code=` 两条路径的 `inviter_id` **都正确落为 2**；无邀请码与无效邀请码两个反例均为 0 且不阻塞注册。`/register?aff=Recm` → 307 到 `/sign-in?aff=Recm`（参数保留）。`lib/aff-code.ts` 补 19 项单元验证，含 cookie 属性注入、换行注入、超长、相似前缀误匹配（`not_aff_code=WRONG`）等边界，全过。**未能验证**：真实 OAuth 往返需要真实凭证与外网回调，本地无法自动完成 —— 链路两端都已验证，中间依赖 `SameSite=Lax` 的语义，建议上线后用真实 GitHub 账号走一次注册并查 `users.inviter_id` 确认。
+
+  **教训**：`npx tsc --noEmit | head -20` 的 exit code 来自 `head`，会掩盖失败 —— 本轮曾因此误判一次「类型检查通过」，实际有 5 个 `string | undefined` 错误。tsc 必须重定向到文件再看 exit code。
+- **关联计划**: `docs/plans/2026-07-30-oauth-invite-frontend.md`
+
 ## 2026-07-29
 
 ### feat(flux): flux / replicate 生成图片自动转存 Cloudflare R2

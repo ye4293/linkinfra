@@ -12,7 +12,8 @@
 - `.github/workflows/` - CI/CD（docker-dev.yml 触发分支：`dev`）
 
 ## 关联仓库
-- **前端代码仓库**：`~/code/ezlinkai-web`（本项目实际使用的前端代码库，非仓库内置的 `web/default/`）
+- **前端代码仓库**：`~/Desktop/linkinfra-web`（remote `ye4293/linkinfra-web`，Next.js 14 + next-auth v5）。这是本项目实际使用的前端代码库，非仓库内置的 `web/default/`。
+  - 旧记录里的 `~/code/ezlinkai-web` 路径已不存在；`~/Desktop/ezlinkai-web-next`（remote `ye4293/ezlinkai-web`）是另一个已停更的仓库，不要改它。
 
 ## 常用命令
 ```bash
