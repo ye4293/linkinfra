@@ -36,6 +36,12 @@ func GitHubLogin(c *gin.Context) {
 		return
 	}
 
+	// 先校验请求确实来自我们自己的前端 —— 这个端点接收的是「用户已通过
+	// GitHub 认证」的断言，后端无法自证真伪，只能验证说话的人是谁。
+	if !verifyOAuthLoginSecret(c) {
+		return
+	}
+
 	// 原实现不检查任何开关：管理员关掉 GitHub 登录后这条路径照样可用。
 	if !config.GitHubOAuthEnabled {
 		c.JSON(http.StatusOK, gin.H{
@@ -83,8 +89,8 @@ func GitHubLogin(c *gin.Context) {
 		// Username 必须收敛：OAuth 昵称可能含空格、超长、或撞上别人的
 		// 用户名。原始昵称保留在 DisplayName 里。
 		Username:    generateOAuthUsername(user.Name, "gh"),
-		DisplayName: user.Name,
-		Email:       user.Email,
+		DisplayName: truncateRunes(user.Name, oauthDisplayNameMaxLength),
+		Email:       resolveOAuthEmail(user.Email),
 		GitHubId:    user.Id,
 		Role:        common.RoleCommonUser,
 		Status:      common.UserStatusEnabled,

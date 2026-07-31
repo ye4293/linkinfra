@@ -38,6 +38,20 @@ var PasswordLoginEnabled = true
 var PasswordRegisterEnabled = true
 var EmailVerificationEnabled = false
 var GitHubOAuthEnabled = false
+
+// OAuthLoginSecret 是前端（next-auth）与本服务之间的共享密钥，从环境变量
+// OAUTH_LOGIN_SECRET 读取。
+//
+// POST /api/{github,google}/login 接收的是「用户已通过 OAuth 认证」这个
+// 断言，OAuth 的 code 交换发生在前端（next-auth 持有 client secret），
+// 后端无法自己验证断言真伪。没有这道密钥，任何人拿着公开可查的
+// github_id（api.github.com/users/<login> 就能拿到）直接 POST 就能取得
+// 对方的 session 与 access_token —— 零凭证的全量账号接管。
+//
+// 未配置时这两个端点一律拒绝（fail closed）：若改成放行，漏配不会有任何
+// 症状，线上会长期处于裸奔状态而无人察觉。
+var OAuthLoginSecret = os.Getenv("OAUTH_LOGIN_SECRET")
+
 var TurnstileCheckEnabled = false
 var RegisterEnabled = true
 

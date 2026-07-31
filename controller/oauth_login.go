@@ -1,16 +1,60 @@
 package controller
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/songquanpeng/one-api/common"
+	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/helper"
 	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/model"
 )
+
+// oauthLoginSecretHeader 前端带共享密钥的请求头名。
+const oauthLoginSecretHeader = "X-OAuth-Login-Secret"
+
+// verifyOAuthLoginSecret 校验请求确实来自我们自己的前端。
+//
+// 这两个端点接收的是「用户已通过 GitHub / Google 认证」这个断言，而 OAuth
+// 的 code 交换发生在前端（next-auth 持有 client secret），后端没有任何办法
+// 自己验证断言真伪 —— 它只能验证「谁在说这句话」。
+//
+// 不做这道校验的后果已实测：受害者以 github_id=583231 注册后，任何人执行
+//
+//	curl -X POST /api/github/login -d '{"id":"583231",...}'
+//
+// 就能拿到受害者的 session 与 access_token，而 github_id 是公开信息。
+//
+// 用 subtle.ConstantTimeCompare 而不是 == ：后者按字节短路，攻击者可以
+// 通过测量响应时间逐位爆破出密钥。
+func verifyOAuthLoginSecret(c *gin.Context) bool {
+	expected := config.OAuthLoginSecret
+	if expected == "" {
+		// fail closed。放行的话漏配不会有任何症状，线上会长期裸奔。
+		logger.SysError("OAUTH_LOGIN_SECRET is not configured; rejecting OAuth login. " +
+			"Set the same value on both this service and the frontend to enable GitHub / Google login.")
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"message": "OAuth login is not configured on the server",
+		})
+		return false
+	}
+
+	got := c.GetHeader(oauthLoginSecretHeader)
+	if subtle.ConstantTimeCompare([]byte(got), []byte(expected)) != 1 {
+		logger.SysError("rejected OAuth login with missing or invalid " + oauthLoginSecretHeader)
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"success": false,
+			"message": "Unauthorized",
+		})
+		return false
+	}
+	return true
+}
 
 // oauthUsernameMaxLength 与 model.User.Username 的 validate:"max=12" 对齐。
 //
@@ -18,6 +62,17 @@ import (
 // common.Validate.Struct）直接落库，但用户之后在设置页保存资料时会被
 // 校验挡住 —— 那时已经无法自救。
 const oauthUsernameMaxLength = 12
+
+// oauthDisplayNameMaxLength 与 model.User.DisplayName 的 validate:"max=20" 对齐。
+// oauthEmailMaxLength 与 model.User.Email 的 validate:"max=50" 对齐。
+//
+// 这两个字段和 Username 是同一个问题：Insert 不跑 Validate，所以 OAuth 侧
+// 的超长值能落库；但设置页保存资料时走的是 UpdateSelf → Validate.Struct，
+// 会因为一个用户没主动填过的字段而拒绝全部改动，用户无法自救。
+const (
+	oauthDisplayNameMaxLength = 20
+	oauthEmailMaxLength       = 50
+)
 
 // sanitizeOAuthUsername 把 OAuth 昵称收敛成一个合法的用户名候选：
 // 只保留 [A-Za-z0-9_-]，并截断到 oauthUsernameMaxLength。
@@ -64,6 +119,41 @@ func generateOAuthUsername(rawName, prefix string) string {
 	return fmt.Sprintf("%s%s", prefix, strings.ToLower(helper.GetRandomString(8)))
 }
 
+// truncateRunes 按 rune 截断到 max 个字符。按 rune 而非 byte：中文昵称
+// 按 byte 切会切出乱码，而 go-playground/validator 的 max 对 string 也是
+// 按 utf8.RuneCountInString 计数的。
+func truncateRunes(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max])
+}
+
+// resolveOAuthEmail 决定新建 OAuth 用户时写入哪个 email。
+//
+// 两种情况返回空串：
+//   - 超过 oauthEmailMaxLength：写进去会让用户之后在设置页保存资料时被
+//     Validate 拒绝，而 email 不是他能随手改短的东西。
+//   - 该 email 已经属于另一个账号：email 列上没有唯一约束，重复落库后
+//     model.ResetUserPasswordByEmail（无 LIMIT 的 UPDATE）会把所有同
+//     email 的账号密码一起改掉。留空更安全，用户之后可以走
+//     /api/oauth/email/bind 自己绑。
+func resolveOAuthEmail(email string) string {
+	if email == "" {
+		return ""
+	}
+	if len([]rune(email)) > oauthEmailMaxLength {
+		logger.SysLog("oauth email too long, leaving it empty for the new user")
+		return ""
+	}
+	if model.IsEmailAlreadyTaken(email) {
+		logger.SysLog("oauth email already belongs to another account, leaving it empty for the new user")
+		return ""
+	}
+	return email
+}
+
 // loginExistingOAuthUser 处理「provider id 已经绑定过某个账号」的登录。
 //
 // 与原实现的关键差异：
@@ -82,12 +172,16 @@ func loginExistingOAuthUser(user *model.User, oauthEmail string, c *gin.Context)
 	}
 
 	if user.Email == "" && oauthEmail != "" {
-		patch := model.User{Id: user.Id, Email: oauthEmail}
-		if err := patch.Update(false); err != nil {
-			// 补 email 只是锦上添花，失败不该阻断登录。
-			logger.SysError("failed to backfill oauth email: " + err.Error())
-		} else {
-			user.Email = oauthEmail
+		// 走同一套 resolveOAuthEmail：回填也必须避开「已属于别人的 email」，
+		// 否则同样会造成 ResetUserPasswordByEmail 串号改密。
+		if safe := resolveOAuthEmail(oauthEmail); safe != "" {
+			patch := model.User{Id: user.Id, Email: safe}
+			if err := patch.Update(false); err != nil {
+				// 补 email 只是锦上添花，失败不该阻断登录。
+				logger.SysError("failed to backfill oauth email: " + err.Error())
+			} else {
+				user.Email = safe
+			}
 		}
 	}
 

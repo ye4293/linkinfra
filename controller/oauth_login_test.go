@@ -40,8 +40,18 @@ type oauthResp struct {
 
 func postOAuth(t *testing.T, r *gin.Engine, path, body string) oauthResp {
 	t.Helper()
+	return postOAuthWithSecret(t, r, path, body, config.OAuthLoginSecret)
+}
+
+// postOAuthWithSecret 用指定的共享密钥发请求。密钥为空时不带该头，
+// 用于模拟未经前端的伪造请求。
+func postOAuthWithSecret(t *testing.T, r *gin.Engine, path, body, secret string) oauthResp {
+	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	if secret != "" {
+		req.Header.Set(oauthLoginSecretHeader, secret)
+	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -53,20 +63,27 @@ func postOAuth(t *testing.T, r *gin.Engine, path, body string) oauthResp {
 }
 
 // withOAuthConfig 临时打开 OAuth 与注册开关，测试结束还原。
+//
+// 同时设置共享密钥：postOAuth 会自动带上它，这样各测试默认走"已通过
+// 前端校验"的路径，专注测各自的业务逻辑；密钥本身的校验由
+// oauth_secret_test.go 覆盖。
 func withOAuthConfig(t *testing.T, registerEnabled bool) {
 	t.Helper()
 	origGitHub, origGoogle := config.GitHubOAuthEnabled, config.GoogleOAuthEnabled
 	origRegister := config.RegisterEnabled
 	origNew, origInviter, origInvitee := config.QuotaForNewUser, config.QuotaForInviter, config.QuotaForInvitee
+	origSecret := config.OAuthLoginSecret
 
 	config.GitHubOAuthEnabled = true
 	config.GoogleOAuthEnabled = true
 	config.RegisterEnabled = registerEnabled
+	config.OAuthLoginSecret = "test-oauth-login-secret"
 
 	t.Cleanup(func() {
 		config.GitHubOAuthEnabled, config.GoogleOAuthEnabled = origGitHub, origGoogle
 		config.RegisterEnabled = origRegister
 		config.QuotaForNewUser, config.QuotaForInviter, config.QuotaForInvitee = origNew, origInviter, origInvitee
+		config.OAuthLoginSecret = origSecret
 	})
 }
 
@@ -319,9 +336,14 @@ func TestOAuthUsernameIsValid(t *testing.T) {
 	if strings.ContainsAny(got.Username, " \t") {
 		t.Errorf("username = %q 含空白字符", got.Username)
 	}
-	// 昵称本身应当保留在 display_name 里，不该丢失
-	if got.DisplayName != "Zhang Weiming Very Long Name" {
-		t.Errorf("display_name = %q, want 原始昵称", got.DisplayName)
+	// display_name 保留昵称，但必须收敛到 validate:"max=20" 之内 ——
+	// 原样落库会让用户之后在设置页保存任何资料时都被这个字段挡住。
+	if len([]rune(got.DisplayName)) > 20 {
+		t.Errorf("display_name = %q（%d 字符），超过 validate:\"max=20\"",
+			got.DisplayName, len([]rune(got.DisplayName)))
+	}
+	if !strings.HasPrefix("Zhang Weiming Very Long Name", got.DisplayName) {
+		t.Errorf("display_name = %q，应是原昵称的前缀（截断而非丢弃）", got.DisplayName)
 	}
 }
 

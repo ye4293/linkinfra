@@ -366,30 +366,15 @@ func (user *User) FillUserByEmail() error {
 	return nil
 }
 
-func (user *User) FillUserByGitHubId() error {
-	if user.GitHubId == "" {
-		return errors.New("GitHub id is required")
-	}
-	DB.Where(User{GitHubId: user.GitHubId}).First(user)
-	return nil
-}
-
-func (user *User) FillUserByGoogleId() error {
-	if user.GoogleId == "" {
-		return errors.New("Google id is required")
-	}
-	DB.Where(User{GoogleId: user.GoogleId}).First(user)
-	return nil
-}
-
 // GetUserByGitHubId 按 GitHub id 查用户，找不到时返回 gorm.ErrRecordNotFound。
-//
-// 不要用 FillUserByGitHubId 代替：那个函数把 First 的 error 完全丢掉并
-// return nil，找不到记录时会交回一个 Id=0 的空 User —— 调用方若据此
-// setupLogin，就会建出一个 id=0 的 session。
 //
 // OAuth 登录必须按 provider id 认人而不是按 email：email 可能为空
 // （GitHub 用户不公开邮箱），而 email 相同也不代表是同一个人。
+//
+// 早先这里还有一组 FillUserByGitHubId / IsGitHubIdAlreadyTaken，前者把
+// First 的 error 丢掉并 return nil（找不到记录时交回 Id=0 的空 User，据此
+// setupLogin 会建出 id=0 的 session）。它们随老 OAuth 流程下线后已无调用
+// 方，一并删除，这里是按 provider id 查用户的唯一入口。
 func GetUserByGitHubId(githubId string) (*User, error) {
 	if githubId == "" {
 		return nil, errors.New("GitHub id is required")
@@ -425,19 +410,12 @@ func IsEmailAlreadyTaken(email string) bool {
 	return DB.Where("email = ?", email).Find(&User{}).RowsAffected == 1
 }
 
-func IsGitHubIdAlreadyTaken(githubId string) bool {
-	// 用 > 0 而不是 == 1：github_id 列上没有唯一约束，同一个 id 存在两行时
-	// == 1 会返回 false，调用方据此判断「未被占用」会继续建号，越建越多。
-	return DB.Where("github_id = ?", githubId).Find(&User{}).RowsAffected > 0
-}
-
 func IsUsernameAlreadyTaken(username string) bool {
-	return DB.Where("username = ?", username).Find(&User{}).RowsAffected > 0
-}
-
-func IsGoogleIdAlreadyTaken(GoogleId string) bool {
-	// 同 IsGitHubIdAlreadyTaken 的理由
-	return DB.Where("google_id = ?", GoogleId).Find(&User{}).RowsAffected > 0
+	// 只需要知道存不存在，不必把整行（含 password hash、access_token）
+	// 拉回来。username 列有唯一索引，Limit(1) 也不会漏判。
+	var count int64
+	DB.Model(&User{}).Where("username = ?", username).Limit(1).Count(&count)
+	return count > 0
 }
 
 func ResetUserPasswordByEmail(email string, password string) error {
@@ -448,7 +426,26 @@ func ResetUserPasswordByEmail(email string, password string) error {
 	if err != nil {
 		return err
 	}
-	err = DB.Model(&User{}).Where("email = ?", email).Update("password", hashedPassword).Error
+	// email 列上没有唯一约束，历史数据里可能存在多个同 email 的账号。
+	// 原实现是一条无 LIMIT 的 UPDATE，一次找回会把所有同 email 账号的密码
+	// 一起改掉。这里先定位到唯一一行再改；命中多行时拒绝并报错，让问题
+	// 显式暴露而不是静默改掉一批账号的密码。
+	var ids []int
+	if err := DB.Model(&User{}).Where("email = ?", email).Pluck("id", &ids).Error; err != nil {
+		return err
+	}
+	switch len(ids) {
+	case 0:
+		return errors.New("user not found")
+	case 1:
+		// 正常路径
+	default:
+		logger.SysError(fmt.Sprintf(
+			"password reset aborted: %d accounts share email %s; refusing to overwrite all of them",
+			len(ids), email))
+		return errors.New("multiple accounts share this email, please contact support")
+	}
+	err = DB.Model(&User{}).Where("id = ?", ids[0]).Update("password", hashedPassword).Error
 	return err
 }
 

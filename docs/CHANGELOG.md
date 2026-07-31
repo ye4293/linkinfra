@@ -8,6 +8,35 @@
 
 ## 2026-07-31
 
+### fix(security): 修 code review 发现的 8 个缺陷，其中认证绕过为零凭证账号接管
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: 后端 `common/config/config.go`、`controller/oauth_login.go`、`controller/github.go`、`controller/google.go`、`controller/oauth_secret_test.go`（新增）、`controller/oauth_login_test.go`、`model/user.go`、`main.go`；前端 `~/Desktop/linkinfra-web` 的 `auth.config.ts`、`hooks/use-system-config.ts`、`lib/aff-code.ts`、`sections/auth/user-auth-form.tsx`、`sections/topup/invite-card.tsx`
+- **说明**: 上线前对本轮全部改动做 8 角度对抗性 review，存活 8 项，其中 3 项是本轮改动自己引入的回归。
+
+  **P0-1 认证绕过（既有漏洞，本轮让它更易利用）**：`POST /api/{github,google}/login` 只挂了 `CriticalRateLimit`，handler 把 body 里的 provider id 直接当身份主键查库，不校验任何凭证。实测受害者以 `github_id=583231` 注册后，`curl -X POST /api/github/login -d '{"id":"583231",...}'` 返回 `success=true` 与 `access_token`，再用该 session 请求 `/api/user/self` 读出受害者 email/quota/aff_code —— GitHub 数字 id 是公开信息，**零凭证全量账号接管**。改动前按 body 里的 email 查同样可伪造，所以是既有缺陷，但本轮把 `github_id` 定为身份主键让利用更稳定；更关键的是**新增的 10 个测试全部直接构造 body，没有一个断言「未验证的 body 应被拒绝」**，缺口在测试里完全不可见 —— 上一轮验证了"身份识别是否正确"，没问"这个断言凭什么可信"。修法：前后端共享密钥，新增 `config.OAuthLoginSecret`（env `OAUTH_LOGIN_SECRET`）+ `verifyOAuthLoginSecret` 校验 `X-OAuth-Login-Secret` 头。用 `subtle.ConstantTimeCompare` 而非 `==`（后者按字节短路，可通过响应时间逐位爆破）；**未配置时一律拒绝（fail closed）** —— 放行的话漏配没有任何症状，线上会长期裸奔；前端用**不带 `NEXT_PUBLIC_` 前缀**的 env，带前缀会被内联进客户端 bundle 等于公开发布密钥。
+
+  **P0-2 邀请链接指向后端地址（本轮引入的回归）**：`invite-card.tsx` 用 `server_address` 拼 `/sign-in`，但那是后端自身地址（被 doubao/kling 用来拼 provider 回调），前端地址是 `frontend_server_address`（`topup_stripe.go` 正在用它拼前端路由）。分域部署时邀请链接成了 `https://api.x.com/sign-in?aff=XXXX` → 打到 Go 服务 404，整条邀请拉新链路失效。讽刺的是改动前那段"坏"代码读的是从未被写入的 `localStorage['status']`，永远回落到 `window.location.origin` 恰好是对的 —— 本轮让配置生效反而激活了错误的变量。修法：`use-system-config` 增加 `frontendServerAddress`。
+
+  **P0-3 GitHub 登录一上线即全部失败（本轮引入）**：`GitHubOAuthEnabled` 默认 false，而设置页没有这个开关的 UI（只有类型定义），本轮新增的开关检查会让 GitHub 登录全部被拒。修法：不改默认值（不该绕过管理员意图），改为启动时 `warnOAuthLoginConfig()` 把配置缺口喊到日志，并写进上线清单。
+
+  **P1-4 DisplayName/Email 未收敛**：上一轮专门给 Username 加了 12 字符收敛并注释"超长会让用户在设置页无法自救"，但同一 struct literal 里的 `DisplayName`(max=20)、`Email`(max=50) 仍原样透传；`Insert` 不跑 Validate 所以能落库，而设置页保存走 `UpdateSelf` → `Validate.Struct` 会拒绝，用户改任何设置（含首次设置密码）都被一个自己没填过的字段挡住。修法：`truncateRunes` 按 rune 截断 DisplayName（保留前缀而非丢弃），email 超长则留空。
+
+  **P1-5 email 可重复 + 密码重置无 LIMIT**：改为按 provider id 认人后建号分支不再检查 email 占用，而 email 列只有普通 index，`ResetUserPasswordByEmail` 是无 LIMIT 的 UPDATE，一次找回会把所有同 email 账号的密码一起改掉。修法双层：`resolveOAuthEmail` 在 email 超长或已属于他人时留空（用户之后可走 `/api/oauth/email/bind` 自绑），回填路径走同一函数；`ResetUserPasswordByEmail` 改为先 Pluck 出 id，命中多行时拒绝并报错，让问题显式暴露而非静默改掉一批账号。
+
+  **P1-6 邀请码 cookie 从不清除**：老后端的 `clearAffCodeSession` 职责在 session 通道下线后没人接，新 cookie 有 30 分钟 max-age 但从不清 —— 共享设备下后一个注册者会被计入同一邀请人。修法：新增 `clearAffCode()`，邮箱注册成功后（客户端）与 `withAffCode` 读到即消费（服务端 best-effort，OAuth 登录后用户落在 /dashboard 而非登录页，客户端清除不会执行）两处调用；顺带修掉 `handleUserRegister` **不看返回值、注册失败也照样调 signIn** 的问题。
+
+  **P1-7 给死代码加了修正与注释**：`FillUserByGitHubId`/`FillUserByGoogleId`/`IsGitHubIdAlreadyTaken`/`IsGoogleIdAlreadyTaken` 在 `07f11f8` 后已零调用方，但上一轮选择"修判断 + 加注释"而非删除，且计划文档给的理由是"旧路径仍在用" —— 而路由删除与该修正在同一 diff 里，这句话落地即不成立。修法：删掉四个，`GetUserByXxxId` 作为唯一入口；顺带把 `IsUsernameAlreadyTaken` 从 `Find(&User{})`（SELECT * 拉含 password hash 的全部列）换成 `Limit(1).Count()`。
+
+  **P1-8 decodeURIComponent 未防护**：`readAffCodeCookie` 直接 decode，畸形百分号编码抛 `URIError` 会从 onSubmit 冒出去让注册请求发不出、用户点按钮毫无反应；而 `persistAffCode` 写入时并不 encode，读写不对称。修法：去掉 decode（邀请码限定 `[A-Za-z0-9_-]`，encode 本就恒等），正则提到模块级。
+
+  **验证**：后端 build/vet/test 全绿（14 包），前端 tsc/lint/build 全绿。新增 4 项密钥测试，先跑红复现绕过再修 —— 过程中发现自己的测试辅助有坑：`postOAuth` 会自动附上配置的密钥，用它测"攻击者不带密钥"实际模拟的是合法前端，必须用 `postOAuthWithSecret(..., "")`。端到端（临时 sqlite 库，未触碰 `one-api.db`）：重放此前成功的攻击返回 **401**、错误密钥 401、正确密钥正常登录、未配密钥 503 且启动日志告警；68 字符 email + 32 字符昵称 → display_name 截断到 20、email 留空；用已存在 email 走 OAuth 建号后同 email 仍只 1 行；邀请关系防回归（登录 4 次仍 1 个账号、`inviter_id` 正确）。
+
+  **上线必做**：① 两侧配置同一个 `OAUTH_LOGIN_SECRET`（前端不加 `NEXT_PUBLIC_` 前缀），不配则 OAuth 登录 503；② `PUT /api/option/` 显式启用 `GitHubOAuthEnabled`；③ 前端 `NEXT_PUBLIC_API_BASE_URL` 指向真实后端；④ 后台配置 `frontend_server_address`；⑤ 用真实 GitHub 账号带邀请链接走一次注册验证 `inviter_id`（cookie 中转依赖 `SameSite=Lax`，本地无法自动验证）。
+- **关联计划**: `docs/plans/2026-07-31-code-review-fixes.md`
+
+## 2026-07-31
+
 ### refactor(oauth): 下线老的 OAuth 重定向流程，解除「必须先填 ClientId」的启用死锁
 - **分支**: `main`
 - **类型**: refactor

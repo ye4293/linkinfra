@@ -139,6 +139,7 @@ func main() {
 	// Initialize options
 	model.InitOptionMap()
 	logger.SysLog(fmt.Sprintf("using theme %s", config.Theme))
+	warnOAuthLoginConfig()
 	if common.RedisEnabled {
 		// for compatibility with old versions
 		config.MemoryCacheEnabled = true
@@ -198,7 +199,7 @@ func main() {
 	common.SafeGoroutine(func() {
 		controller.StartXaiVideoTaskPoller(context.Background())
 	})
-	
+
 	// 启动 Goroutine 监控
 	go monitorGoroutines()
 
@@ -232,5 +233,32 @@ func main() {
 	err = server.Run(":" + port)
 	if err != nil {
 		logger.FatalLog("failed to start HTTP server: " + err.Error())
+	}
+}
+
+// warnOAuthLoginConfig 在启动时把 OAuth 登录的配置缺口喊出来。
+//
+// 两个缺口都会让 GitHub / Google 登录静默不可用，而且都不是代码能自己
+// 兜住的：
+//
+//   - OAUTH_LOGIN_SECRET 未配置：/api/{github,google}/login 会一律拒绝
+//     （fail closed）。这道密钥是后端唯一能判断「登录断言是否来自我们自己
+//     的前端」的手段，没有它任何人拿着公开可查的 github_id 就能接管账号。
+//   - {GitHub,Google}OAuthEnabled 关闭：对应的登录入口直接返回失败。
+//     GitHubOAuthEnabled 默认是 false，而设置页没有这个开关的输入框，
+//     所以新部署必须显式 PUT /api/option/ 打开，否则 GitHub 登录一上线就全挂。
+func warnOAuthLoginConfig() {
+	oauthInUse := config.GitHubOAuthEnabled || config.GoogleOAuthEnabled
+	if oauthInUse && config.OAuthLoginSecret == "" {
+		logger.SysError("OAUTH_LOGIN_SECRET is not set: GitHub / Google login will be rejected. " +
+			"Set the same secret on this service and on the frontend (env OAUTH_LOGIN_SECRET).")
+	}
+	if !config.GitHubOAuthEnabled {
+		logger.SysLog("GitHub login is disabled (GitHubOAuthEnabled=false); " +
+			"enable it via PUT /api/option/ if you intend to offer it")
+	}
+	if !config.GoogleOAuthEnabled {
+		logger.SysLog("Google login is disabled (GoogleOAuthEnabled=false); " +
+			"enable it via PUT /api/option/ if you intend to offer it")
 	}
 }

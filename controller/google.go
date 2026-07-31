@@ -30,6 +30,11 @@ func GoogleLogin(c *gin.Context) {
 		return
 	}
 
+	// 理由见 GitHubLogin
+	if !verifyOAuthLoginSecret(c) {
+		return
+	}
+
 	if !config.GoogleOAuthEnabled {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -71,8 +76,8 @@ func GoogleLogin(c *gin.Context) {
 
 	newUser := model.User{
 		Username:    generateOAuthUsername(user.Name, "gg"),
-		DisplayName: user.Name,
-		Email:       user.Email,
+		DisplayName: truncateRunes(user.Name, oauthDisplayNameMaxLength),
+		Email:       resolveOAuthEmail(user.Email),
 		GoogleId:    user.Id,
 		Role:        common.RoleCommonUser,
 		Status:      common.UserStatusEnabled,
