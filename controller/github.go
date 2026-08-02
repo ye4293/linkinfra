@@ -101,13 +101,9 @@ func GitHubLogin(c *gin.Context) {
 		InviterId: inviterId,
 	}
 
-	if err = newUser.Insert(inviterId); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"message": "Failed to create user: " + err.Error(),
-		})
-		return
-	}
-
-	setupLogin(&newUser, c)
+	// 建号 + 处理并发竞态（唯一索引会让后写入的那个失败，此时改为登进
+	// 另一个请求刚建好的账号，而不是把 duplicate key 报给用户）
+	insertOAuthUserHandlingRace(&newUser, inviterId, user.Email, func() (*model.User, error) {
+		return model.GetUserByGitHubId(user.Id)
+	}, c)
 }

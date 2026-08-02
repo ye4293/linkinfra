@@ -6,6 +6,27 @@
 
 ---
 
+## 2026-08-02
+
+### fix(security): provider id 加部分唯一索引；CORS 按路径分派，堵掉凭证跨站读取
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `model/migration_provider_id_unique.go`（新增）、`model/migration_provider_id_unique_test.go`（新增）、`model/main.go`、`middleware/cors.go`、`middleware/cors_test.go`（新增）、`router/main.go`、`router/api-router.go`、`router/dashboard.go`、`router/relay-router.go`、`controller/oauth_login.go`、`controller/github.go`、`controller/google.go`
+- **说明**: 上线前把 P2 里两项**与上线时机相关**的做掉，另两项（handler 去重、username 约束收口）纯内部质量，放到上线后。
+
+  **① provider id 部分唯一索引**。选在上线前做的理由是时机：现在库是全新的，加索引就是一次纯 schema 变更、零数据风险；等真实用户进来后再加，得先找出重复的 `github_id`/`google_id` 行、决定怎么合并才能建索引，成本差一个数量级。**必须是「部分」索引**（`WHERE <col> <> ''`）—— 邮箱注册用户这两列都是空串，普通唯一索引会让第二个邮箱注册用户直接插不进去。为什么需要它：controller 层是「先查再建」，两个并发请求可以同时查空、同时建号各拿一份注册赠额，路由上的 `CriticalRateLimit` 只把窗口变窄、没关掉它，DB 唯一索引是唯一能真正关掉的东西。PG 与 SQLite 原生支持带 WHERE 的部分索引，MySQL 不支持（要靠生成列绕，代价与收益不匹配）那里只告警。**email 故意不加**：`Register` 从来不校验 email 唯一，加约束会让「同邮箱注册第二个账号」这个既有行为突然开始失败，而那条路径的危害已经在上一轮的 `ResetUserPasswordByEmail` 里堵住了。有重复数据时列出重复值、跳过该索引、**不返回 error**（索引建不上通常要人工决定怎么合并，不该让服务起不来）。
+
+  加了索引之后竞态失败方会拿到 `duplicate key`，不能报给用户 —— 他只是点了一次登录。新增 `insertOAuthUserHandlingRace`：识别到唯一冲突就重查一次，登进另一个请求刚建好的账号。**这里踩过一次**：`IsDuplicateProviderIdError` 第一版只匹配索引名，而 PG 报**索引**名（`...unique constraint "idx_users_github_id_unique"`）、SQLite 报**列**名（`UNIQUE constraint failed: users.github_id`）完全不提索引 —— 测试立刻在 SQLite 上跑红（索引生效了，但竞态恢复不触发）。现在两种都认，且认列名时额外要求文本含 `unique`/`duplicate`，否则任何提到 `github_id` 的无关错误都会被误判。
+
+  **② CORS 按路径分派**。`/api/*` 走 session cookie，而原实现是 `AllowOriginFunc` 恒 true + `AllowCredentials: true`：rs/cors 在这种配置下把请求的 Origin **原样回显**（不是 `*`），浏览器**会**接受这种组合 —— 任何网站都能带着已登录用户的 cookie 读走他的 API key、额度、日志。回 `*` 反而会被浏览器拒掉，所以"原样回显"才是危险的那种。改为按认证方式分派：`/api/*`（cookie）走 `ALLOWED_ORIGINS` 白名单 + credentials；`/v1/*` 与 `/dashboard/*`（`TokenAuth` Bearer）保持 origin 开放但 **`AllowCredentials: false`** —— 浏览器不会自动附 Bearer token 所以 CSRF 与凭证盗读都不成立，而这是个 API 网关，用户在自己网页里直接调 `/v1/chat/completions` 是正常用法，收紧会直接打断他们。
+
+  **结构上差点写错**：最初给每棵路由树各挂一个 CORS，但 `SetApiRouter`/`SetDashboardRouter`/`SetRelayRouter` 拿到的是**同一个** `*gin.Engine`，里面的 `router.Use(...)` 都注册到全局 —— 三个 CORS 会依次跑过每个请求；非预检下后者覆盖前者的 header，而预检（OPTIONS）下 rs/cors 直接 `abort`，于是**第一个**注册的决定了所有路径的预检结果，给 `/api/*` 的严格白名单会连带把 `/v1/*` 的浏览器调用者全部挡掉。改为 `SetRouter` 里注册唯一一个 CORS、内部按路径分派，三处原有的 `router.Use(...CORS())` 全部移除。**未配置 `ALLOWED_ORIGINS` 时退回宽松 + 大声告警，不 fail closed** —— 与 `OAUTH_LOGIN_SECRET` 的取舍不同：那个只影响 OAuth 登录一个入口且防的是仅凭公开信息就能完成的账号接管，而 CORS 配错会让整个管理后台立刻不可用，比维持现状更糟。origin 精确匹配（大小写、尾斜杠容错），**不做通配子域**：`*.example.com` 很容易实现成前缀/后缀匹配从而把 `evil-example.com`、`example.com.evil.net` 一起放进来。
+
+  **验证**：`build`/`vet`/`test` 全绿（**15** 包）。新增 14 项测试 —— model 侧 7 项（多个空 provider id 能并存、重复被拦、幂等、有重复数据时不返回 error 且不影响另一索引、重复检测忽略空串、错误识别覆盖 PG/SQLite 两种文本 + 2 个反例、索引 SQL 必须带 WHERE），middleware 侧 7 项（真实 gin engine + httptest：白名单内外、`/v1/*` 开放但无 credentials、**预检按路径分派**、未配置时不锁死、origin 归一化、相似域名反例）。端到端（临时 sqlite 库，未触碰 `one-api.db`）：启动日志确认尾斜杠被归一化；索引落库确认为部分索引；`/api/status` 白名单内有 ACAO+credentials、`evil.example.net` **无 ACAO**；`/v1/models` 第三方 origin 有 ACAO 无 credentials；`/v1/chat/completions` 的 **OPTIONS 预检**第三方 origin 放行（严格版没泄漏到公共路径）；3 个邮箱注册用户全部成功、库里 provider id 全空的 4 个（部分索引正确放行多个空值）；**10 个并发请求同时用同一个新 github_id 登录 → 全部成功且都落到同一个 id、零 duplicate key 报错，DB 里只有 1 个账号、只发 1 份赠额**。
+
+  **顺带**：`gofmt -w router/*.go` 修掉了 `relay-router.go` 里 4 行既有的格式问题（3 行注释对齐 + 1 行行尾空白），与本次改动无关。
+- **关联计划**: `docs/plans/2026-08-02-p2-unique-index-and-cors.md`
+
 ## 2026-07-31
 
 ### fix(security): 修 code review 发现的 8 个缺陷，其中认证绕过为零凭证账号接管

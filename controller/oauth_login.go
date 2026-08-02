@@ -154,6 +154,44 @@ func resolveOAuthEmail(email string) string {
 	return email
 }
 
+// insertOAuthUserHandlingRace 建号并处理并发竞态。
+//
+// 「先查再建」有个窗口：两个请求同时查空、同时建号。github_id / google_id
+// 上的部分唯一索引（model.EnsureProviderIdUniqueIndexes）会让后写入的那个
+// 失败 —— 这正是我们要的，否则会产生两个账号、各发一份注册赠额。
+//
+// 但不能把 duplicate key 直接报给用户：他只是点了一次登录，看到「创建用户
+// 失败」毫无意义。正确的收尾是重查一次，登进另一个请求刚建好的那个账号。
+//
+// lookup 由调用方传入，因为按哪一列查是 provider 特有的。
+func insertOAuthUserHandlingRace(
+	newUser *model.User,
+	inviterId int,
+	oauthEmail string,
+	lookup func() (*model.User, error),
+	c *gin.Context,
+) {
+	err := newUser.Insert(inviterId)
+	if err == nil {
+		setupLogin(newUser, c)
+		return
+	}
+
+	if model.IsDuplicateProviderIdError(err) {
+		logger.SysLog("concurrent OAuth registration detected; logging into the account created by the other request")
+		if existing, lookupErr := lookup(); lookupErr == nil {
+			loginExistingOAuthUser(existing, oauthEmail, c)
+			return
+		}
+		// 重查也失败：说明不是竞态，而是别的问题，落到下面的通用报错。
+	}
+
+	c.JSON(http.StatusInternalServerError, gin.H{
+		"success": false,
+		"message": "Failed to create user: " + err.Error(),
+	})
+}
+
 // loginExistingOAuthUser 处理「provider id 已经绑定过某个账号」的登录。
 //
 // 与原实现的关键差异：
