@@ -8,6 +8,23 @@
 
 ## 2026-08-02
 
+### chore(deploy): 凭据移出受跟踪的 compose；补 .env.example 与两个必需的部署变量
+- **分支**: `main`
+- **类型**: chore
+- **涉及文件**: `docker-compose.yml`、`.env.example`（新增）、`.gitignore`
+- **说明**: 准备部署时核查配置，发现三个问题。
+
+  **① `docker-compose.yml` 里有真实生产凭据且受 git 跟踪**。`SQL_DSN` 的 MySQL 密码与 `REDIS_CONN_STRING` 的 Redis 密码都是明文，`git ls-files` 确认该文件受跟踪，最早进入历史是 `295efde`。**这两套凭据应视为已泄露**（仓库已推送到 GitHub）。本次把值改为从 `env_file: .env` 读取，`.gitignore` 增加 `.env.*` 并用 `!.env.example` 放行模板；全仓已无其它硬编码凭据（`docker-compose.长响应配置示例.yml` 用的是占位符）。**历史里的记录本次未清**——需要 `git filter-repo` 重写历史，而轮换密码比清历史更实际，已告知用户。
+
+  **② `NODE_TYPE=master` 缺失会让全新库一张表都不建**。`model/main.go:110` 的整段迁移被 `if !config.IsMasterNode { return db, err }` 门住，而 `IsMasterNode` 只在 `NODE_TYPE == "master"` 时为真。原 compose 没设这个变量 —— 现有部署能跑是因为库早已被迁移过，但全新 PG 库启动后会报 `no such table: users`（验证 P0 修复时实际踩到过），且本轮新增的 provider id 唯一索引也不会创建。已在 compose 里显式设上并注释说明多实例时只有一个设 master。
+
+  **③ 不设 `FRONTEND_BASE_URL` 会服务内嵌的老 React UI**。这里**更正上一轮的一处判断**：之前记为"`web/build` 只有 `.gitkeep`，三套内置 UI 从未被编进二进制"—— 那对本地构建成立，但 `Dockerfile:29` 会先用 node:16 把 `web/default` 构建到 `/web/build` 再 `COPY` 进 Go 构建目录被 `//go:embed` 打包，所以 **Docker 镜像里老 UI 是存在且会被服务的**（`router/main.go` 在 `FRONTEND_BASE_URL` 为空时走 `SetWebRouter`）。而这套 UI 仍在调 `07f11f8` 已下线的路由（`web/default/src/components/utils.js:4` 调 `/api/oauth/state`、`GitHubOAuth.js:17` 调 `/api/oauth/github`），直接访问后端域名并在老 UI 上点 GitHub 登录会 404。已在 compose 里设上该变量指向 Next 前端。
+
+  **`.env.example`** 覆盖 `SQL_DSN`（PG 为推荐、注明 MySQL 上部分唯一索引不生效）、`REDIS_CONN_STRING`、`SESSION_SECRET`（不设则每次重启登录态全失效）、`OAUTH_LOGIN_SECRET`（含 fail closed 的理由与"前端侧绝不能加 `NEXT_PUBLIC_` 前缀"的警告）、`ALLOWED_ORIGINS`（含为何它**不** fail closed 的取舍）、`FRONTEND_BASE_URL`。
+
+  **验证**：`git check-ignore` 逐个确认 `.env`/`.env.production`/`.env.local` 被忽略而 `.env.example` 受跟踪；compose 经 `yaml.safe_load` 校验合法，`environment` 段已无明文密码，`env_file`、`NODE_TYPE=master`、`FRONTEND_BASE_URL` 均就位。
+- **关联计划**: 无（配置整理，见 `docs/邀请码接入与OAuth安全加固-2026-08-02-miss.md` 的上线清单）
+
 ### fix(security): provider id 加部分唯一索引；CORS 按路径分派，堵掉凭证跨站读取
 - **分支**: `main`
 - **类型**: fix

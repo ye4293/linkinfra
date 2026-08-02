@@ -17,5 +17,9 @@ data
 .claude/settings.local.json
 .claude/worktrees/
 .env
+# .env.production / .env.local 这类变体也要挡住，但放行 .env.example
+# —— 它是不含真实值的模板，需要受跟踪
+.env.*
+!.env.example
 agents.md
 graphify-out

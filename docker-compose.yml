@@ -11,10 +11,20 @@ services:
     volumes:
       - ./data:/data
       - ./logs:/app/logs
+    # 凭据一律从 .env 读，不写进本文件 —— 本文件受 git 跟踪。
+    # 见 .env.example；.env 已被 .gitignore 覆盖。
+    env_file:
+      - .env
     environment:
       - TZ=Asia/Shanghai
-      - SQL_DSN=missai:rze@rV53e4BDwyj@tcp(ezlinkai.rwlb.rds-aliyun-america.rds.aliyuncs.com:3306)/ezlinkai2
-      - REDIS_CONN_STRING=rediss://ezlink-cache-user-1:sina*9Fgk@k7a8fs@ezlink-pgifdn.serverless.usw1.cache.amazonaws.com:6379
+      # NODE_TYPE 必须是 master：model/main.go 的整段迁移被
+      # `if !config.IsMasterNode { return }` 门住，不设则全新库一张表都不会建，
+      # provider id 的唯一索引也不会创建。多实例部署时只有一个设 master。
+      - NODE_TYPE=master
+      # FRONTEND_BASE_URL 指向 Next 前端。不设的话后端会在 / 上服务
+      # 内嵌的老 React UI（Dockerfile 会把 web/default 构建进二进制），
+      # 而那套 UI 仍在调已下线的 /api/oauth/state、/api/oauth/github。
+      - FRONTEND_BASE_URL=${FRONTEND_BASE_URL}
       - SYNC_FREQUENCY=120
       - BATCH_UPDATE_ENABLED=true
       - MEMORY_CACHE_ENABLED=true
