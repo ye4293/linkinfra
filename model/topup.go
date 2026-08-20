@@ -81,7 +81,7 @@ func SearchTopUps(userId int, tradeNo string, page int, pageSize int) (topups []
 
 // CompleteTopUpOrder 易支付等回调完成订单（保留创建时的 money / currency）
 func CompleteTopUpOrder(tradeNo string) error {
-	return completeTopUpOrder(tradeNo, nil, nil, "")
+	return completeTopUpOrder(tradeNo, nil, nil, nil, "")
 }
 
 // CompleteTopUpOrderManual 管理员补单：将详情序列化写入 other
@@ -96,12 +96,14 @@ func CompleteTopUpOrderManual(tradeNo string, meta TopUpManualCompleteMeta) erro
 	if err != nil {
 		return err
 	}
-	return completeTopUpOrder(tradeNo, nil, nil, string(b))
+	return completeTopUpOrder(tradeNo, nil, nil, nil, string(b))
 }
 
-// completeTopUpOrder 完成充值；moneyOverride / currencyOverride 非空时写回（Stripe 以 Checkout 回调为准）
-// manualOtherJSON 非空时表示管理员补单，写入 other
-func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride *string, manualOtherJSON string) error {
+// completeTopUpOrder 完成充值。
+// moneyOverride / currencyOverride 非空时写回订单（Stripe 以 Checkout 回调为准）。
+// quotaOverride 非空时按其值加额度（Stripe 按扣手续费后的净额），否则按 topUp.Amount 折算。
+// manualOtherJSON 非空时表示管理员补单，写入 other。
+func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride *string, quotaOverride *int64, manualOtherJSON string) error {
 	if tradeNo == "" {
 		return errors.New("trade number not provided")
 	}
@@ -139,7 +141,11 @@ func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride
 			return nil
 		}
 
-		quotaToAdd = AmountToQuota(float64(topUp.Amount))
+		if quotaOverride != nil {
+			quotaToAdd = *quotaOverride
+		} else {
+			quotaToAdd = AmountToQuota(float64(topUp.Amount))
+		}
 		if quotaToAdd <= 0 {
 			return errors.New("invalid top-up quota")
 		}

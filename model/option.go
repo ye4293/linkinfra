@@ -97,7 +97,6 @@ func InitOptionMap() {
 	config.OptionMap["StripeApiSecret"] = ""
 	config.OptionMap["StripeWebhookSecret"] = ""
 	config.OptionMap["StripePriceId"] = config.StripePriceId
-	config.OptionMap["StripeUnitPrice"] = strconv.FormatFloat(config.StripeUnitPrice, 'f', -1, 64)
 	config.OptionMap["StripeMinTopUp"] = strconv.Itoa(config.StripeMinTopUp)
 	config.OptionMap["StripePromotionCodesEnabled"] = strconv.FormatBool(config.StripePromotionCodesEnabled)
 
@@ -372,8 +371,6 @@ func updateOptionMap(key string, value string) (err error) {
 		config.StripeWebhookSecret = value
 	case "StripePriceId":
 		config.StripePriceId = value
-	case "StripeUnitPrice":
-		config.StripeUnitPrice, _ = strconv.ParseFloat(value, 64)
 	case "StripeMinTopUp":
 		config.StripeMinTopUp, _ = strconv.Atoi(value)
 	case "CfBucketFileName":

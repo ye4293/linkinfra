@@ -6,6 +6,19 @@
 
 ---
 
+## 2026-08-20
+
+### refactor(stripe): 下线 StripeUnitPrice 配置，改按 Stripe 净收金额充值额度
+- **分支**: `main`
+- **类型**: refactor
+- **涉及文件**: `common/config/config.go`、`model/option.go`、`router/api-router.go`、`controller/topup_stripe.go`、`model/topup_stripe.go`、`model/topup.go`、`docs/plans/2026-08-16-remove-stripe-unit-price.md`（新增）、`docs/plans/2026-08-16-stripe-net-amount-topup.md`（新增）、前端仓库 `linkinfra-web` 对应文件
+- **说明**: 两项 Stripe 充值链路优化。
+
+  **① 删除冗余 `StripeUnitPrice` 配置（前后端）**。该值只剩"前端预览金额展示"作用，既不影响实际收款（由 `StripePriceId` 单价 × quantity 决定），也不影响入账额度（由 `amount × QuotaPerUnit` 决定）。已确认 Stripe 后台单价 $1/unit，`amount` 即美金，预览接口 `/api/user/stripe/amount` 与配置项 UI 一并下线，前端 "You pay" 直接显示 `amount`。
+
+  **② webhook 改按扣手续费后的净额充值额度**。原 webhook 用 `amount_total`（毛额）回写订单但额度仍按 `topUp.Amount`（数量）算，与实际收款脱节。现改为取 `balance_transaction.net`（= `amount - fee`，已扣 Stripe 手续费）作为额度基准，路径：`checkout.session.completed` → `payment_intent` → `latest_charge` → `balance_transaction`。`completeTopUpOrder` 新增 `quotaOverride` 参数，仅 Stripe 净额路径使用，易支付/管理员补单不受影响。拿不到 `balance_transaction`（异步支付方式罕见）时 webhook 返回 503 让 Stripe 重试，幂等由 `status != pending` 早退保证。**影响**：用户充 $10 到账额度从 $10 等值降为净收金额等值（约 $9.41，手续费由用户额度承担）。
+- **关联计划**: `docs/plans/2026-08-16-remove-stripe-unit-price.md`、`docs/plans/2026-08-16-stripe-net-amount-topup.md`
+
 ## 2026-08-02
 
 ### chore(deploy): 凭据移出受跟踪的 compose；补 .env.example 与两个必需的部署变量

@@ -11,11 +11,13 @@ import (
 
 const StripeTopUpPaymentMethod = "stripe"
 
-func CreateStripeTopUp(userID int, amount int64, money float64, tradeNo string) error {
+func CreateStripeTopUp(userID int, amount int64, tradeNo string) error {
+	// StripePriceId 单价为 $1/unit，amount 即美金数量；webhook 回调会用
+	// 真实 amount_total 覆盖此字段，这里仅作下单时的预期金额。
 	topUp := &TopUp{
 		UserId:        userID,
 		Amount:        amount,
-		Money:         money,
+		Money:         float64(amount),
 		TradeNo:       tradeNo,
 		PaymentMethod: StripeTopUpPaymentMethod,
 		CreateTime:    helper.GetTimestamp(),
@@ -30,16 +32,18 @@ func CompleteStripeTopUp(tradeNo string) error {
 	return CompleteTopUpOrder(tradeNo)
 }
 
-// CompleteStripeTopUpFromCheckout 使用 Stripe Checkout Session 回调中的 amount_total、currency 写回订单并入账
-func CompleteStripeTopUpFromCheckout(tradeNo string, amountTotal int64, currency string) error {
-	major := StripeAmountTotalToMajor(amountTotal, currency)
-	m := major
+// CompleteStripeTopUpFromCheckout 用 Stripe 扣手续费后的净额（balance_transaction.net）
+// 折算额度并入账；netTotal 为最小货币单位（cents），currency 为结算货币。
+func CompleteStripeTopUpFromCheckout(tradeNo string, netTotal int64, currency string) error {
+	netMajor := StripeAmountTotalToMajor(netTotal, currency)
+	quota := AmountToQuota(netMajor)
+	m := netMajor
 	cur := strings.ToUpper(strings.TrimSpace(currency))
 	var cPtr *string
 	if cur != "" {
 		cPtr = &cur
 	}
-	return completeTopUpOrder(tradeNo, &m, cPtr, "")
+	return completeTopUpOrder(tradeNo, &m, cPtr, &quota, "")
 }
 
 func ExpireStripeTopUp(tradeNo string) error {

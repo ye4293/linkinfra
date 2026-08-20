@@ -2,11 +2,11 @@ package controller
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +16,7 @@ import (
 	"github.com/songquanpeng/one-api/model"
 	"github.com/stripe/stripe-go/v78"
 	"github.com/stripe/stripe-go/v78/checkout/session"
+	"github.com/stripe/stripe-go/v78/paymentintent"
 	"github.com/stripe/stripe-go/v78/webhook"
 )
 
@@ -44,44 +45,10 @@ func getStripeAvailability() (bool, string) {
 	return true, ""
 }
 
-func getStripePayMoney(amount int64) float64 {
-	return float64(amount) * config.StripeUnitPrice
-}
-
 func genStripeTradeNo(userId int) string {
 	raw := fmt.Sprintf("one-api-ref-%d-%d-%s", userId, time.Now().UnixMilli(), helper.GetRandomString(6))
 	hash := sha256.Sum256([]byte(raw))
 	return "ref_" + fmt.Sprintf("%x", hash[:16])
-}
-
-func RequestStripeAmount(c *gin.Context) {
-	var req StripePayRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Invalid parameters."})
-		return
-	}
-
-	enabled, reason := getStripeAvailability()
-	if !enabled {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": reason})
-		return
-	}
-	if req.Amount < int64(config.StripeMinTopUp) {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Minimum top-up amount is %d.", config.StripeMinTopUp)})
-		return
-	}
-
-	payMoney := getStripePayMoney(req.Amount)
-	if payMoney < 0.01 {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Top-up amount is too low."})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"data":    strconv.FormatFloat(payMoney, 'f', 2, 64),
-	})
 }
 
 func RequestStripePay(c *gin.Context) {
@@ -113,12 +80,6 @@ func RequestStripePay(c *gin.Context) {
 		return
 	}
 
-	payMoney := getStripePayMoney(req.Amount)
-	if payMoney < 0.01 {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Top-up amount is too low."})
-		return
-	}
-
 	userId := c.GetInt("id")
 	tradeNo := genStripeTradeNo(userId)
 
@@ -129,7 +90,7 @@ func RequestStripePay(c *gin.Context) {
 		return
 	}
 
-	if err := model.CreateStripeTopUp(userId, req.Amount, payMoney, tradeNo); err != nil {
+	if err := model.CreateStripeTopUp(userId, req.Amount, tradeNo); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to create order."})
 		return
 	}
@@ -203,7 +164,13 @@ func StripeWebhook(c *gin.Context) {
 
 	switch event.Type {
 	case stripe.EventTypeCheckoutSessionCompleted:
-		stripeSessionCompleted(event)
+		if err := stripeSessionCompleted(event); err != nil {
+			// 返回非 2xx 让 Stripe 重试（拿不到净额、入账失败等）。
+			// 已完成的订单重试时由 status != pending 幂等早退，不会重复加额度。
+			log.Printf("Stripe Webhook 处理失败，将重试: %v\n", err)
+			c.AbortWithStatus(http.StatusServiceUnavailable)
+			return
+		}
 	case stripe.EventTypeCheckoutSessionExpired:
 		stripeSessionExpired(event)
 	default:
@@ -213,40 +180,71 @@ func StripeWebhook(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-func stripeSessionCompleted(event stripe.Event) {
+func stripeSessionCompleted(event stripe.Event) error {
 	referenceId := event.GetObjectValue("client_reference_id")
 	status := event.GetObjectValue("status")
 	if status != "complete" {
 		log.Printf("Stripe Checkout 状态异常: %s, 订单: %s\n", status, referenceId)
-		return
+		return nil
 	}
 
 	if referenceId == "" {
 		log.Println("Stripe Webhook 未提供 client_reference_id")
-		return
+		return nil
 	}
 
 	LockOrder(referenceId)
 	defer UnlockOrder(referenceId)
 
-	amountStr := event.GetObjectValue("amount_total")
-	currency := event.GetObjectValue("currency")
-	amountTotal, parseErr := strconv.ParseInt(amountStr, 10, 64)
-	if parseErr != nil || amountStr == "" {
-		log.Printf("Stripe Webhook amount_total 解析失败(%v)，使用订单内金额: tradeNo=%s\n", parseErr, referenceId)
-		if err := model.CompleteStripeTopUp(referenceId); err != nil {
-			log.Printf("Stripe 充值完成失败: %s, 错误: %v\n", referenceId, err)
-		}
-		return
+	piId := event.GetObjectValue("payment_intent")
+	if piId == "" {
+		log.Printf("Stripe Webhook 未提供 payment_intent: tradeNo=%s\n", referenceId)
+		return errors.New("missing payment_intent")
 	}
 
-	if err := model.CompleteStripeTopUpFromCheckout(referenceId, amountTotal, currency); err != nil {
+	// 取扣手续费后的净额（balance_transaction.net）作为额度基准，
+	// 而非 Checkout 的 amount_total 毛额。
+	netTotal, currency, err := fetchStripeNetAmount(piId)
+	if err != nil {
+		log.Printf("Stripe 获取净额失败: %s, payment_intent=%s, 错误: %v\n", referenceId, piId, err)
+		return err
+	}
+
+	if strings.ToUpper(currency) != "USD" {
+		// QuotaPerUnit 按 USD 定义，非 USD 结算需人工核查。不阻断但告警。
+		log.Printf("Stripe 结算货币非 USD: %s, tradeNo=%s, 需人工核查\n", currency, referenceId)
+	}
+
+	if err := model.CompleteStripeTopUpFromCheckout(referenceId, netTotal, currency); err != nil {
 		log.Printf("Stripe 充值完成失败: %s, 错误: %v\n", referenceId, err)
-		return
+		return err
 	}
 
-	major := model.StripeAmountTotalToMajor(amountTotal, currency)
-	log.Printf("Stripe 收到款项: %s, %.2f %s\n", referenceId, major, strings.ToUpper(currency))
+	netMajor := model.StripeAmountTotalToMajor(netTotal, currency)
+	log.Printf("Stripe 净收入账: %s, %.2f %s\n", referenceId, netMajor, strings.ToUpper(currency))
+	return nil
+}
+
+// fetchStripeNetAmount 通过 PaymentIntent 取扣手续费后的净额。
+// 路径：payment_intent → latest_charge → balance_transaction → net。
+// checkout.session.completed 事件对象不含 balance_transaction，需主动检索。
+// 异步支付方式下 balance_transaction 可能尚未就绪，此时返回错误让 webhook 重试。
+func fetchStripeNetAmount(paymentIntentId string) (netTotal int64, currency string, err error) {
+	stripe.Key = config.StripeApiSecret
+
+	params := &stripe.PaymentIntentParams{}
+	params.AddExpand("latest_charge.balance_transaction")
+
+	pi, err := paymentintent.Get(paymentIntentId, params)
+	if err != nil {
+		return 0, "", err
+	}
+	if pi.LatestCharge == nil || pi.LatestCharge.BalanceTransaction == nil {
+		return 0, "", errors.New("balance_transaction not ready")
+	}
+
+	bt := pi.LatestCharge.BalanceTransaction
+	return bt.Net, string(bt.Currency), nil
 }
 
 func stripeSessionExpired(event stripe.Event) {
