@@ -8,6 +8,13 @@
 
 ## 2026-08-20
 
+### feat(stripe): 下单前限制 pending 订单数，防反复点击刷单
+- **分支**: `main`
+- **类型**: feat
+- **涉及文件**: `model/topup.go`、`controller/topup_stripe.go`
+- **说明**: `RequestStripePay` 此前每次调用都直接创建 pending 订单 + Stripe Checkout Session，无按用户限制。恶意脚本可绕过前端 `isSubmitting` 防抖反复调 `/api/user/stripe/pay` 堆积 pending。额度安全不受影响——pending 不入账，且 Stripe session 24h expired 后 webhook 自动关单——但可堆积订单、浪费 Stripe API。新增 `CountPendingTopUp(userId)`，下单前查 pending 数，**≥5 拒绝**。按 `user_id` 限制不靠 IP，换代理绕不过。查询失败 fail open（记日志继续），不阻断正常充值可用性。CriticalRateLimit 仍按 IP 限流（200/200min）作为第一道闸门。
+- **关联计划**: 无
+
 ### feat(stripe): 充值回跳成功提示 + 交易记录收据链接
 - **分支**: `main`
 - **类型**: feat

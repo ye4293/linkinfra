@@ -81,6 +81,18 @@ func RequestStripePay(c *gin.Context) {
 	}
 
 	userId := c.GetInt("id")
+
+	// 防 pending 堆积：该用户未完成订单过多则拒绝（阈值 5），避免反复点击
+	// 或脚本刷出大量 pending 订单。按 user_id 限制，不靠 IP，换代理也绕不过。
+	// 查询失败时 fail open（记日志继续），不阻断正常充值可用性。
+	pendingCount, pendingErr := model.CountPendingTopUp(userId)
+	if pendingErr == nil && pendingCount >= 5 {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "You have too many pending payments. Please complete them or try again later."})
+		return
+	} else if pendingErr != nil {
+		log.Printf("查询用户 %d pending 订单数失败，放行创建: %v\n", userId, pendingErr)
+	}
+
 	tradeNo := genStripeTradeNo(userId)
 
 	payLink, err := genStripeCheckoutLink(tradeNo, req.Amount, req.SuccessURL, req.CancelURL)

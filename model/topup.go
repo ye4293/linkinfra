@@ -262,3 +262,13 @@ func StripeAmountTotalToMajor(amountTotal int64, currency string) float64 {
 	}
 	return float64(amountTotal) / 100.0
 }
+
+// CountPendingTopUp 统计用户未完成（pending）的充值订单数。
+// 用于下单前防滥用：避免反复点击或脚本刷出大量 pending 订单堆积。
+func CountPendingTopUp(userId int) (int64, error) {
+	var count int64
+	err := DB.Model(&TopUp{}).
+		Where("user_id = ? AND status = ?", userId, "pending").
+		Count(&count).Error
+	return count, err
+}
