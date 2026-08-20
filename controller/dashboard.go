@@ -101,6 +101,24 @@ func GetUserDashboard(c *gin.Context) {
 	})
 }
 
+func GetAdminDashboardStats(c *gin.Context) {
+	stats, err := model.GetDashboard24hStats(0)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": stats, "message": ""})
+}
+
+func GetUserDashboardStats(c *gin.Context) {
+	stats, err := model.GetDashboard24hStats(c.GetInt("id"))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": stats, "message": ""})
+}
+
 func GetAllGraph(c *gin.Context) {
 	target := c.Query("target")
 	timestamp, _ := strconv.ParseInt(c.Query("time"), 10, 64)

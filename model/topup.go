@@ -22,8 +22,8 @@ type TopUp struct {
 	PaymentMethod string  `json:"payment_method" gorm:"type:varchar(50)"`
 	Currency      string  `json:"currency" gorm:"type:varchar(10);default:''"`
 	CreateTime    int64   `json:"create_time"`
-	CompleteTime  int64   `json:"complete_time"`
-	Status        string  `json:"status" gorm:"type:varchar(20);default:'pending'"`
+	CompleteTime  int64   `json:"complete_time" gorm:"index:idx_topups_status_complete_time,priority:2"`
+	Status        string  `json:"status" gorm:"type:varchar(20);default:'pending';index:idx_topups_status_complete_time,priority:1"`
 	// Other 扩展 JSON：管理员补单时写入 TopUpManualCompleteMeta 等，支付回调留空
 	Other string `json:"other" gorm:"type:text"`
 	// ReceiptUrl Stripe 收据链接（charge.receipt_url），支付回调写入，便于对账
