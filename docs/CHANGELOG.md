@@ -8,6 +8,13 @@
 
 ## 2026-08-20
 
+### fix(user): GetSelf 兜底生成邀请码，修复 billing 页邀请码不显示
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `controller/user.go`
+- **说明**: 老用户在 `aff_code` 生成逻辑加入前注册，该字段为空。`GetSelf`（`/api/user/self`）直接返回 `user.aff_code` 不兜底，导致 topup 页 `InviteCard` 的 `referralLink` 为空、一直显示 "Loading referral link..."。`GetAffCode`（`/api/user/aff`）本就有兜底生成逻辑，但 topupPage 用的是 GetSelf。现 GetSelf 复用同样兜底：`aff_code` 空 → `GenerateUniqueAffCode` 生成 + `Update` 落库，保证 `/api/user/self` 返回的 user 一定有邀请码。生成只在首次（空时）触发，之后走 DB。
+- **关联计划**: 无
+
 ### feat(stripe): 下单前限制 pending 订单数，防反复点击刷单
 - **分支**: `main`
 - **类型**: feat

@@ -412,6 +412,16 @@ func GetSelf(c *gin.Context) {
 		})
 		return
 	}
+	// 兜底生成 aff_code：老用户在 aff_code 生成逻辑加入前注册，该字段为空。
+	// 与 GetAffCode 一致——空则生成并落库，保证 /api/user/self 返回的 user
+	// 一定有邀请码（InviteCard 等前端依赖此字段拼 referral link，否则空显示 Loading）。
+	if user.AffCode == "" {
+		affCode, affErr := model.GenerateUniqueAffCode()
+		if affErr == nil {
+			user.AffCode = affCode
+			_ = user.Update(false)
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
