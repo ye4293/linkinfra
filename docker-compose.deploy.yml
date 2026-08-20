@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   ezlinkai:
-    image: ye4293xx7/one-api:latest
+    image: ye4293xx7/linkinfra:latest
     container_name: ezlinkai2
     restart: always
     command: --log-dir /app/logs

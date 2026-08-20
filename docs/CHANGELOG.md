@@ -8,6 +8,13 @@
 
 ## 2026-08-20
 
+### fix(security): 屏蔽后端内嵌 React UI，根路径改为返回纯 JSON
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `router/web-router.go`、`router/main.go`、`.env.example`、`docker-compose.yml`、`docker-compose.deploy.yml`、`docs/plans/2026-08-20-block-backend-ui.md`（新增）
+- **说明**: 后端启动后根路径 `/` 仍暴露内嵌的 React 管理控制台 UI（`web/default`），公网可直接访问。根因是 `router/main.go` 沿用上游"master 节点忽略 `FRONTEND_BASE_URL`、强制服务内嵌 UI"逻辑，而本部署是单 master + 独立 Next 前端，该逻辑把 compose 配好的 `FRONTEND_BASE_URL` 清空，导致 `SetWebRouter` 照常服务 UI、`NoRoute` 还把任意非 `/api`、`/v1` 路径回吐 index.html。现 `SetWebRouter` 不再挂 `static.Serve`/gzip/Cache/GlobalWebRateLimit，`NoRoute` 对 `/api`、`/v1` 前缀仍调 `controller.RelayNotFound`（OpenAI 风格 404），其余路径返回 `200 {"message":"Welcome to the LinkInfra API!"}`（仿 https://api.openai.com/ 根路径）。`router/main.go` 删掉 master 忽略与 301 跳转分支，直接调 `SetWebRouter`。`FRONTEND_BASE_URL` 已废弃，`.env.example` 与两个 compose 同步更新注释。**安全性**：经 gin v1.9.1 源码确认 `router.Use` 只影响调用之后注册的路由，`/api`、`/v1`、`/dashboard` 路由在 `SetWebRouter` 之前已用 `router.Group(...).Use` 固化 handler 链，删这 4 个 engine 级 `Use` 对 API 零影响；`/api` 限流本就是路由级挂的。**验证**：`go build ./... && go vet ./...` 通过。
+- **关联计划**: `docs/plans/2026-08-20-block-backend-ui.md`
+
 ### refactor(stripe): 下线 StripeUnitPrice 配置，改按 Stripe 净收金额充值额度
 - **分支**: `main`
 - **类型**: refactor
