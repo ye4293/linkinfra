@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/songquanpeng/one-api/relay/channel"
 	"github.com/songquanpeng/one-api/relay/channel/openai"
+	"github.com/songquanpeng/one-api/relay/constant"
 	"github.com/songquanpeng/one-api/relay/model"
 	"github.com/songquanpeng/one-api/relay/util"
 )
@@ -37,6 +38,10 @@ func (a *Adaptor) SetVersionByModeName(modelName string) {
 }
 
 func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
+	// Claude 原生请求 → 智谱 anthropic 兼容端点
+	if meta.Mode == constant.RelayModeClaude {
+		return fmt.Sprintf("%s/api/anthropic/v1/messages", meta.BaseURL), nil
+	}
 	a.SetVersionByModeName(meta.ActualModelName)
 	if a.APIVersion == "v4" {
 		return fmt.Sprintf("%s/api/paas/v4/chat/completions", meta.BaseURL), nil
@@ -50,6 +55,11 @@ func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Request, meta *util.RelayMeta) error {
 	channel.SetupCommonRequestHeader(c, req, meta)
+	// Claude 原生请求 → 智谱 anthropic 兼容端点用 Bearer 认证（非 JWT）
+	if meta.Mode == constant.RelayModeClaude {
+		req.Header.Set("Authorization", "Bearer "+meta.ActualAPIKey)
+		return nil
+	}
 	token := GetToken(meta.APIKey)
 	req.Header.Set("Authorization", token)
 	return nil

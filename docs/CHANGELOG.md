@@ -8,6 +8,13 @@
 
 ## 2026-08-20
 
+### feat(zhipu): 智谱渠道支持 Claude 协议自动分发
+- **分支**: `feat/zhipu-claude-dispatch`
+- **类型**: feat
+- **涉及文件**: `relay/channel/zhipu/adaptor.go`、`docs/plans/2026-08-20-zhipu-claude-protocol-dispatch.md`（新增）
+- **说明**: 智谱 adaptor 原仅支持 OpenAI 协议（v3/v4 + JWT），接 Claude Code 只能用绕法（选 claude 渠道类型 + 填智谱 anthropic 路径），导致智谱 GLM 消耗被记到 claude 渠道类型，未来"渠道类型消耗排行"会失真。现 `GetRequestURL` / `SetupRequestHeader` 加 `meta.Mode == constant.RelayModeClaude` 分支：Claude 原生请求（`/v1/messages`，由 `Path2RelayMode` 映射为 `RelayModeClaude`）走智谱 anthropic 兼容端点 `/api/anthropic/v1/messages` + `Authorization: Bearer <渠道key>`（`meta.ActualAPIKey`），消耗归属智谱渠道 `ChannelId`。`ConvertRequest` / `DoResponse` 不改——Claude body 由 `RelayClaudeNative` 透传、响应由 controller 层 `doNativeClaude*` 解析标准 `anthropic.Response`，智谱返回标准 Anthropic 格式直接兼容。OpenAI 协议链路（v3/v4 + JWT）保持不变。机制通用，后续 Kimi/MiniMax/阿里同模式照搬。参照 new-api `zhipu_4v` adaptor。`go build ./... && go vet ./...` 通过。
+- **关联计划**: `docs/plans/2026-08-20-zhipu-claude-protocol-dispatch.md`
+
 ### fix(user): GetSelf 兜底生成邀请码，修复 billing 页邀请码不显示
 - **分支**: `main`
 - **类型**: fix
