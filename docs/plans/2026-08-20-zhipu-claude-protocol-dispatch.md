@@ -78,7 +78,7 @@ Claude 原生响应由 controller 层 `doNativeClaudeStreamResponse` / `doNative
 ### 渠道配置
 - 类型=智谱，Base URL 填 `https://open.bigmodel.cn`（留空走默认 `common.ChannelBaseURLs[ChannelType]`，`relay_meta.go:155`）。
 - 密钥填智谱 API Key（一把 key 通吃：Claude 分支用 Bearer，OpenAI 分支仍用现有 JWT）。
-- 模型重定向：Claude Code 客户端发 `claude-*` 模型名，在渠道「模型重定向」配置 `claude-*` → 智谱接受的名字（实测确认是否必需）。
+- 无需模型映射：智谱 anthropic 兼容端点直接接受 `claude-*` 模型名（Claude Code 天然发的，智谱端内部映射到 glm），原生端点用 `glm-*`；按请求路径（`/v1/messages` vs `/v1/chat/completions`）自动分发，不配重定向。渠道模型列表同时含 `claude-*` 与 `glm-*` 即可。
 
 ## 影响范围
 
@@ -97,7 +97,7 @@ Claude 原生响应由 controller 层 `doNativeClaudeStreamResponse` / `doNative
    - 消耗日志的 `ChannelId` = 智谱渠道 ID（统计口径正确，未串到 claude 类型）。
 3. **回归**：同一智谱渠道发 OpenAI 协议 `/v1/chat/completions`（如 `glm-4`），仍走 `/api/paas/v4/chat/completions` + JWT，行为不变。
 4. **待实测项**：
-   - 智谱 anthropic 端点是否直接接受 `claude-*` 模型名，还是必须重定向到 `glm-*`；
+   - 智谱 anthropic 端点是否直接接受 `claude-*` 模型名（预期接受，智谱端内部映射到 glm，linkinfra 无需配重定向）；
    - 智谱返回是否 100% 标准 Anthropic 格式（native handler 理论兼容，实测确认 cache/usage 字段解析正常）；
    - 渠道 key 取 `meta.ActualAPIKey` 在 Claude 链路是否有值（对照 anthropic adaptor 现状确认）。
 
