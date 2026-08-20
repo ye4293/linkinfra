@@ -5,10 +5,11 @@ type Usage struct {
 	CompletionTokens    int `json:"completion_tokens,omitempty"`
 	TotalTokens         int `json:"total_tokens,omitempty"`
 	PromptTokensDetails struct {
-		CachedTokens int `json:"cached_tokens,omitempty"`
-		AudioTokens  int `json:"audio_tokens,omitempty"`
-		TextTokens   int `json:"text_tokens,omitempty"`
-		ImageTokens  int `json:"image_tokens,omitempty"`
+		CachedTokens     int `json:"cached_tokens,omitempty"`
+		CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+		AudioTokens      int `json:"audio_tokens,omitempty"`
+		TextTokens       int `json:"text_tokens,omitempty"`
+		ImageTokens      int `json:"image_tokens,omitempty"`
 	} `json:"prompt_tokens_details,omitempty"`
 	CompletionTokensDetails struct {
 		ReasoningTokens          int `json:"reasoning_tokens,omitempty"`

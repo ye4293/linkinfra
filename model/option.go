@@ -80,6 +80,7 @@ func InitOptionMap() {
 	config.OptionMap["ImageInputRatio"] = common.ImageInputRatio2JSONString()
 	config.OptionMap["ImageOutputRatio"] = common.ImageOutputRatio2JSONString()
 	config.OptionMap["CacheRatio"] = common.CacheRatio2JSONString()
+	config.OptionMap["CreateCacheRatio"] = common.CreateCacheRatio2JSONString()
 	config.OptionMap["PerCallPricing"] = common.ModelPrice2JSONString()
 	config.OptionMap["VideoPricingRules"] = common.VideoPricingRules2JSONString()
 	config.OptionMap["TopUpLink"] = config.TopUpLink
@@ -326,6 +327,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = common.UpdateImageOutputRatioByJSONString(value)
 	case "CacheRatio":
 		err = common.UpdateCacheRatioByJSONString(value)
+	case "CreateCacheRatio":
+		err = common.UpdateCreateCacheRatioByJSONString(value)
 	case "PerCallPricing":
 		err = common.UpdateModelPriceByJSONString(value)
 	case "VideoPricingRules":

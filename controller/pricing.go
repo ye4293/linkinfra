@@ -23,6 +23,7 @@ type ModelPriceInfo struct {
 	PriceType        string  `json:"price_type"`
 	HasRatio         bool    `json:"has_ratio"`
 	CacheRatio       float64 `json:"cache_ratio"`
+	CreateCacheRatio float64 `json:"create_cache_ratio"`
 	ImageInputRatio  float64 `json:"image_input_ratio"`
 	ImageOutputRatio float64 `json:"image_output_ratio"`
 	AudioInputRatio  float64 `json:"audio_input_ratio"`
@@ -84,11 +85,11 @@ func GetModelPrices(c *gin.Context) {
 		"success": true,
 		"message": "",
 		"data": gin.H{
-			"list":        filteredPrices[start:end],
-			"total":       total,
-			"page":        page,
-			"pageSize":    pageSize,
-			"totalPages":  (total + pageSize - 1) / pageSize,
+			"list":       filteredPrices[start:end],
+			"total":      total,
+			"page":       page,
+			"pageSize":   pageSize,
+			"totalPages": (total + pageSize - 1) / pageSize,
 		},
 	})
 }
@@ -184,6 +185,7 @@ func UpdateModelRatio(c *gin.Context) {
 		AudioInputRatio  *float64 `json:"audio_input_ratio"`
 		AudioOutputRatio *float64 `json:"audio_output_ratio"`
 		CacheRatio       *float64 `json:"cache_ratio"`
+		CreateCacheRatio *float64 `json:"create_cache_ratio"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -298,6 +300,13 @@ func UpdateModelRatio(c *gin.Context) {
 			return
 		}
 	}
+	if req.CreateCacheRatio != nil {
+		common.CreateCacheRatio[req.ModelName] = *req.CreateCacheRatio
+		if err := model.UpdateOption("CreateCacheRatio", common.CreateCacheRatio2JSONString()); err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save create cache ratios: " + err.Error()})
+			return
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -318,6 +327,7 @@ func BatchUpdateModelRatio(c *gin.Context) {
 			AudioInputRatio  *float64 `json:"audio_input_ratio"`
 			AudioOutputRatio *float64 `json:"audio_output_ratio"`
 			CacheRatio       *float64 `json:"cache_ratio"`
+			CreateCacheRatio *float64 `json:"create_cache_ratio"`
 		} `json:"models"`
 	}
 
@@ -337,6 +347,7 @@ func BatchUpdateModelRatio(c *gin.Context) {
 	audioInputRatioUpdated := false
 	audioOutputRatioUpdated := false
 	cacheRatioUpdated := false
+	createCacheRatioUpdated := false
 
 	for _, m := range req.Models {
 		if m.ModelRatio != nil {
@@ -370,6 +381,10 @@ func BatchUpdateModelRatio(c *gin.Context) {
 		if m.CacheRatio != nil {
 			common.CacheRatio[m.ModelName] = *m.CacheRatio
 			cacheRatioUpdated = true
+		}
+		if m.CreateCacheRatio != nil {
+			common.CreateCacheRatio[m.ModelName] = *m.CreateCacheRatio
+			createCacheRatioUpdated = true
 		}
 	}
 
@@ -461,6 +476,12 @@ func BatchUpdateModelRatio(c *gin.Context) {
 			return
 		}
 	}
+	if createCacheRatioUpdated {
+		if err := model.UpdateOption("CreateCacheRatio", common.CreateCacheRatio2JSONString()); err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save create cache ratios: " + err.Error()})
+			return
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -471,10 +492,10 @@ func BatchUpdateModelRatio(c *gin.Context) {
 // getAllModelPrices 获取所有模型的价格信息
 func getAllModelPrices() []ModelPriceInfo {
 	var prices []ModelPriceInfo
-	
+
 	// 基础价格单位：$0.002 / 1K tokens
 	basePricePerK := 0.002
-	
+
 	// 获取QuotaPerUnit配置
 	quotaPerUnit := config.QuotaPerUnit
 	if quotaPerUnit <= 0 {
@@ -485,13 +506,13 @@ func getAllModelPrices() []ModelPriceInfo {
 	processedModels := make(map[string]bool)
 	for modelName, ratio := range common.ModelRatio {
 		processedModels[modelName] = true
-		
+
 		// 计算输入价格 ($/1M tokens)
 		inputPricePerM := ratio * basePricePerK * 1000
-		
+
 		// 获取补全倍率
 		completionRatio := common.GetCompletionRatio(modelName)
-		
+
 		// 计算输出价格 ($/1M tokens)
 		outputPricePerM := inputPricePerM * completionRatio
 
@@ -505,6 +526,7 @@ func getAllModelPrices() []ModelPriceInfo {
 			PriceType:        "ratio",
 			HasRatio:         true,
 			CacheRatio:       common.GetCacheRatio(modelName),
+			CreateCacheRatio: common.GetConfiguredCreateCacheRatio(modelName),
 			ImageInputRatio:  common.GetImageInputRatio(modelName),
 			ImageOutputRatio: common.GetImageOutputRatio(modelName),
 			AudioInputRatio:  common.GetAudioInputRatio(modelName),
@@ -565,4 +587,3 @@ func getUsedModelsFromChannels() map[string]bool {
 
 	return usedModels
 }
-

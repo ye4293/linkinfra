@@ -253,6 +253,7 @@ func postConsumeQuota(ctx context.Context, c *gin.Context, usage *relaymodel.Usa
 	promptTokens := usage.PromptTokens
 	completionTokens := usage.CompletionTokens
 	cachedTokens := usage.PromptTokensDetails.CachedTokens
+	cacheWriteTokens := usage.PromptTokensDetails.CacheWriteTokens
 
 	billingModelName := meta.BillingModelName()
 	if billingModelName == "" {
@@ -270,17 +271,18 @@ func postConsumeQuota(ctx context.Context, c *gin.Context, usage *relaymodel.Usa
 		logContent = fmt.Sprintf("模型固定价格 %.2f$，等级折扣 %.2f，渠道折扣 %.2f，用户渠道折扣 %.2f", modelPrice, tierRatio, meta.ChannelDiscount, meta.UserChannelRatio)
 	} else {
 		// 使用基于token的倍率计费
-		if cachedTokens > 0 {
+		if cachedTokens > 0 || cacheWriteTokens > 0 {
 			// 有缓存命中：从输入 token 中扣除缓存部分，缓存按 cacheRatio 折扣计费
 			cacheRatio := common.GetCacheRatio(billingModelName)
-			nonCachedPromptTokens := promptTokens - cachedTokens
+			nonCachedPromptTokens := promptTokens - cachedTokens - cacheWriteTokens
 			if nonCachedPromptTokens < 0 {
 				nonCachedPromptTokens = 0
 			}
 			inputQuota := float64(nonCachedPromptTokens) * modelRatio * groupRatio
 			cacheQuota := float64(cachedTokens) * modelRatio * cacheRatio * groupRatio
+			cacheWriteQuota := float64(cacheWriteTokens) * modelRatio * common.GetCreateCacheRatio(billingModelName) * groupRatio
 			outputQuota := float64(completionTokens) * modelRatio * completionRatio * groupRatio
-			quota = int64(math.Ceil(inputQuota + cacheQuota + outputQuota))
+			quota = int64(math.Ceil(inputQuota + cacheQuota + cacheWriteQuota + outputQuota))
 		} else {
 			quota = int64(math.Ceil((float64(promptTokens) + float64(completionTokens)*completionRatio) * ratio))
 		}
@@ -334,6 +336,10 @@ func postConsumeQuota(ctx context.Context, c *gin.Context, usage *relaymodel.Usa
 		if cachedTokens > 0 {
 			billingDetails["cached_tokens"] = cachedTokens
 			billingDetails["cache_ratio"] = common.GetCacheRatio(billingModelName)
+		}
+		if cacheWriteTokens > 0 {
+			billingDetails["cache_write_tokens"] = cacheWriteTokens
+			billingDetails["create_cache_ratio"] = common.GetCreateCacheRatio(billingModelName)
 		}
 		otherInfo = appendBillingDetails(ctx, otherInfo, billingDetails)
 		// 把重试历史（如有）也拼进 other，供管理员展开查看

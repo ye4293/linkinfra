@@ -129,10 +129,10 @@ type ImageResponse struct {
 			ImageTokens int `json:"image_tokens,omitempty"`
 			TextTokens  int `json:"text_tokens,omitempty"`
 		} `json:"input_tokens_details,omitempty"`
-		OutputTokens int `json:"output_tokens,omitempty"`
+		OutputTokens        int `json:"output_tokens,omitempty"`
 		OutputTokensDetails struct {
-			TextTokens      int `json:"text_tokens,omitempty"`
-			ImageTokens     int `json:"image_tokens,omitempty"`
+			TextTokens  int `json:"text_tokens,omitempty"`
+			ImageTokens int `json:"image_tokens,omitempty"`
 		} `json:"output_tokens_details,omitempty"`
 		TotalTokens int `json:"total_tokens,omitempty"`
 	} `json:"usage,omitempty"`
@@ -207,33 +207,33 @@ type SoraVideoResponse struct {
 // OpeanaiResaponseReques OpenAI Responses API 请求体
 // docs: https://platform.openai.com/docs/api-reference/responses/create
 type OpeanaiResaponseRequest struct {
-	Background        bool           `json:"background,omitempty"`          // 是否后台运行
-	Conversation      interface{}    `json:"conversation,omitempty"`        // 对话上下文
-	FrequencyPenalty  float64        `json:"frequency_penalty,omitempty"`   // 频率惩罚
-	Include           []string       `json:"include,omitempty"`             // 包含的字段
-	Input             interface{}    `json:"input,omitempty"`               // 输入内容（可以是字符串或消息数组）
-	Instructions      string         `json:"instructions,omitempty"`        // 系统指令
-	LogitBias         map[string]int `json:"logit_bias,omitempty"`          // Logit 偏置
-	MaxOutputTokens   int            `json:"max_output_tokens,omitempty"`   // 最大输出 token 数
-	MaxToolCalls      int            `json:"max_tool_calls,omitempty"`      // 最大工具调用次数
-	Metadata          interface{}    `json:"metadata,omitempty"`            // 元数据
-	Modalities        []string       `json:"modalities,omitempty"`          // 模态（text, audio）
-	Model             string         `json:"model,omitempty"`               // 模型名称
-	ParallelToolCalls bool           `json:"parallel_tool_calls,omitempty"` // 是否并行调用工具
-	PresencePenalty   float64        `json:"presence_penalty,omitempty"`    // 存在惩罚
-	PreviousResponseID string        `json:"previous_response_id,omitempty"` // 上一次响应 ID（用于续写 / compact）
-	Reasoning         interface{}    `json:"reasoning,omitempty"`           // 推理配置
-	ResponseFormat    interface{}    `json:"response_format,omitempty"`     // 响应格式
-	Seed              int            `json:"seed,omitempty"`                // 随机种子
-	Stop              interface{}    `json:"stop,omitempty"`                // 停止序列
-	Store             bool           `json:"store,omitempty"`               // 是否存储
-	Stream            bool           `json:"stream,omitempty"`              // 是否流式返回
-	StreamOptions     interface{}    `json:"stream_options,omitempty"`      // 流式选项
-	Temperature       float64        `json:"temperature,omitempty"`         // 温度参数
-	ToolChoice        interface{}    `json:"tool_choice,omitempty"`         // 工具选择策略
-	Tools             []interface{}  `json:"tools,omitempty"`               // 可用工具列表
-	TopP              float64        `json:"top_p,omitempty"`               // Top-p 采样参数
-	User              string         `json:"user,omitempty"`                // 用户标识
+	Background         bool           `json:"background,omitempty"`           // 是否后台运行
+	Conversation       interface{}    `json:"conversation,omitempty"`         // 对话上下文
+	FrequencyPenalty   float64        `json:"frequency_penalty,omitempty"`    // 频率惩罚
+	Include            []string       `json:"include,omitempty"`              // 包含的字段
+	Input              interface{}    `json:"input,omitempty"`                // 输入内容（可以是字符串或消息数组）
+	Instructions       string         `json:"instructions,omitempty"`         // 系统指令
+	LogitBias          map[string]int `json:"logit_bias,omitempty"`           // Logit 偏置
+	MaxOutputTokens    int            `json:"max_output_tokens,omitempty"`    // 最大输出 token 数
+	MaxToolCalls       int            `json:"max_tool_calls,omitempty"`       // 最大工具调用次数
+	Metadata           interface{}    `json:"metadata,omitempty"`             // 元数据
+	Modalities         []string       `json:"modalities,omitempty"`           // 模态（text, audio）
+	Model              string         `json:"model,omitempty"`                // 模型名称
+	ParallelToolCalls  bool           `json:"parallel_tool_calls,omitempty"`  // 是否并行调用工具
+	PresencePenalty    float64        `json:"presence_penalty,omitempty"`     // 存在惩罚
+	PreviousResponseID string         `json:"previous_response_id,omitempty"` // 上一次响应 ID（用于续写 / compact）
+	Reasoning          interface{}    `json:"reasoning,omitempty"`            // 推理配置
+	ResponseFormat     interface{}    `json:"response_format,omitempty"`      // 响应格式
+	Seed               int            `json:"seed,omitempty"`                 // 随机种子
+	Stop               interface{}    `json:"stop,omitempty"`                 // 停止序列
+	Store              bool           `json:"store,omitempty"`                // 是否存储
+	Stream             bool           `json:"stream,omitempty"`               // 是否流式返回
+	StreamOptions      interface{}    `json:"stream_options,omitempty"`       // 流式选项
+	Temperature        float64        `json:"temperature,omitempty"`          // 温度参数
+	ToolChoice         interface{}    `json:"tool_choice,omitempty"`          // 工具选择策略
+	Tools              []interface{}  `json:"tools,omitempty"`                // 可用工具列表
+	TopP               float64        `json:"top_p,omitempty"`                // Top-p 采样参数
+	User               string         `json:"user,omitempty"`                 // 用户标识
 
 	// Audio 相关字段
 	Audio *AudioConfig `json:"audio,omitempty"` // 音频配置
@@ -283,10 +283,11 @@ type ResponseUsage struct {
 
 // InputTokensDetails 输入 token 详细信息
 type InputTokensDetails struct {
-	CachedTokens int `json:"cached_tokens,omitempty"` // 缓存的 token 数
-	TextTokens   int `json:"text_tokens,omitempty"`   // 文本 token 数
-	AudioTokens  int `json:"audio_tokens,omitempty"`  // 音频 token 数
-	ImageTokens  int `json:"image_tokens,omitempty"`  // 图像 token 数
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
+	CachedTokens     int `json:"cached_tokens,omitempty"` // 缓存的 token 数
+	TextTokens       int `json:"text_tokens,omitempty"`   // 文本 token 数
+	AudioTokens      int `json:"audio_tokens,omitempty"`  // 音频 token 数
+	ImageTokens      int `json:"image_tokens,omitempty"`  // 图像 token 数
 }
 
 // OutputTokensDetails 输出 token 详细信息

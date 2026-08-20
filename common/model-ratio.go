@@ -212,13 +212,17 @@ var CacheRatio = map[string]float64{
 	"claude-3-haiku-20240307":    0.1,
 	"claude-sonnet-4-20250514":   0.1,
 	// Gemini 模型的缓存读取倍率（官方定价：缓存读取为输入价格的 25%）
-	"gemini-2.5-pro":             0.25,
-	"gemini-2.5-flash":           0.25,
-	"gemini-2.0-flash":           0.25,
-	"gemini-2.0-flash-lite":      0.25,
-	"gemini-1.5-pro":             0.25,
-	"gemini-1.5-flash":           0.25,
+	"gemini-2.5-pro":        0.25,
+	"gemini-2.5-flash":      0.25,
+	"gemini-2.0-flash":      0.25,
+	"gemini-2.0-flash-lite": 0.25,
+	"gemini-1.5-pro":        0.25,
+	"gemini-1.5-flash":      0.25,
 }
+
+// CreateCacheRatio is the cache-write price relative to ordinary input.
+// It is shared by OpenAI cache_write_tokens and Claude cache creation tokens.
+var CreateCacheRatio = map[string]float64{}
 
 var DefaultModelRatio map[string]float64
 var DefaultCompletionRatio map[string]float64
@@ -227,6 +231,7 @@ var DefaultAudioOutputRatio map[string]float64
 var DefaultImageInputRatio map[string]float64
 var DefaultImageOutputRatio map[string]float64
 var DefaultCacheRatio map[string]float64
+var DefaultCreateCacheRatio map[string]float64
 var ModelPrice map[string]float64
 
 func init() {
@@ -257,6 +262,10 @@ func init() {
 	DefaultCacheRatio = make(map[string]float64)
 	for k, v := range CacheRatio {
 		DefaultCacheRatio[k] = v
+	}
+	DefaultCreateCacheRatio = make(map[string]float64)
+	for k, v := range CreateCacheRatio {
+		DefaultCreateCacheRatio[k] = v
 	}
 	ModelPrice = make(map[string]float64)
 	for k, v := range DefaultModelPrice {
@@ -510,6 +519,42 @@ func CacheRatio2JSONString() string {
 func UpdateCacheRatioByJSONString(jsonStr string) error {
 	CacheRatio = make(map[string]float64)
 	return json.Unmarshal([]byte(jsonStr), &CacheRatio)
+}
+
+func CreateCacheRatio2JSONString() string {
+	jsonBytes, err := json.Marshal(CreateCacheRatio)
+	if err != nil {
+		logger.SysError("error marshalling create cache ratio: " + err.Error())
+	}
+	return string(jsonBytes)
+}
+
+func UpdateCreateCacheRatioByJSONString(jsonStr string) error {
+	CreateCacheRatio = make(map[string]float64)
+	return json.Unmarshal([]byte(jsonStr), &CreateCacheRatio)
+}
+
+func GetCreateCacheRatio(name string) float64 {
+	if ratio, ok := CreateCacheRatio[name]; ok {
+		return ratio
+	}
+	if ratio, ok := DefaultCreateCacheRatio[name]; ok {
+		return ratio
+	}
+	// Backward-compatible default for cache providers that report writes.
+	return 1.25
+}
+
+// GetConfiguredCreateCacheRatio is for configuration UIs. It does not apply
+// the billing fallback, so an unset cache-write price remains visibly unset.
+func GetConfiguredCreateCacheRatio(name string) float64 {
+	if ratio, ok := CreateCacheRatio[name]; ok {
+		return ratio
+	}
+	if ratio, ok := DefaultCreateCacheRatio[name]; ok {
+		return ratio
+	}
+	return 0
 }
 
 func AddNewMissingCacheRatio(oldRatio string) string {
