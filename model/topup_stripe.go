@@ -34,7 +34,8 @@ func CompleteStripeTopUp(tradeNo string) error {
 
 // CompleteStripeTopUpFromCheckout 用 Stripe 扣手续费后的净额（balance_transaction.net）
 // 折算额度并入账；netTotal 为最小货币单位（cents），currency 为结算货币。
-func CompleteStripeTopUpFromCheckout(tradeNo string, netTotal int64, currency string) error {
+// receiptUrl 为 charge.receipt_url，写入订单便于对账。
+func CompleteStripeTopUpFromCheckout(tradeNo string, netTotal int64, currency string, receiptUrl string) error {
 	netMajor := StripeAmountTotalToMajor(netTotal, currency)
 	quota := AmountToQuota(netMajor)
 	m := netMajor
@@ -43,7 +44,11 @@ func CompleteStripeTopUpFromCheckout(tradeNo string, netTotal int64, currency st
 	if cur != "" {
 		cPtr = &cur
 	}
-	return completeTopUpOrder(tradeNo, &m, cPtr, &quota, "")
+	var rPtr *string
+	if receiptUrl != "" {
+		rPtr = &receiptUrl
+	}
+	return completeTopUpOrder(tradeNo, &m, cPtr, &quota, rPtr, "")
 }
 
 func ExpireStripeTopUp(tradeNo string) error {

@@ -8,6 +8,17 @@
 
 ## 2026-08-20
 
+### feat(stripe): 充值回跳成功提示 + 交易记录收据链接
+- **分支**: `main`
+- **类型**: feat
+- **涉及文件**: `controller/topup_stripe.go`、`model/topup.go`、`model/topup_stripe.go`、`model/topup_stripe_net_test.go`、`docs/plans/2026-08-20-stripe-receipt-and-paid-redirect.md`（新增）、前端 `linkinfra-web` 对应文件
+- **说明**: 实测生产 $10 支付宝充值链路正常（session complete、`balance_transaction.net=941` → 到账 4,705,000 quota），但暴露两个前端体验问题。
+
+  **① 支付成功后无反馈**。前端 `window.open` 新 tab 支付，Stripe 跳 `success_url` 回 `/dashboard/topup`，但该页不检测回跳参数——不弹"成功"、不刷新余额/记录。现 `genStripeCheckoutLink` 的 success_url 拼 `?paid=1`；`page.tsx` 接收 `searchParams` 传给 `TopupPageView`；`topupPage.tsx` 接收 `paid` 渲染新建的 `PaymentSuccessIndicator`（client）——`useEffect` 弹 toast + `router.refresh()` 刷新服务端数据 + `replaceState` 去掉 `?paid` 防刷新重复。**支付宝异步 processing 卡住本身是 Stripe 端等回调，前端不改**；`complete` 后会跳转。
+
+  **② 交易记录页缺 Stripe 收据链接**。`TopUp` 加 `ReceiptUrl` 字段（GORM AutoMigrate 加列 `varchar(512)`，**生产 master 节点重启触发迁移**）；`fetchStripeNetAmount` 扩展返回 `charge.receipt_url`（charge 已 expand，字段就在上面，stripe-go 字段名 `ReceiptURL`）；`CompleteStripeTopUpFromCheckout` 加 `receiptUrl` 参数经 `completeTopUpOrder` 的 `receiptOverride` 写入；`transaction-history.tsx` 加「Receipt」列，`success` 且有 `receipt_url` 的展示「View receipt」外链。`completeTopUpOrder` 加 `receiptOverride *string` 参数，易支付/管理员补单不受影响。
+- **关联计划**: `docs/plans/2026-08-20-stripe-receipt-and-paid-redirect.md`
+
 ### fix(security): 屏蔽后端内嵌 React UI，根路径改为返回纯 JSON
 - **分支**: `main`
 - **类型**: fix

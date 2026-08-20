@@ -43,8 +43,9 @@ func TestCompleteStripeTopUpByNetAmount(t *testing.T) {
 		t.Fatalf("create topup failed: %v", err)
 	}
 
-	// webhook 拿到的净额：941 cents = $9.41（扣 $0.59 手续费后）
-	if err := CompleteStripeTopUpFromCheckout("trade-net", 941, "usd"); err != nil {
+	// webhook 拿到的净额：941 cents = $9.41（扣 $0.59 手续费后），
+	// 以及 charge.receipt_url 收据链接
+	if err := CompleteStripeTopUpFromCheckout("trade-net", 941, "usd", "https://pay.stripe.com/receipts/test_xxx"); err != nil {
 		t.Fatalf("CompleteStripeTopUpFromCheckout failed: %v", err)
 	}
 
@@ -75,9 +76,13 @@ func TestCompleteStripeTopUpByNetAmount(t *testing.T) {
 	if topUp.Currency != "USD" {
 		t.Errorf("TopUp.Currency = %q, want USD", topUp.Currency)
 	}
+	// 收据链接写入
+	if topUp.ReceiptUrl != "https://pay.stripe.com/receipts/test_xxx" {
+		t.Errorf("TopUp.ReceiptUrl = %q, want 收据链接", topUp.ReceiptUrl)
+	}
 
 	// 重复调用幂等：status != pending 早退，不重复加额度
-	if err := CompleteStripeTopUpFromCheckout("trade-net", 941, "usd"); err != nil {
+	if err := CompleteStripeTopUpFromCheckout("trade-net", 941, "usd", "https://pay.stripe.com/receipts/test_xxx"); err != nil {
 		t.Fatalf("重复调用不应报错: %v", err)
 	}
 	var replay User

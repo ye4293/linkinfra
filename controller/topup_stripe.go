@@ -113,10 +113,10 @@ func genStripeCheckoutLink(referenceId string, amount int64, successURL string, 
 
 	
 	if config.FrontendServerAddress != "" {
-		successURL = config.FrontendServerAddress + "/dashboard/topup"
+		successURL = config.FrontendServerAddress + "/dashboard/topup?paid=1"
 		cancelURL = config.FrontendServerAddress + "/dashboard/topup"
 	}else if config.ServerAddress != "" {
-		successURL = config.ServerAddress + "/dashboard/topup"
+		successURL = config.ServerAddress + "/dashboard/topup?paid=1"
 		cancelURL = config.ServerAddress + "/dashboard/topup"
 	}
 
@@ -204,7 +204,7 @@ func stripeSessionCompleted(event stripe.Event) error {
 
 	// 取扣手续费后的净额（balance_transaction.net）作为额度基准，
 	// 而非 Checkout 的 amount_total 毛额。
-	netTotal, currency, err := fetchStripeNetAmount(piId)
+	netTotal, currency, receiptUrl, err := fetchStripeNetAmount(piId)
 	if err != nil {
 		log.Printf("Stripe 获取净额失败: %s, payment_intent=%s, 错误: %v\n", referenceId, piId, err)
 		return err
@@ -215,7 +215,7 @@ func stripeSessionCompleted(event stripe.Event) error {
 		log.Printf("Stripe 结算货币非 USD: %s, tradeNo=%s, 需人工核查\n", currency, referenceId)
 	}
 
-	if err := model.CompleteStripeTopUpFromCheckout(referenceId, netTotal, currency); err != nil {
+	if err := model.CompleteStripeTopUpFromCheckout(referenceId, netTotal, currency, receiptUrl); err != nil {
 		log.Printf("Stripe 充值完成失败: %s, 错误: %v\n", referenceId, err)
 		return err
 	}
@@ -225,11 +225,12 @@ func stripeSessionCompleted(event stripe.Event) error {
 	return nil
 }
 
-// fetchStripeNetAmount 通过 PaymentIntent 取扣手续费后的净额。
-// 路径：payment_intent → latest_charge → balance_transaction → net。
+// fetchStripeNetAmount 通过 PaymentIntent 取扣手续费后的净额与收据链接。
+// 路径：payment_intent → latest_charge → balance_transaction → net；
+// charge.receipt_url 同在 latest_charge 上。
 // checkout.session.completed 事件对象不含 balance_transaction，需主动检索。
 // 异步支付方式下 balance_transaction 可能尚未就绪，此时返回错误让 webhook 重试。
-func fetchStripeNetAmount(paymentIntentId string) (netTotal int64, currency string, err error) {
+func fetchStripeNetAmount(paymentIntentId string) (netTotal int64, currency string, receiptUrl string, err error) {
 	stripe.Key = config.StripeApiSecret
 
 	params := &stripe.PaymentIntentParams{}
@@ -237,14 +238,14 @@ func fetchStripeNetAmount(paymentIntentId string) (netTotal int64, currency stri
 
 	pi, err := paymentintent.Get(paymentIntentId, params)
 	if err != nil {
-		return 0, "", err
+		return 0, "", "", err
 	}
 	if pi.LatestCharge == nil || pi.LatestCharge.BalanceTransaction == nil {
-		return 0, "", errors.New("balance_transaction not ready")
+		return 0, "", "", errors.New("balance_transaction not ready")
 	}
 
 	bt := pi.LatestCharge.BalanceTransaction
-	return bt.Net, string(bt.Currency), nil
+	return bt.Net, string(bt.Currency), pi.LatestCharge.ReceiptURL, nil
 }
 
 func stripeSessionExpired(event stripe.Event) {

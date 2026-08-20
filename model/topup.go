@@ -26,6 +26,8 @@ type TopUp struct {
 	Status        string  `json:"status" gorm:"type:varchar(20);default:'pending'"`
 	// Other 扩展 JSON：管理员补单时写入 TopUpManualCompleteMeta 等，支付回调留空
 	Other string `json:"other" gorm:"type:text"`
+	// ReceiptUrl Stripe 收据链接（charge.receipt_url），支付回调写入，便于对账
+	ReceiptUrl string `json:"receipt_url" gorm:"type:varchar(512);default:''"`
 }
 
 // TopUpManualCompleteMeta 补单入账详情（写入 other，可继续加字段）
@@ -81,7 +83,7 @@ func SearchTopUps(userId int, tradeNo string, page int, pageSize int) (topups []
 
 // CompleteTopUpOrder 易支付等回调完成订单（保留创建时的 money / currency）
 func CompleteTopUpOrder(tradeNo string) error {
-	return completeTopUpOrder(tradeNo, nil, nil, nil, "")
+	return completeTopUpOrder(tradeNo, nil, nil, nil, nil, "")
 }
 
 // CompleteTopUpOrderManual 管理员补单：将详情序列化写入 other
@@ -96,14 +98,15 @@ func CompleteTopUpOrderManual(tradeNo string, meta TopUpManualCompleteMeta) erro
 	if err != nil {
 		return err
 	}
-	return completeTopUpOrder(tradeNo, nil, nil, nil, string(b))
+	return completeTopUpOrder(tradeNo, nil, nil, nil, nil, string(b))
 }
 
 // completeTopUpOrder 完成充值。
 // moneyOverride / currencyOverride 非空时写回订单（Stripe 以 Checkout 回调为准）。
 // quotaOverride 非空时按其值加额度（Stripe 按扣手续费后的净额），否则按 topUp.Amount 折算。
+// receiptOverride 非空时写入收据链接（Stripe charge.receipt_url）。
 // manualOtherJSON 非空时表示管理员补单，写入 other。
-func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride *string, quotaOverride *int64, manualOtherJSON string) error {
+func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride *string, quotaOverride *int64, receiptOverride *string, manualOtherJSON string) error {
 	if tradeNo == "" {
 		return errors.New("trade number not provided")
 	}
@@ -155,6 +158,9 @@ func completeTopUpOrder(tradeNo string, moneyOverride *float64, currencyOverride
 		}
 		if currencyOverride != nil && *currencyOverride != "" {
 			topUp.Currency = *currencyOverride
+		}
+		if receiptOverride != nil {
+			topUp.ReceiptUrl = *receiptOverride
 		}
 
 		if manualOtherJSON != "" {
