@@ -19,7 +19,7 @@
 - **分支**: `feat/zhipu-claude-dispatch`
 - **类型**: feat
 - **涉及文件**: `relay/channel/moonshot/adaptor.go`（新建）、`relay/channel/moonshot/adaptor_test.go`（新建）、`relay/constant/api_type.go`、`relay/helper/main.go`、`relay/channel/openai/compatible.go`
-- **说明**: moonshot（Kimi）原走 openai adaptor、无独立 adaptor。新建 moonshot adaptor 嵌入 `openai.Adaptor`（复用 OpenAI 链路 ConvertRequest/DoResponse），override `GetRequestURL`/`SetupRequestHeader` 加 Claude 分支：Claude 原生请求（`/v1/messages`）走 moonshot anthropic 兼容端点 `base + /v1/messages` + `Bearer` + `anthropic-version`/`beta`。注册 `APITypeMoonshot` + `ChannelType2APIType`/`GetAdaptor`。break `openai↔moonshot` import cycle：`compatible.go` 内联 moonshot `ModelList` 移除 moonshot import。注意 kimi OpenAI 端点（`api.moonshot.cn`）与 anthropic 端点（`api.moonshot.ai/anthropic`）不同域，渠道 base 填 anthropic 端点则走 Claude，兼用 OpenAI 配另一渠道。`go build/vet/test` 通过。
+- **说明**: moonshot（Kimi）原走 openai adaptor、无独立 adaptor。新建 moonshot adaptor 嵌入 `openai.Adaptor`（复用 OpenAI 链路 ConvertRequest/DoResponse），override `GetRequestURL`/`SetupRequestHeader` 加 Claude 分支：Claude 原生请求走 moonshot anthropic 兼容端点 `base + /anthropic/v1/messages`（base 填 `api.moonshot.cn`，同 base 兼顾 OpenAI `/v1/chat/completions`）+ `Bearer` + `anthropic-version`/`beta`。注册 `APITypeMoonshot` + `ChannelType2APIType`/`GetAdaptor`。break `openai↔moonshot` import cycle：`compatible.go` 内联 moonshot `ModelList` 移除 moonshot import。`go build/vet/test` 通过；实测 `api.moonshot.cn/anthropic/v1/messages` 返回标准 Anthropic，model `moonshot-v1-8k`。
 - **关联计划**: `docs/plans/2026-08-20-zhipu-claude-protocol-dispatch.md`
 
 ### fix(zhipu): Claude 分支补 anthropic-version/beta 头 + BaseURL 裁斜杠，补单测

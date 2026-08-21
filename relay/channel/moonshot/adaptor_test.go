@@ -10,18 +10,18 @@ import (
 	"github.com/songquanpeng/one-api/relay/util"
 )
 
-// Claude 原生请求走 moonshot anthropic 兼容端点（base 填 api.moonshot.ai/anthropic）。
+// Claude 原生请求走 moonshot anthropic 兼容端点（base 填 api.moonshot.cn，同 base 兼顾 OpenAI）。
 func TestGetRequestURL_ClaudeMode(t *testing.T) {
 	a := &Adaptor{}
 	meta := &util.RelayMeta{
 		Mode:    constant.RelayModeClaude,
-		BaseURL: "https://api.moonshot.ai/anthropic",
+		BaseURL: "https://api.moonshot.cn",
 	}
 	url, err := a.GetRequestURL(meta)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	want := "https://api.moonshot.ai/anthropic/v1/messages"
+	want := "https://api.moonshot.cn/anthropic/v1/messages"
 	if url != want {
 		t.Errorf("Claude URL = %q, want %q", url, want)
 	}
@@ -35,7 +35,7 @@ func TestSetupRequestHeader_ClaudeMode(t *testing.T) {
 	r.Header.Set("anthropic-beta", "interleaved-thinking-2025-05-14")
 	c.Request = r
 
-	req, _ := http.NewRequest("POST", "https://api.moonshot.ai/anthropic/v1/messages", nil)
+	req, _ := http.NewRequest("POST", "https://api.moonshot.cn/anthropic/v1/messages", nil)
 	a := &Adaptor{}
 	meta := &util.RelayMeta{
 		Mode:         constant.RelayModeClaude,

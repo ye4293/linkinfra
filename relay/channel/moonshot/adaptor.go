@@ -19,11 +19,12 @@ type Adaptor struct {
 }
 
 // GetRequestURL：Claude 原生请求走 moonshot anthropic 兼容端点
-// （渠道 base 填 https://api.moonshot.ai/anthropic，拼 /v1/messages）；
-// 否则复用 openai adaptor 的 URL 逻辑（OpenAI 兼容端点 api.moonshot.cn）。
+// （渠道 base 填 https://api.moonshot.cn，拼 /anthropic/v1/messages；
+// OpenAI 端点同域 api.moonshot.cn/v1/chat/completions，一 base 兼顾）；
+// 否则复用 openai adaptor 的 URL 逻辑。
 func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
 	if meta.Mode == constant.RelayModeClaude {
-		return fmt.Sprintf("%s/v1/messages", strings.TrimRight(meta.BaseURL, "/")), nil
+		return fmt.Sprintf("%s/anthropic/v1/messages", strings.TrimRight(meta.BaseURL, "/")), nil
 	}
 	return a.Adaptor.GetRequestURL(meta)
 }

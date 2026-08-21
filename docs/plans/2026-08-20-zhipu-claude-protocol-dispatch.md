@@ -102,7 +102,7 @@ Claude 原生响应由 controller 层 `doNativeClaudeStreamResponse` / `doNative
    - 渠道 key 取 `meta.ActualAPIKey` 在 Claude 链路是否有值（对照 anthropic adaptor 现状确认）。
 
 ## 后续扩展（不在本批）
-- Kimi（moonshot）：✅ 已落地。新建 moonshot adaptor 嵌入 openai.Adaptor + Claude 分支（渠道 base 填 `https://api.moonshot.ai/anthropic` 拼 `/v1/messages`），注册 `APITypeMoonshot`。break openai↔moonshot import cycle（`compatible.go` 内联 moonshot ModelList 移除 moonshot import）。注意 kimi OpenAI 端点（`api.moonshot.cn`）与 anthropic 端点（`api.moonshot.ai/anthropic`）不同域，一渠道一 base，兼用需配两渠道。
+- Kimi（moonshot）：✅ 已落地。新建 moonshot adaptor 嵌入 openai.Adaptor + Claude 分支（渠道 base 填 `https://api.moonshot.cn` 拼 `/anthropic/v1/messages`，同 base 兼顾 OpenAI `/v1/chat/completions`），注册 `APITypeMoonshot`。break openai↔moonshot import cycle（`compatible.go` 内联 moonshot ModelList 移除 moonshot import）。实测 `api.moonshot.cn/anthropic/v1/messages` + Bearer + anthropic-version 返回标准 Anthropic，model `moonshot-v1-8k`。
 - Minimax：✅ 已落地。minimax adaptor 嵌入 openai.Adaptor（复用 chat `/v1/chat/completions` + responses `/v1/responses`，废弃旧 `/v1/text/chatcompletion_v2`）+ Claude 分支（base 填 `api.minimaxi.com` 拼 `/anthropic/v1/messages`）。默认 base 改 `api.minimaxi.com`（国际站，chat/response/anthropic 同域不同路径）。
 - 阿里：已有 Claude 分支（`ali/adaptor.go:44` switch `meta.Mode`，Claude→`/apps/anthropic/v1/messages`），无需改动。
 - 套餐别名机制：仿 new-api `ChannelSpecialBases`，支持 Base URL 填 `glm-coding-plan` 等别名自动展开双端点。
