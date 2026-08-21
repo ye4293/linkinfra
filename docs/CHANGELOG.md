@@ -12,7 +12,7 @@
 - **分支**: `feat/zhipu-claude-dispatch`
 - **类型**: feat
 - **涉及文件**: `relay/channel/minimax/adaptor.go`、`relay/channel/minimax/adaptor_test.go`（新建）、`common/constants.go`
-- **说明**: minimax adaptor 嵌入 `openai.Adaptor` 复用 OpenAI 兼容链路（chat `/v1/chat/completions` + responses `/v1/responses`），废弃旧 `/v1/text/chatcompletion_v2` 路径；override `GetRequestURL`/`SetupRequestHeader` 加 Claude 分支（base 填 `api.minimax.io` 拼 `/anthropic/v1/messages` + `Bearer` + `anthropic-version`/`beta`）。Claude/Responses 走原生 passthrough（不经 `ConvertRequest`，响应由 controller 层处理），chat 复用 openai `DoResponse`。默认 base 改 `api.minimax.io`（国际站，chat/response/anthropic 同域不同路径）。补 2 单测。`go build/vet/test` 通过。
+- **说明**: minimax adaptor 嵌入 `openai.Adaptor` 复用 OpenAI 兼容链路（chat `/v1/chat/completions` + responses `/v1/responses`），废弃旧 `/v1/text/chatcompletion_v2` 路径；override `GetRequestURL`/`SetupRequestHeader` 加 Claude 分支（base 填 `api.minimaxi.com` 拼 `/anthropic/v1/messages` + `Bearer` + `anthropic-version`/`beta`）。Claude/Responses 走原生 passthrough（不经 `ConvertRequest`，响应由 controller 层处理），chat 复用 openai `DoResponse`。默认 base 改 `api.minimaxi.com`（国际站，chat/response/anthropic 同域不同路径）。补 2 单测。`go build/vet/test` 通过。
 - **关联计划**: `docs/plans/2026-08-20-zhipu-claude-protocol-dispatch.md`
 
 ### feat(moonshot): 新建 moonshot adaptor 支持 Claude 协议
