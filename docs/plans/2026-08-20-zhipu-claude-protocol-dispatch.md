@@ -48,7 +48,7 @@ func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
 URL 与 new-api `zhipu_4v/adaptor.go:58` 一致。
 
 **2. `SetupRequestHeader` 加 Claude 分支**
-Claude 请求用 `Authorization: Bearer <渠道key>`（智谱 anthropic 端点认证方式，跳过 `GetToken` 的 JWT 生成）；否则保持现有 JWT 逻辑。
+Claude 请求用 `Authorization: Bearer meta.ActualAPIKey` + 透传 `anthropic-version`（默认 `2023-06-01`）/`anthropic-beta`（智谱 anthropic 端点需 version 头识别 Claude 格式请求体，参照 `ali` adaptor；跳过 `GetToken` 的 JWT 生成）；否则保持现有 JWT 逻辑。
 ```go
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Request, meta *util.RelayMeta) error {
     channel.SetupCommonRequestHeader(c, req, meta)

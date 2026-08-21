@@ -40,7 +40,7 @@ func (a *Adaptor) SetVersionByModeName(modelName string) {
 func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
 	// Claude 原生请求 → 智谱 anthropic 兼容端点
 	if meta.Mode == constant.RelayModeClaude {
-		return fmt.Sprintf("%s/api/anthropic/v1/messages", meta.BaseURL), nil
+		return fmt.Sprintf("%s/api/anthropic/v1/messages", strings.TrimRight(meta.BaseURL, "/")), nil
 	}
 	a.SetVersionByModeName(meta.ActualModelName)
 	if a.APIVersion == "v4" {
@@ -55,9 +55,17 @@ func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Request, meta *util.RelayMeta) error {
 	channel.SetupCommonRequestHeader(c, req, meta)
-	// Claude 原生请求 → 智谱 anthropic 兼容端点用 Bearer 认证（非 JWT）
+	// Claude 原生请求 → 智谱 anthropic 兼容端点：Bearer 认证 + anthropic-version/beta 透传
 	if meta.Mode == constant.RelayModeClaude {
 		req.Header.Set("Authorization", "Bearer "+meta.ActualAPIKey)
+		anthropicVersion := c.Request.Header.Get("anthropic-version")
+		if anthropicVersion == "" {
+			anthropicVersion = "2023-06-01"
+		}
+		req.Header.Set("anthropic-version", anthropicVersion)
+		if beta := c.Request.Header.Get("anthropic-beta"); beta != "" {
+			req.Header.Set("anthropic-beta", beta)
+		}
 		return nil
 	}
 	token := GetToken(meta.APIKey)

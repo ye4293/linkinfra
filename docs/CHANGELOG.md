@@ -6,6 +6,15 @@
 
 ---
 
+## 2026-08-21
+
+### fix(zhipu): Claude 分支补 anthropic-version/beta 头 + BaseURL 裁斜杠，补单测
+- **分支**: `feat/zhipu-claude-dispatch`
+- **类型**: fix
+- **涉及文件**: `relay/channel/zhipu/adaptor.go`、`relay/channel/zhipu/adaptor_test.go`（新增）
+- **说明**: code review 发现智谱 Claude 分支只设了 `Authorization`，遗漏 `anthropic-version`（智谱 anthropic 端点需用它识别 Claude 格式请求体）和 `anthropic-beta` 透传。参照 `ali` adaptor 补齐；`GetRequestURL` 用 `strings.TrimRight` 裁 BaseURL 尾部斜杠。补 3 个单元测试覆盖 Claude/OpenAI 分支（URL 拼接、`Bearer` + `anthropic-version` 默认 + `anthropic-beta` 透传）。`go build ./... && go vet && go test` 通过。
+- **关联计划**: `docs/plans/2026-08-20-zhipu-claude-protocol-dispatch.md`
+
 ## 2026-08-20
 
 ### feat(zhipu): 智谱渠道支持 Claude 协议自动分发
