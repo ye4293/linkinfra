@@ -6,7 +6,6 @@ import (
 	"github.com/songquanpeng/one-api/relay/channel/groq"
 	"github.com/songquanpeng/one-api/relay/channel/lingyiwanwu"
 	"github.com/songquanpeng/one-api/relay/channel/mistral"
-	"github.com/songquanpeng/one-api/relay/channel/moonshot"
 	"github.com/songquanpeng/one-api/relay/channel/togetherai"
 )
 
@@ -24,7 +23,7 @@ func GetCompatibleChannelMeta(channelType int) (string, []string) {
 	case common.ChannelTypeAzure:
 		return "azure", ModelList
 	case common.ChannelTypeMoonshot:
-		return "moonshot", moonshot.ModelList
+		return "moonshot", []string{"moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"}
 	case common.ChannelTypeMistral:
 		return "mistralai", mistral.ModelList
 	case common.ChannelTypeGroq:

@@ -102,6 +102,7 @@ Claude 原生响应由 controller 层 `doNativeClaudeStreamResponse` / `doNative
    - 渠道 key 取 `meta.ActualAPIKey` 在 Claude 链路是否有值（对照 anthropic adaptor 现状确认）。
 
 ## 后续扩展（不在本批）
-- 其他国产 anthropic 兼容渠道（Kimi / MiniMax / 阿里）：各自 adaptor 加同一 `meta.Mode == RelayModeClaude` 分支，填各家 anthropic 端点路径。
+- Kimi（moonshot）：✅ 已落地。新建 moonshot adaptor 嵌入 openai.Adaptor + Claude 分支（渠道 base 填 `https://api.moonshot.ai/anthropic` 拼 `/v1/messages`），注册 `APITypeMoonshot`。break openai↔moonshot import cycle（`compatible.go` 内联 moonshot ModelList 移除 moonshot import）。注意 kimi OpenAI 端点（`api.moonshot.cn`）与 anthropic 端点（`api.moonshot.ai/anthropic`）不同域，一渠道一 base，兼用需配两渠道。
+- Minimax / 阿里：待落地（minimax adaptor 已有，加 Claude 分支即可，端点待确认）。
 - 套餐别名机制：仿 new-api `ChannelSpecialBases`，支持 Base URL 填 `glm-coding-plan` 等别名自动展开双端点。
 - 渠道类型消耗排行 UI：按 `ChannelId` join `channels.type` 聚合，在 dashboard 或前端仓库实现。

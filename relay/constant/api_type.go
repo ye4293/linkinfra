@@ -19,6 +19,7 @@ const (
 	APITypeXAI
 	APITypeVertexAI
 	APITypeFlux
+	APITypeMoonshot
 	APITypeDummy // this one is only for count, do not add any channel after this
 )
 
@@ -51,6 +52,8 @@ func ChannelType2APIType(channelType int) int {
 		apiType = APITypeVertexAI
 	case common.ChannelTypeFlux:
 		apiType = APITypeFlux
+	case common.ChannelTypeMoonshot:
+		apiType = APITypeMoonshot
 	}
 	return apiType
 }

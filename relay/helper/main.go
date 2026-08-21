@@ -15,6 +15,7 @@ import (
 	"github.com/songquanpeng/one-api/relay/channel/gemini"
 	"github.com/songquanpeng/one-api/relay/channel/luma"
 	"github.com/songquanpeng/one-api/relay/channel/minimax"
+	"github.com/songquanpeng/one-api/relay/channel/moonshot"
 	"github.com/songquanpeng/one-api/relay/channel/pixverse"
 	"github.com/songquanpeng/one-api/relay/channel/openai"
 	"github.com/songquanpeng/one-api/relay/channel/runway"
@@ -119,6 +120,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &cohere.Adaptor{}
 	case constant.APITypeMinimax:
 		return &minimax.Adaptor{}
+	case constant.APITypeMoonshot:
+		return &moonshot.Adaptor{}
 	case constant.APITypeXAI:
 		return &xai.Adaptor{}
 	case constant.APITypeVertexAI:
