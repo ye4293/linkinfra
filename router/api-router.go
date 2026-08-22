@@ -34,6 +34,7 @@ func SetApiRouter(router *gin.Engine) {
 		// 并存会让同一个 GitHub 账号在两条路径下被认成两个人。
 		apiRouter.POST("/github/login", middleware.CriticalRateLimit(), controller.GitHubLogin)
 		apiRouter.POST("/google/login", middleware.CriticalRateLimit(), controller.GoogleLogin)
+		apiRouter.POST("/oauth/provider-config", middleware.CriticalRateLimit(), controller.GetOAuthProviderConfig)
 		apiRouter.GET("/oauth/email/bind", middleware.CriticalRateLimit(), middleware.UserAuth(), controller.EmailBind)
 
 		userRoute := apiRouter.Group("/user")

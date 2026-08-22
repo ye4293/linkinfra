@@ -17,6 +17,22 @@ import (
 // oauthLoginSecretHeader 前端带共享密钥的请求头名。
 const oauthLoginSecretHeader = "X-OAuth-Login-Secret"
 
+// GetOAuthProviderConfig 仅供前端 NextAuth 服务端读取动态 OAuth 凭证。
+// 共享密钥逐请求校验，响应禁止缓存；该接口绝不能由浏览器直接调用。
+func GetOAuthProviderConfig(c *gin.Context) {
+	if !verifyOAuthLoginSecret(c) {
+		return
+	}
+
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{
+		"github_id":     config.GitHubClientId,
+		"github_secret": config.GitHubClientSecret,
+		"google_id":     config.GoogleClientId,
+		"google_secret": config.GoogleClientSecret,
+	})
+}
+
 // verifyOAuthLoginSecret 校验请求确实来自我们自己的前端。
 //
 // 这两个端点接收的是「用户已通过 GitHub / Google 认证」这个断言，而 OAuth

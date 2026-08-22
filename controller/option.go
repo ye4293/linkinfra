@@ -19,11 +19,14 @@ func validateOptionUpdate(option model.Option) string {
 		if !config.ValidThemes[option.Value] {
 			return "Invalid theme."
 		}
-	// GitHubOAuthEnabled / GoogleOAuthEnabled 不再校验 ClientId ——
-	// OAuth 的 code 交换由前端（next-auth）完成，凭证也由它持有，
-	// 后端只接收已认证的用户信息，自身用不到 ClientId / ClientSecret。
-	// 而设置页没有这两个输入框，继续要求「先填 ClientId」会让管理员
-	// 根本无法启用 GitHub / Google 登录。
+	case "GitHubOAuthEnabled":
+		if option.Value == "true" && (config.GitHubClientId == "" || config.GitHubClientSecret == "") {
+			return "Cannot enable GitHub OAuth before configuring the Client ID and Client Secret."
+		}
+	case "GoogleOAuthEnabled":
+		if option.Value == "true" && (config.GoogleClientId == "" || config.GoogleClientSecret == "") {
+			return "Cannot enable Google OAuth before configuring the Client ID and Client Secret."
+		}
 	case "EmailDomainRestrictionEnabled":
 		if option.Value == "true" && len(config.EmailDomainWhitelist) == 0 {
 			return "Cannot enable email domain restriction. Please fill in the allowed email domains first."
