@@ -11,6 +11,8 @@ import (
 type DashboardData struct {
 	CurrentQuota int64                   `json:"current_quota"`
 	UsedQuota    int64                   `json:"used_quota"`
+	TopupQuota   int64                   `json:"topup_quota"`
+	GiftQuota    int64                   `json:"gift_quota"`
 	TPM          int64                   `json:"tpm"`
 	RPM          int64                   `json:"rpm"`
 	QuotaPM      int64                   `json:"quota_pm"`
@@ -45,6 +47,8 @@ func GetAdminDashboard(c *gin.Context) {
 	dashboard := DashboardData{
 		CurrentQuota: user.Quota,
 		UsedQuota:    user.UsedQuota,
+		TopupQuota:   user.TopupQuota,
+		GiftQuota:    user.GiftQuota,
 		TPM:          metrics.TPM,
 		RPM:          metrics.RPM,
 		QuotaPM:      metrics.QuotaPM,
@@ -86,6 +90,8 @@ func GetUserDashboard(c *gin.Context) {
 	dashboard := DashboardData{
 		CurrentQuota: user.Quota,
 		UsedQuota:    user.UsedQuota,
+		TopupQuota:   user.TopupQuota,
+		GiftQuota:    user.GiftQuota,
 		TPM:          metrics.TPM,
 		RPM:          metrics.RPM,
 		QuotaPM:      metrics.QuotaPM,
