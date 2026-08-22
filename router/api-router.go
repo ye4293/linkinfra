@@ -217,9 +217,11 @@ func SetApiRouter(router *gin.Engine) {
 	dashboardRoute.GET("/", middleware.AdminAuth(), controller.GetAdminDashboard)
 	dashboardRoute.GET("/graph", middleware.AdminAuth(), controller.GetAllGraph)
 	dashboardRoute.GET("/stats", middleware.AdminAuth(), controller.GetAdminDashboardStats)
+	dashboardRoute.GET("/usage-metrics", middleware.AdminAuth(), controller.GetAdminUsageMetrics)
 	dashboardRoute.GET("/self", middleware.UserAuth(), controller.GetUserDashboard)
 	dashboardRoute.GET("/graph/self", middleware.UserAuth(), controller.GetUserGraph)
 	dashboardRoute.GET("/stats/self", middleware.UserAuth(), controller.GetUserDashboardStats)
+	dashboardRoute.GET("/usage-metrics/self", middleware.UserAuth(), controller.GetUserUsageMetrics)
 
 	videoRoute := apiRouter.Group("/video")
 	videoRoute.GET("/self", middleware.UserAuth(), controller.GetUserVideos)

@@ -17,9 +17,9 @@ import (
 )
 
 type Log struct {
-	Id               int     `json:"id"`
+	Id               int     `json:"id" gorm:"primaryKey;index:idx_logs_user_id_id,priority:2"`
 	RequestId        string  `json:"request_id"`
-	UserId           int     `json:"user_id" gorm:"index;index:idx_logs_user_id_created_at,priority:1"`
+	UserId           int     `json:"user_id" gorm:"index;index:idx_logs_user_id_created_at,priority:1;index:idx_logs_user_id_id,priority:1"`
 	CreatedAt        int64   `json:"created_at" gorm:"bigint;index:idx_logs_created_at;index:idx_logs_user_id_created_at,priority:2"`
 	Type             int     `json:"type" gorm:"index:idx_type"`
 	Content          string  `json:"content"`
