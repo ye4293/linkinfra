@@ -6,6 +6,14 @@
 
 ---
 
+## 2026-08-25
+
+### chore(web): 删除后端仓库内置旧前端
+- **分支**: `main`
+- **类型**: chore
+- **涉及文件**: `web/air`、`web/berry`、`web/default`、`web/build.sh`、`web/README.md`、`web/THEMES`（删除），`Dockerfile`
+- **说明**: 独立前端已迁移至 `linkinfra-web`，删除后端仓库内三套旧 React 前端和构建脚本；保留 `web/build/.gitkeep` 以满足 Go `embed` 编译匹配，Dockerfile 改为纯 Go 构建，不再安装 Node 或复制旧前端产物。
+
 ## 2026-08-24
 
 ### feat(xai): 支持 OpenAI Chat、Responses 与 Claude Messages 三协议
