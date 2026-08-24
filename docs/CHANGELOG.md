@@ -6,6 +6,20 @@
 
 ---
 
+## 2026-08-24
+
+### feat(xai): 支持 OpenAI Chat、Responses 与 Claude Messages 三协议
+- **分支**: `main`
+- **类型**: feat
+- **涉及文件**: `relay/channel/xai/adaptor.go`、`relay/channel/xai/adaptor_test.go`（新增）
+- **说明**: xAI adaptor 支持 `/v1/chat/completions`、`/v1/responses`、`/v1/messages`；保留 Responses 资源查询/删除路径和查询参数，Claude 分支补齐 `anthropic-version` 默认值与 `anthropic-beta` 透传，Claude/Responses 保持原生请求透传，并统一裁剪 BaseURL 尾部斜杠。三条 xAI 官方端点均已实测成功；全量单测及 `go vet` 通过。
+
+### chore(web): 智谱渠道显示名称改为 ZAI
+- **分支**: `main`
+- **类型**: chore
+- **涉及文件**: `web/default/src/constants/channel.constants.js`、`web/air/src/constants/channel.constants.js`、`web/berry/src/constants/ChannelConstants.js`
+- **说明**: 三套前端主题中的渠道类型 16 展示名称由“智谱 ChatGLM”统一调整为“ZAI”。
+
 ## 2026-08-21
 
 ### feat(minimax): minimax adaptor 改嵌入 openai 支持 chat/response/Claude 3 路径

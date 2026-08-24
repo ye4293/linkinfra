@@ -8,7 +8,7 @@ export const CHANNEL_OPTIONS = [
   { key: 15, text: '百度文心千帆', value: 15, color: 'blue' },
   { key: 17, text: '阿里通义千问', value: 17, color: 'orange' },
   { key: 18, text: '讯飞星火认知', value: 18, color: 'blue' },
-  { key: 16, text: '智谱 ChatGLM', value: 16, color: 'violet' },
+  { key: 16, text: 'ZAI', value: 16, color: 'violet' },
   { key: 19, text: '360 智脑', value: 19, color: 'blue' },
   { key: 25, text: 'Moonshot AI', value: 25, color: 'black' },
   { key: 23, text: '腾讯混元', value: 23, color: 'teal' },

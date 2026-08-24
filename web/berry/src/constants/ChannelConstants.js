@@ -55,7 +55,7 @@ export const CHANNEL_OPTIONS = {
   },
   16: {
     key: 16,
-    text: '智谱 ChatGLM',
+    text: 'ZAI',
     value: 16,
     color: 'primary'
   },

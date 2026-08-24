@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/songquanpeng/one-api/relay/channel"
+	"github.com/songquanpeng/one-api/relay/constant"
 	"github.com/songquanpeng/one-api/relay/model"
 	"github.com/songquanpeng/one-api/relay/util"
 )
@@ -22,21 +23,41 @@ func (a *Adaptor) Init(meta *util.RelayMeta) {
 }
 
 func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
-	// xAI 同时支持多种兼容接口，保持客户端原始请求路径透传。
+	base := strings.TrimRight(meta.BaseURL, "/")
+	// 保留 Responses 查询/删除等带资源 ID 的路径以及查询参数。
 	if meta.RequestURLPath != "" {
-		return util.GetFullRequestURL(meta.BaseURL, meta.RequestURLPath, meta.ChannelType), nil
+		return util.GetFullRequestURL(base, meta.RequestURLPath, meta.ChannelType), nil
 	}
-	fullrequestUrl := fmt.Sprintf("%s%s", meta.BaseURL, "/v1/chat/completions")
+	switch meta.Mode {
+	case constant.RelayModeClaude:
+		return base + "/v1/messages", nil
+	case constant.RelayModeOpenaiResponse:
+		return base + "/v1/responses", nil
+	}
+	fullrequestUrl := fmt.Sprintf("%s%s", base, "/v1/chat/completions")
 	return fullrequestUrl, nil
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Request, meta *util.RelayMeta) error {
 	channel.SetupCommonRequestHeader(c, req, meta)
 	req.Header.Set("Authorization", "Bearer "+meta.APIKey)
+	if meta.Mode == constant.RelayModeClaude {
+		anthropicVersion := c.Request.Header.Get("anthropic-version")
+		if anthropicVersion == "" {
+			anthropicVersion = "2023-06-01"
+		}
+		req.Header.Set("anthropic-version", anthropicVersion)
+		if beta := c.Request.Header.Get("anthropic-beta"); beta != "" {
+			req.Header.Set("anthropic-beta", beta)
+		}
+	}
 	return nil
 }
 
 func (a *Adaptor) ConvertRequest(c *gin.Context, relayMode int, request *model.GeneralOpenAIRequest) (any, error) {
+	if relayMode == constant.RelayModeClaude || relayMode == constant.RelayModeOpenaiResponse {
+		return request, nil
+	}
 	// 处理模型名称以 "-search" 结尾的情况
 	if strings.HasSuffix(request.Model, "-search") {
 		request.Model = strings.TrimSuffix(request.Model, "-search")
