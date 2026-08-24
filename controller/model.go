@@ -171,9 +171,9 @@ var channelOptions = []ChannelOption{
 
 	{Key: 29, Text: "Groq", Value: 29, Color: "orange"},
 	{Key: 15, Text: "百度文心千帆", Value: 15, Color: "blue"},
-	{Key: 17, Text: "阿里通义千问", Value: 17, Color: "orange"},
+	{Key: 17, Text: "Qwen", Value: 17, Color: "orange"},
 	{Key: 18, Text: "讯飞星火认知", Value: 18, Color: "blue"},
-	{Key: 16, Text: "智谱 ChatGLM", Value: 16, Color: "violet"},
+	{Key: 16, Text: "ZAI", Value: 16, Color: "violet"},
 
 	{Key: 25, Text: "Moonshot AI", Value: 25, Color: "black"},
 	{Key: 23, Text: "腾讯混元", Value: 23, Color: "teal"},
