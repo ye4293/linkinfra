@@ -100,3 +100,76 @@ func TestSendEmail_RejectsEmptyReceiver(t *testing.T) {
 		t.Fatal("expected error for empty receiver")
 	}
 }
+
+func TestSendEmail_KeepsExistingDisplayNameInFrom(t *testing.T) {
+	_, captured := setupResendServer(t, http.StatusOK, `{"id":"abc"}`)
+	config.ResendFrom = "Support <noreply@example.com>"
+
+	if err := SendEmail("subject", "a@example.com", "body"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got := captured.Body["from"]; got != "Support <noreply@example.com>" {
+		t.Errorf("expected from to be passed through unchanged, got %v", got)
+	}
+}
+
+func TestSendEmail_QuotesSystemNameWithSpecialCharacters(t *testing.T) {
+	_, captured := setupResendServer(t, http.StatusOK, `{"id":"abc"}`)
+	config.SystemName = `Foo, "Inc."`
+
+	if err := SendEmail("subject", "a@example.com", "body"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got := captured.Body["from"]; got != `"Foo, \"Inc.\"" <noreply@example.com>` {
+		t.Errorf("unexpected from: %v", got)
+	}
+}
+
+func TestSendEmail_UsesBareFromAndSubjectWhenSystemNameEmpty(t *testing.T) {
+	_, captured := setupResendServer(t, http.StatusOK, `{"id":"abc"}`)
+	config.SystemName = ""
+
+	if err := SendEmail("subject", "a@example.com", "body"); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got := captured.Body["from"]; got != "noreply@example.com" {
+		t.Errorf("unexpected from: %v", got)
+	}
+	if got := captured.Body["subject"]; got != "subject" {
+		t.Errorf("unexpected subject: %v", got)
+	}
+}
+
+func TestSendEmail_ReturnsErrorWhenFromNotConfigured(t *testing.T) {
+	_, captured := setupResendServer(t, http.StatusOK, `{"id":"abc"}`)
+	config.ResendFrom = ""
+
+	err := SendEmail("subject", "a@example.com", "body")
+	if err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("expected not configured error, got %v", err)
+	}
+	if captured.Path != "" {
+		t.Errorf("expected no request to be sent, got path %s", captured.Path)
+	}
+}
+
+func TestSendEmail_ReturnsStatusAndBodyOnNonJSONError(t *testing.T) {
+	setupResendServer(t, http.StatusBadGateway, `<html>bad gateway</html>`)
+
+	err := SendEmail("subject", "a@example.com", "body")
+	if err == nil || !strings.Contains(err.Error(), "502") || !strings.Contains(err.Error(), "bad gateway") {
+		t.Fatalf("expected status and body in error, got %v", err)
+	}
+}
+
+func TestSendEmail_RejectsReceiverWithOnlySeparators(t *testing.T) {
+	_, captured := setupResendServer(t, http.StatusOK, `{"id":"abc"}`)
+
+	err := SendEmail("subject", " ; ", "body")
+	if err == nil {
+		t.Fatal("expected error for receiver with only separators")
+	}
+	if captured.Path != "" {
+		t.Errorf("expected no request to be sent, got path %s", captured.Path)
+	}
+}

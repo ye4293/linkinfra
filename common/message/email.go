@@ -53,10 +53,7 @@ func SendEmail(subject string, receiver string, content string) error {
 	if config.SystemName != "" {
 		subject = fmt.Sprintf("[%s] %s", config.SystemName, subject)
 	}
-	from := config.ResendFrom
-	if config.SystemName != "" {
-		from = fmt.Sprintf("%s <%s>", config.SystemName, config.ResendFrom)
-	}
+	from := buildFromAddress(config.SystemName, config.ResendFrom)
 
 	payload, err := json.Marshal(resendSendRequest{
 		From:    from,
@@ -91,4 +88,18 @@ func SendEmail(subject string, receiver string, content string) error {
 		return fmt.Errorf("resend error (%d %s): %s", resp.StatusCode, apiErr.Name, apiErr.Message)
 	}
 	return fmt.Errorf("resend error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+}
+
+// buildFromAddress 生成 Resend 的 from 字段：
+// 发件地址已自带显示名（含 "<"）时原样使用，否则用系统名称作为显示名，
+// 显示名含 RFC 5322 特殊字符时加引号并转义。
+func buildFromAddress(displayName string, address string) string {
+	if displayName == "" || strings.Contains(address, "<") {
+		return address
+	}
+	if strings.ContainsAny(displayName, `"(),.:;<>@[\`) {
+		escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(displayName)
+		displayName = `"` + escaped + `"`
+	}
+	return fmt.Sprintf("%s <%s>", displayName, address)
 }

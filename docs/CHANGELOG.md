@@ -15,6 +15,13 @@
 - **说明**: `SendEmail` 改为直接调用 Resend HTTP API（`POST /emails`，`net/http` 实现，不引入 SDK），签名不变，7 处业务调用点无需修改；系统设置删除 `SMTP*` 五项，新增 `ResendApiKey`（`GetOptions` 脱敏规则增加 `ApiKey` 后缀，不回显）与 `ResendFrom`；测试接口 `/api/test/smtp` 改为 `/api/test/email`。前端 `linkinfra-web` 同步把设置页 SMTP 卡片替换为 Resend 卡片并重命名测试路由。单测覆盖成功、未配置、Resend 返回 4xx、空收件人四种情况。
 - **关联计划**: `docs/plans/2026-09-03-resend-email.md`
 
+### fix(email): 代码审查修复：from 显示名处理、错误脱敏、开启邮箱验证前置校验
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `common/message/email.go`、`common/message/email_test.go`、`controller/misc.go`、`controller/option.go`、`controller/option_test.go`（新增）
+- **说明**: `ResendFrom` 已含显示名（如 `Support <x@y.com>`）时原样使用，避免拼成非法 from 导致全站发信失败；系统名称含 RFC 5322 特殊字符时加引号转义。验证码与重置密码接口不再把 Resend 原始错误返回给匿名用户，改为通用文案并记 `SysError`。`validateOptionUpdate` 新增：未配置 Resend 时禁止开启 `EmailVerificationEnabled`。新增 7 个单测。
+- **关联计划**: `docs/plans/2026-09-03-resend-email.md`
+
 ## 2026-08-25
 
 ### fix(channel): 渠道类型接口返回 Qwen 与 ZAI 新名称

@@ -27,6 +27,10 @@ func validateOptionUpdate(option model.Option) string {
 		if option.Value == "true" && (config.GoogleClientId == "" || config.GoogleClientSecret == "") {
 			return "Cannot enable Google OAuth before configuring the Client ID and Client Secret."
 		}
+	case "EmailVerificationEnabled":
+		if option.Value == "true" && (config.ResendApiKey == "" || config.ResendFrom == "") {
+			return "Cannot enable email verification before configuring the Resend API key and sender address."
+		}
 	case "EmailDomainRestrictionEnabled":
 		if option.Value == "true" && len(config.EmailDomainWhitelist) == 0 {
 			return "Cannot enable email domain restriction. Please fill in the allowed email domains first."

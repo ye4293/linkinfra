@@ -8,6 +8,7 @@ import (
 
 	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/config"
+	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/common/message"
 	"github.com/songquanpeng/one-api/model"
 
@@ -128,9 +129,11 @@ func SendEmailVerification(c *gin.Context) {
 		"<p>Code is valid within %d minutes.</p>", config.SystemName, code, common.VerificationValidMinutes)
 	err := message.SendEmail(subject, email, content)
 	if err != nil {
+		// 不向匿名用户暴露 Resend 原始错误（含发件域名与配置状态），详情记日志
+		logger.SysError(fmt.Sprintf("failed to send verification email to %s: %s", email, err.Error()))
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": err.Error(),
+			"message": "Failed to send email. Please try again later.",
 		})
 		return
 	}
@@ -206,9 +209,10 @@ func SendPasswordResetEmail(c *gin.Context) {
 
 	err = message.SendEmail(subject, email, content)
 	if err != nil {
+		logger.SysError(fmt.Sprintf("failed to send password reset email to %s: %s", email, err.Error()))
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": err.Error(),
+			"message": "Failed to send email. Please try again later.",
 		})
 		return
 	}
