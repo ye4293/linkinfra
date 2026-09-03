@@ -6,6 +6,15 @@
 
 ---
 
+## 2026-09-03
+
+### feat(email): 邮件发送迁移到 Resend，移除 SMTP
+- **分支**: `main`
+- **类型**: feat
+- **涉及文件**: `common/config/config.go`、`model/option.go`、`controller/option.go`、`common/message/email.go`、`common/message/email_test.go`（新增）、`controller/notification.go`、`router/api-router.go`
+- **说明**: `SendEmail` 改为直接调用 Resend HTTP API（`POST /emails`，`net/http` 实现，不引入 SDK），签名不变，7 处业务调用点无需修改；系统设置删除 `SMTP*` 五项，新增 `ResendApiKey`（`GetOptions` 脱敏规则增加 `ApiKey` 后缀，不回显）与 `ResendFrom`；测试接口 `/api/test/smtp` 改为 `/api/test/email`。前端 `linkinfra-web` 同步把设置页 SMTP 卡片替换为 Resend 卡片并重命名测试路由。单测覆盖成功、未配置、Resend 返回 4xx、空收件人四种情况。
+- **关联计划**: `docs/plans/2026-09-03-resend-email.md`
+
 ## 2026-08-25
 
 ### fix(channel): 渠道类型接口返回 Qwen 与 ZAI 新名称

@@ -12,9 +12,9 @@ import (
 	"github.com/songquanpeng/one-api/common/message"
 )
 
-// TestSMTP 测试 SMTP 邮件发送
-// POST /api/test/smtp
-func TestSMTP(c *gin.Context) {
+// TestEmail 测试 Resend 邮件发送
+// POST /api/test/email
+func TestEmail(c *gin.Context) {
 	var request struct {
 		Email string `json:"email" binding:"required"`
 	}
@@ -27,30 +27,29 @@ func TestSMTP(c *gin.Context) {
 		return
 	}
 
-	// 检查 SMTP 是否已配置
-	if config.SMTPServer == "" || config.SMTPAccount == "" {
+	// 检查 Resend 是否已配置
+	if config.ResendApiKey == "" || config.ResendFrom == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "SMTP server is not configured. Save your SMTP settings first.",
+			"message": "Resend is not configured. Save your Resend API key and sender address first.",
 		})
 		return
 	}
 
 	// 发送测试邮件
-	subject := fmt.Sprintf("[%s] SMTP configuration test", config.SystemName)
+	subject := "Email configuration test"
 	content := fmt.Sprintf(`
 		<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-			<h2 style="color: #333;">✅ SMTP configuration test passed</h2>
-			<p>Your SMTP email service is configured correctly.</p>
+			<h2 style="color: #333;">✅ Email configuration test passed</h2>
+			<p>Your Resend email service is configured correctly.</p>
 			<hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
 			<p style="color: #666; font-size: 14px;">
-				<strong>Server:</strong> %s<br>
-				<strong>Port:</strong> %d<br>
+				<strong>Sender:</strong> %s<br>
 				<strong>Sent at:</strong> %s
 			</p>
-			<p style="color: #999; font-size: 12px;">This message was sent automatically by %s to verify your SMTP configuration.</p>
+			<p style="color: #999; font-size: 12px;">This message was sent automatically by %s to verify your email configuration.</p>
 		</div>
-	`, config.SMTPServer, config.SMTPPort, time.Now().Format("2006-01-02 15:04:05"), config.SystemName)
+	`, config.ResendFrom, time.Now().Format("2006-01-02 15:04:05"), config.SystemName)
 
 	err := message.SendEmail(subject, request.Email, content)
 	if err != nil {

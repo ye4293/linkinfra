@@ -45,11 +45,8 @@ func InitOptionMap() {
 	config.OptionMap["ChannelDisableThreshold"] = strconv.FormatFloat(config.ChannelDisableThreshold, 'f', -1, 64)
 	config.OptionMap["EmailDomainRestrictionEnabled"] = strconv.FormatBool(config.EmailDomainRestrictionEnabled)
 	config.OptionMap["EmailDomainWhitelist"] = strings.Join(config.EmailDomainWhitelist, ",")
-	config.OptionMap["SMTPServer"] = ""
-	config.OptionMap["SMTPFrom"] = ""
-	config.OptionMap["SMTPPort"] = strconv.Itoa(config.SMTPPort)
-	config.OptionMap["SMTPAccount"] = ""
-	config.OptionMap["SMTPToken"] = ""
+	config.OptionMap["ResendApiKey"] = ""
+	config.OptionMap["ResendFrom"] = ""
 	config.OptionMap["Notice"] = ""
 	config.OptionMap["About"] = ""
 	config.OptionMap["HomePageContent"] = ""
@@ -258,17 +255,10 @@ func updateOptionMap(key string, value string) (err error) {
 		config.RetryKeywords = value
 	case "EmailDomainWhitelist":
 		config.EmailDomainWhitelist = strings.Split(value, ",")
-	case "SMTPServer":
-		config.SMTPServer = value
-	case "SMTPPort":
-		intValue, _ := strconv.Atoi(value)
-		config.SMTPPort = intValue
-	case "SMTPAccount":
-		config.SMTPAccount = value
-	case "SMTPFrom":
-		config.SMTPFrom = value
-	case "SMTPToken":
-		config.SMTPToken = value
+	case "ResendApiKey":
+		config.ResendApiKey = value
+	case "ResendFrom":
+		config.ResendFrom = value
 	case "ServerAddress":
 		config.ServerAddress = value
 	case "FrontendServerAddress":

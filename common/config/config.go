@@ -105,11 +105,8 @@ var MemoryCacheEnabled = strings.ToLower(os.Getenv("MEMORY_CACHE_ENABLED")) == "
 
 var LogConsumeEnabled = true
 
-var SMTPServer = ""
-var SMTPPort = 587
-var SMTPAccount = ""
-var SMTPFrom = ""
-var SMTPToken = ""
+var ResendApiKey = ""
+var ResendFrom = ""
 
 var GitHubClientId = ""
 var GitHubClientSecret = ""

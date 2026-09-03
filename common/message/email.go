@@ -1,95 +1,94 @@
 package message
 
 import (
-	"crypto/rand"
-	"crypto/tls"
-	"encoding/base64"
+	"bytes"
+	"encoding/json"
 	"fmt"
-	"github.com/songquanpeng/one-api/common/config"
-	"net/smtp"
+	"io"
+	"net/http"
 	"strings"
 	"time"
+
+	"github.com/songquanpeng/one-api/common/config"
 )
 
+// resendBaseURL Resend API 根地址，测试时可替换为本地 httptest 服务
+var resendBaseURL = "https://api.resend.com"
+
+var resendHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
+type resendSendRequest struct {
+	From    string   `json:"from"`
+	To      []string `json:"to"`
+	Subject string   `json:"subject"`
+	HTML    string   `json:"html"`
+}
+
+type resendErrorResponse struct {
+	Name    string `json:"name"`
+	Message string `json:"message"`
+}
+
+// SendEmail 通过 Resend 发送 HTML 邮件；receiver 支持以 ";" 分隔多个收件人
 func SendEmail(subject string, receiver string, content string) error {
 	if receiver == "" {
 		return fmt.Errorf("receiver is empty")
 	}
-	if config.SMTPFrom == "" { // for compatibility
-		config.SMTPFrom = config.SMTPAccount
+	if config.ResendApiKey == "" || config.ResendFrom == "" {
+		return fmt.Errorf("resend is not configured")
 	}
-	// 在邮件主题前加入系统名称标识，方便区分不同站点
-	subjectWithSystem := subject
-	if config.SystemName != "" {
-		subjectWithSystem = fmt.Sprintf("[%s] %s", config.SystemName, subject)
-	}
-	encodedSubject := fmt.Sprintf("=?UTF-8?B?%s?=", base64.StdEncoding.EncodeToString([]byte(subjectWithSystem)))
 
-	// Extract domain from SMTPFrom
-	parts := strings.Split(config.SMTPFrom, "@")
-	var domain string
-	if len(parts) > 1 {
-		domain = parts[1]
+	var to []string
+	for _, addr := range strings.Split(receiver, ";") {
+		addr = strings.TrimSpace(addr)
+		if addr != "" {
+			to = append(to, addr)
+		}
 	}
-	// Generate a unique Message-ID
-	buf := make([]byte, 16)
-	_, err := rand.Read(buf)
+	if len(to) == 0 {
+		return fmt.Errorf("receiver is empty")
+	}
+
+	// 主题前加系统名称标识，方便区分不同站点
+	if config.SystemName != "" {
+		subject = fmt.Sprintf("[%s] %s", config.SystemName, subject)
+	}
+	from := config.ResendFrom
+	if config.SystemName != "" {
+		from = fmt.Sprintf("%s <%s>", config.SystemName, config.ResendFrom)
+	}
+
+	payload, err := json.Marshal(resendSendRequest{
+		From:    from,
+		To:      to,
+		Subject: subject,
+		HTML:    content,
+	})
 	if err != nil {
 		return err
 	}
-	messageId := fmt.Sprintf("<%x@%s>", buf, domain)
 
-	mail := []byte(fmt.Sprintf("To: %s\r\n"+
-		"From: %s<%s>\r\n"+
-		"Subject: %s\r\n"+
-		"Message-ID: %s\r\n"+ // add Message-ID header to avoid being treated as spam, RFC 5322
-		"Date: %s\r\n"+
-		"Content-Type: text/html; charset=UTF-8\r\n\r\n%s\r\n",
-		receiver, config.SystemName, config.SMTPFrom, encodedSubject, messageId, time.Now().Format(time.RFC1123Z), content))
-	auth := smtp.PlainAuth("", config.SMTPAccount, config.SMTPToken, config.SMTPServer)
-	addr := fmt.Sprintf("%s:%d", config.SMTPServer, config.SMTPPort)
-	to := strings.Split(receiver, ";")
-
-	if config.SMTPPort == 465 {
-		tlsConfig := &tls.Config{
-			InsecureSkipVerify: true,
-			ServerName:         config.SMTPServer,
-		}
-		conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", config.SMTPServer, config.SMTPPort), tlsConfig)
-		if err != nil {
-			return err
-		}
-		client, err := smtp.NewClient(conn, config.SMTPServer)
-		if err != nil {
-			return err
-		}
-		defer client.Close()
-		if err = client.Auth(auth); err != nil {
-			return err
-		}
-		if err = client.Mail(config.SMTPFrom); err != nil {
-			return err
-		}
-		receiverEmails := strings.Split(receiver, ";")
-		for _, receiver := range receiverEmails {
-			if err = client.Rcpt(receiver); err != nil {
-				return err
-			}
-		}
-		w, err := client.Data()
-		if err != nil {
-			return err
-		}
-		_, err = w.Write(mail)
-		if err != nil {
-			return err
-		}
-		err = w.Close()
-		if err != nil {
-			return err
-		}
-	} else {
-		err = smtp.SendMail(addr, auth, config.SMTPAccount, to, mail)
+	req, err := http.NewRequest(http.MethodPost, resendBaseURL+"/emails", bytes.NewReader(payload))
+	if err != nil {
+		return err
 	}
-	return err
+	req.Header.Set("Authorization", "Bearer "+config.ResendApiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := resendHTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("resend request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	var apiErr resendErrorResponse
+	if json.Unmarshal(body, &apiErr) == nil && apiErr.Message != "" {
+		return fmt.Errorf("resend error (%d %s): %s", resp.StatusCode, apiErr.Name, apiErr.Message)
+	}
+	return fmt.Errorf("resend error (%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 }

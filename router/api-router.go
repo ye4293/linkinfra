@@ -100,7 +100,7 @@ func SetApiRouter(router *gin.Engine) {
 		testRoute := apiRouter.Group("/test")
 		testRoute.Use(middleware.AdminAuth())
 		{
-			testRoute.POST("/smtp", controller.TestSMTP)
+			testRoute.POST("/email", controller.TestEmail)
 			testRoute.POST("/feishu", controller.TestFeishuWebhook)
 		}
 
