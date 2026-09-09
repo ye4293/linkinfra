@@ -36,7 +36,9 @@ var MaxRecentItems = 100
 
 var PasswordLoginEnabled = true
 var PasswordRegisterEnabled = true
-var EmailVerificationEnabled = false
+
+// 密码注册必须验证邮箱；保留变量以兼容旧配置接口。
+var EmailVerificationEnabled = true
 var GitHubOAuthEnabled = false
 
 // OAuthLoginSecret 是前端（next-auth）与本服务之间的共享密钥，从环境变量

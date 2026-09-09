@@ -22,7 +22,7 @@ func TestValidateOptionUpdate_EmailVerificationRequiresResend(t *testing.T) {
 	}
 
 	config.ResendApiKey, config.ResendFrom = "", ""
-	if msg := validateOptionUpdate(model.Option{Key: "EmailVerificationEnabled", Value: "false"}); msg != "" {
-		t.Fatalf("disabling should never require Resend, got %q", msg)
+	if msg := validateOptionUpdate(model.Option{Key: "EmailVerificationEnabled", Value: "false"}); msg == "" {
+		t.Fatal("email verification must not be disabled")
 	}
 }

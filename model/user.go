@@ -407,7 +407,10 @@ func (user *User) FillUserByUsername() error {
 }
 
 func IsEmailAlreadyTaken(email string) bool {
-	return DB.Where("email = ?", email).Find(&User{}).RowsAffected == 1
+	var count int64
+	err := DB.Model(&User{}).Where("LOWER(email) = ?", strings.ToLower(strings.TrimSpace(email))).Count(&count).Error
+	// 查询失败时拒绝继续注册或绑定，已有多条重复记录时也必须视为占用。
+	return err != nil || count > 0
 }
 
 func IsUsernameAlreadyTaken(username string) bool {

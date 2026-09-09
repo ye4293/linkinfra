@@ -6,6 +6,17 @@
 
 ---
 
+## 2026-09-09
+
+### fix(auth): 密码注册强制邮箱验证（v0.1.17）
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `common/config/config.go`、`common/verification.go`、`common/verification_consume_test.go`、`controller/user.go`、`controller/misc.go`、`controller/option.go`、`controller/option_test.go`、`controller/register_test.go`、`model/user.go`、`model/option.go`、`model/option_email_verification_test.go`
+- **说明**: 密码注册必须提供合法邮箱和有效验证码，旧配置不能关闭验证；验证码原子消费并限制错误尝试，注册与邮箱绑定重新检查邮箱占用，发码与注册共用邮箱白名单规则。相关用户提示和验证码邮件统一使用英文。
+- **验证**: `go test ./common ./controller ./model`、`go build ./...`、`go vet ./...` 通过；英文文案调整后已重跑 controller 测试、编译和静态检查。
+- **上线要求**: 配置可用的 Resend API key 和发件地址；邮件服务不可用时无法完成密码注册。
+- **关联计划**: `docs/plans/2026-09-09-registration-email-verification.md`
+
 ## 2026-09-03
 
 ### feat(email): 邮件发送迁移到 Resend，移除 SMTP

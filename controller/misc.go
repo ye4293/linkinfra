@@ -22,7 +22,7 @@ func GetStatus(c *gin.Context) {
 		"data": gin.H{
 			"version":                 common.Version,
 			"start_time":              common.StartTime,
-			"email_verification":      config.EmailVerificationEnabled,
+			"email_verification":      true,
 			"github_oauth":            config.GitHubOAuthEnabled,
 			"google_oauth":            config.GoogleOAuthEnabled,
 			"github_client_id":        config.GitHubClientId,
@@ -80,13 +80,21 @@ func GetHomePageContent(c *gin.Context) {
 }
 
 func SendEmailVerification(c *gin.Context) {
-	email := c.Query("email")
-	if err := common.Validate.Var(email, "required,email"); err != nil {
+	email := strings.TrimSpace(c.Query("email"))
+	if msg := validateRegistrationEmail(email); msg != "" {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "Invalid parameter",
+			"message": msg,
 		})
 		return
+	}
+	sendEmailVerification(c, email)
+}
+
+// 发码与注册使用相同的邮箱规则，防止取得验证码后绕过白名单。
+func validateRegistrationEmail(email string) string {
+	if err := common.Validate.Var(email, "required,email,max=50"); err != nil {
+		return "Please enter a valid email address (maximum 50 characters)."
 	}
 	if config.EmailDomainRestrictionEnabled {
 		parts := strings.Split(email, "@")
@@ -96,37 +104,33 @@ func SendEmailVerification(c *gin.Context) {
 		containsSpecialSymbols := strings.Contains(localPart, "+") || strings.Count(localPart, ".") > 1
 		allowed := false
 		for _, domain := range config.EmailDomainWhitelist {
-			if domainPart == domain {
+			if strings.EqualFold(domainPart, strings.TrimSpace(domain)) {
 				allowed = true
 				break
 			}
 		}
-		if allowed && !containsSpecialSymbols {
-			// c.JSON(http.StatusOK, gin.H{
-			// 	"success": true,
-			// 	"message": "Your email address is allowed.",
-			// })
-		} else {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "The administrator has enabled the email domain name whitelist, and your email address is not allowed due to special symbols or it's not in the whitelist.",
-			})
-			return
+		if !allowed || containsSpecialSymbols {
+			return "This email address is not allowed. Please use an approved email domain without a plus sign or multiple dots before the @ symbol."
 		}
 	}
+	return ""
+}
+
+func sendEmailVerification(c *gin.Context, email string) {
 	if model.IsEmailAlreadyTaken(email) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "Email address is already occupied",
+			"message": "This email address is already in use or is currently unavailable.",
 		})
 		return
 	}
 	code := common.GenerateVerificationCode(6)
 	common.RegisterVerificationCodeWithKey(email, code, common.EmailVerificationPurpose)
-	subject := fmt.Sprintf("%s's verification email", config.SystemName)
-	content := fmt.Sprintf("<p>Hello,you are verifying email on %s </p>"+
-		"<p>your code is <strong>%s</strong></p>"+
-		"<p>Code is valid within %d minutes.</p>", config.SystemName, code, common.VerificationValidMinutes)
+	subject := "Verify your email address"
+	content := fmt.Sprintf("<p>Please verify your email address for %s.</p>"+
+		"<p>Your verification code is <strong>%s</strong>.</p>"+
+		"<p>This code expires in %d minutes and can only be used once.</p>"+
+		"<p>If you did not request this code, you can ignore this email.</p>", config.SystemName, code, common.VerificationValidMinutes)
 	err := message.SendEmail(subject, email, content)
 	if err != nil {
 		// 不向匿名用户暴露 Resend 原始错误（含发件域名与配置状态），详情记日志

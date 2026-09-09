@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
@@ -156,21 +157,23 @@ func Register(c *gin.Context) {
 		})
 		return
 	}
-	if config.EmailVerificationEnabled {
-		if user.Email == "" || user.VerificationCode == "" {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "The administrator has enabled email verification. Please enter your email address and verification code.",
-			})
-			return
-		}
-		if !common.VerifyCodeWithKey(user.Email, user.VerificationCode, common.EmailVerificationPurpose) {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": "The verification code is wrong or expired",
-			})
-			return
-		}
+	user.Email = strings.TrimSpace(user.Email)
+	if msg := validateRegistrationEmail(user.Email); msg != "" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": msg})
+		return
+	}
+	if strings.TrimSpace(user.VerificationCode) == "" {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Please enter your email verification code."})
+		return
+	}
+	// 不依赖可被旧配置关闭的开关；验证成功即原子消费，避免并发重放。
+	if !common.ConsumeVerificationCodeWithKey(user.Email, user.VerificationCode, common.EmailVerificationPurpose) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "The verification code is invalid or has expired. Please request a new code."})
+		return
+	}
+	if model.IsEmailAlreadyTaken(user.Email) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "This email address is already in use or is currently unavailable."})
+		return
 	}
 	affCode := user.AffCode // this code is the inviter's code, not the user's own code
 	inviterId, _ := model.GetUserIdByAffCode(affCode)
@@ -178,11 +181,9 @@ func Register(c *gin.Context) {
 		Username:    user.Username,
 		Password:    user.Password,
 		DisplayName: user.Username,
+		Email:       user.Email,
 		InviterId:   inviterId,
 		AccessToken: helper.GetUUID(),
-	}
-	if config.EmailVerificationEnabled {
-		cleanUser.Email = user.Email
 	}
 	if err := cleanUser.Insert(inviterId); err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -843,12 +844,12 @@ func ManageUser(c *gin.Context) {
 }
 
 func EmailBind(c *gin.Context) {
-	email := c.Query("email")
+	email := strings.TrimSpace(c.Query("email"))
 	code := c.Query("code")
-	if !common.VerifyCodeWithKey(email, code, common.EmailVerificationPurpose) {
+	if !common.ConsumeVerificationCodeWithKey(email, code, common.EmailVerificationPurpose) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
-			"message": "Invalid or expired verification code.",
+			"message": "The verification code is invalid or has expired. Please request a new code.",
 		})
 		return
 	}
@@ -864,8 +865,11 @@ func EmailBind(c *gin.Context) {
 		})
 		return
 	}
+	if model.IsEmailAlreadyTaken(email) {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "This email address is already in use or is currently unavailable."})
+		return
+	}
 	user.Email = email
-	// no need to check if this email already taken, because we have used verification code to check it
 	err = user.Update(false)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -879,7 +883,7 @@ func EmailBind(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "Bind email successfuly",
+		"message": "Your email address has been linked successfully.",
 	})
 	return
 }

@@ -199,6 +199,10 @@ func UpdateOption(key string, value string) error {
 func updateOptionMap(key string, value string) (err error) {
 	config.OptionMapRWMutex.Lock()
 	defer config.OptionMapRWMutex.Unlock()
+	// 旧数据库中的 false 不能重新开放无邮箱注册。
+	if key == "EmailVerificationEnabled" {
+		value = "true"
+	}
 	config.OptionMap[key] = value
 	if strings.HasSuffix(key, "Enabled") {
 		boolValue := value == "true"

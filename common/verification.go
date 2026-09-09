@@ -11,8 +11,9 @@ import (
 )
 
 type verificationValue struct {
-	code string
-	time time.Time
+	code     string
+	time     time.Time
+	attempts int
 }
 
 const (
@@ -90,6 +91,33 @@ func DeleteKey(key string, purpose string) {
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()
 	delete(verificationMap, purpose+key)
+}
+
+// ConsumeVerificationCodeWithKey 在同一把锁内校验并删除验证码。
+// 每个验证码最多允许 5 次错误尝试，成功后不能用于另一账号或并发请求。
+func ConsumeVerificationCodeWithKey(key string, code string, purpose string) bool {
+	verificationMutex.Lock()
+	defer verificationMutex.Unlock()
+	mapKey := purpose + key
+	value, okay := verificationMap[mapKey]
+	if !okay {
+		return false
+	}
+	if time.Since(value.time) >= time.Duration(VerificationValidMinutes)*time.Minute {
+		delete(verificationMap, mapKey)
+		return false
+	}
+	if code == "" || code != value.code {
+		value.attempts++
+		if value.attempts >= 5 {
+			delete(verificationMap, mapKey)
+		} else {
+			verificationMap[mapKey] = value
+		}
+		return false
+	}
+	delete(verificationMap, mapKey)
+	return true
 }
 
 // no lock inside, so the caller must lock the verificationMap before calling!

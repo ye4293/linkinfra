@@ -28,6 +28,9 @@ func validateOptionUpdate(option model.Option) string {
 			return "Cannot enable Google OAuth before configuring the Client ID and Client Secret."
 		}
 	case "EmailVerificationEnabled":
+		if option.Value != "true" {
+			return "Email verification is required for password registration and cannot be disabled."
+		}
 		if option.Value == "true" && (config.ResendApiKey == "" || config.ResendFrom == "") {
 			return "Cannot enable email verification before configuring the Resend API key and sender address."
 		}
