@@ -356,13 +356,17 @@ func (a *Adaptor) DoRequest(c *gin.Context, meta *util.RelayMeta, requestBody io
 
 // DoResponse implements channel.Adaptor.
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *util.RelayMeta) (usage *model.Usage, err *model.ErrorWithStatusCode) {
+	modelName := meta.ActualModelName
+	if modelName == "" {
+		modelName = meta.OriginModelName
+	}
 	// Claude on Vertex：响应体是 Anthropic 原生格式，需要用 anthropic handler。
 	// 正常业务走 RelayClaudeNative 不经过这里，仅渠道测试 / 非 native 路径命中。
-	if isClaudeModel(meta.ActualModelName) || isClaudeModel(meta.OriginModelName) {
+	if isClaudeModel(modelName) {
 		if meta.IsStream {
 			err, usage = anthropic.StreamHandler(c, resp, meta)
 		} else {
-			err, usage = anthropic.Handler(c, resp, meta.PromptTokens, meta.ActualModelName)
+			err, usage = anthropic.Handler(c, resp, meta.PromptTokens, modelName)
 		}
 		return
 	}
@@ -370,10 +374,10 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *util.Rel
 	// Vertex AI 返回的响应格式与 Gemini 相同
 	if meta.IsStream {
 		var responseText string
-		err, responseText = gemini.StreamHandler(c, resp, meta.ActualModelName)
-		usage = openai.ResponseText2Usage(responseText, meta.ActualModelName, meta.PromptTokens)
+		err, responseText = gemini.StreamHandler(c, resp, modelName)
+		usage = openai.ResponseText2Usage(responseText, modelName, meta.PromptTokens)
 	} else {
-		err, usage = gemini.Handler(c, resp, meta.PromptTokens, meta.ActualModelName)
+		err, usage = gemini.Handler(c, resp, meta.PromptTokens, modelName)
 	}
 	return
 }

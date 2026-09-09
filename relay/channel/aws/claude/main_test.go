@@ -2,13 +2,96 @@ package aws
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/gin-gonic/gin"
+	"github.com/songquanpeng/one-api/common/ctxkey"
+	relaymodel "github.com/songquanpeng/one-api/relay/model"
 )
+
+type streamingRecorder struct {
+	*httptest.ResponseRecorder
+}
+
+func (r *streamingRecorder) CloseNotify() <-chan bool {
+	return make(chan bool)
+}
+
+func TestConvertedClaudeRequestSampling(t *testing.T) {
+	for _, model := range []string{
+		"claude-opus-4-8", "claude-opus-4-8-thinking",
+		"claude-opus-4-7", "claude-opus-4-7-thinking",
+		"claude-opus-4-6",
+	} {
+		for _, stream := range []bool{false, true} {
+			name := model + "/non-stream"
+			if stream {
+				name = model + "/stream"
+			}
+			t.Run(name, func(t *testing.T) {
+				var payload map[string]any
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+						t.Errorf("decode Bedrock request: %v", err)
+					}
+					if stream {
+						w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, `{"id":"test","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+				}))
+				defer server.Close()
+				client := bedrockruntime.New(bedrockruntime.Options{
+					Region: "us-east-1", Credentials: credentials.NewStaticCredentialsProvider("test", "test", ""),
+					AuthSchemePreference: []string{"aws.auth#sigv4"},
+					BaseEndpoint:         aws.String(server.URL),
+				})
+				ctx, _ := gin.CreateTestContext(&streamingRecorder{httptest.NewRecorder()})
+				ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+				adaptor := &Adaptor{}
+				_, err := adaptor.ConvertRequest(ctx, 0, &relaymodel.GeneralOpenAIRequest{
+					Model: model, MaxTokens: 4096, Stream: stream,
+					Temperature: 0.2, TopP: 0.9, TopK: 10,
+					Messages: []relaymodel.Message{{Role: "user", Content: "hi"}},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var relayErr *relaymodel.ErrorWithStatusCode
+				if stream {
+					relayErr, _ = StreamHandler(ctx, client, nil)
+				} else {
+					relayErr, _ = Handler(ctx, client, nil)
+				}
+				if relayErr != nil {
+					t.Fatalf("Bedrock handler failed: %+v", relayErr)
+				}
+				if payload == nil {
+					t.Fatal("Bedrock request was not sent")
+				}
+				if model == "claude-opus-4-6" {
+					if payload["temperature"] != 0.2 || payload["top_p"] != 0.9 || payload["top_k"] != float64(10) {
+						t.Fatalf("older model sampling parameters changed: %#v", payload)
+					}
+					return
+				}
+				for _, field := range []string{"temperature", "top_p", "top_k"} {
+					if value, exists := payload[field]; exists {
+						t.Errorf("%s must be omitted for %s, got %v", field, ctx.GetString(ctxkey.RequestModel), value)
+					}
+				}
+			})
+		}
+	}
+}
 
 func TestBuildNativeClaudeRequestBody_PreservesBuiltInTools(t *testing.T) {
 	t.Parallel()

@@ -255,7 +255,12 @@ func Handler(c *gin.Context, awsCli *bedrockruntime.Client, meta *util.RelayMeta
 		}
 
 		// thinking 模式要求 temperature 必须为 1（仅 4.6 adaptive 与更早 enabled，4.7+ 不接受 temperature）
-		if awsClaudeReq.Thinking != nil && !anthropic.IsNoSamplingModel(c.GetString(ctxkey.RequestModel)) {
+		if anthropic.IsNoSamplingModel(c.GetString(ctxkey.RequestModel)) {
+			// copier.Copy turns temperature=0 into a non-nil pointer; omit it entirely.
+			awsClaudeReq.Temperature = nil
+			awsClaudeReq.TopP = 0
+			awsClaudeReq.TopK = 0
+		} else if awsClaudeReq.Thinking != nil {
 			temperatureOne := 1.0
 			awsClaudeReq.Temperature = &temperatureOne
 		}
@@ -274,7 +279,7 @@ func Handler(c *gin.Context, awsCli *bedrockruntime.Client, meta *util.RelayMeta
 	awsReq.Body = requestBody
 	logger.Infof(c, "[Bedrock Beta] final request body (first 500): %s", truncateBytes(requestBody, 500))
 
-	awsResp, err := awsCli.InvokeModel(c.Request.Context(), awsReq)
+	awsResp, err := invokeModelWithSamplingFallback(c.Request.Context(), awsCli, awsReq)
 	if err != nil {
 		return utils.WrapErr(errors.Wrap(err, "InvokeModel")), nil
 	}
@@ -335,7 +340,12 @@ func StreamHandler(c *gin.Context, awsCli *bedrockruntime.Client, meta *util.Rel
 		}
 
 		// thinking 模式要求 temperature 必须为 1（仅 4.6 adaptive 与更早 enabled，4.7+ 不接受 temperature）
-		if awsClaudeReq.Thinking != nil && !anthropic.IsNoSamplingModel(c.GetString(ctxkey.RequestModel)) {
+		if anthropic.IsNoSamplingModel(c.GetString(ctxkey.RequestModel)) {
+			// copier.Copy turns temperature=0 into a non-nil pointer; omit it entirely.
+			awsClaudeReq.Temperature = nil
+			awsClaudeReq.TopP = 0
+			awsClaudeReq.TopK = 0
+		} else if awsClaudeReq.Thinking != nil {
 			temperatureOne := 1.0
 			awsClaudeReq.Temperature = &temperatureOne
 		}
@@ -354,7 +364,7 @@ func StreamHandler(c *gin.Context, awsCli *bedrockruntime.Client, meta *util.Rel
 	awsReq.Body = requestBody
 	logger.Infof(c, "[Bedrock Beta] final stream request body (first 500): %s", truncateBytes(requestBody, 500))
 
-	awsResp, err := awsCli.InvokeModelWithResponseStream(c.Request.Context(), awsReq)
+	awsResp, err := invokeStreamWithSamplingFallback(c.Request.Context(), awsCli, awsReq)
 	if err != nil {
 		return utils.WrapErr(errors.Wrap(err, "InvokeModelWithResponseStream")), nil
 	}
@@ -480,7 +490,7 @@ func NativeHandler(c *gin.Context, awsCli *bedrockruntime.Client, meta *util.Rel
 		return utils.WrapErr(err), nil
 	}
 
-	awsResp, err := awsCli.InvokeModel(c.Request.Context(), awsReq)
+	awsResp, err := invokeModelWithSamplingFallback(c.Request.Context(), awsCli, awsReq)
 	if err != nil {
 		return utils.WrapErr(errors.Wrap(err, "InvokeModel")), nil
 	}
@@ -536,7 +546,7 @@ func NativeStreamHandler(c *gin.Context, awsCli *bedrockruntime.Client, meta *ut
 		return utils.WrapErr(err), nil
 	}
 
-	awsResp, err := awsCli.InvokeModelWithResponseStream(c.Request.Context(), awsReq)
+	awsResp, err := invokeStreamWithSamplingFallback(c.Request.Context(), awsCli, awsReq)
 	if err != nil {
 		return utils.WrapErr(errors.Wrap(err, "InvokeModelWithResponseStream")), nil
 	}
