@@ -8,6 +8,19 @@
 
 ## 2026-09-09
 
+### fix(playground): 模型下拉读取后台实际可用模型（v0.1.18）
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `model/ability.go`、`controller/available_models.go`、`controller/available_models_test.go`、`router/api-router.go`；关联前端 `linkinfra-web/app/api/playground/models/route.ts`、`linkinfra-web/sections/playground/playground-page.tsx`
+- **说明**: 新增登录用户模型列表接口，按用户分组和启用渠道筛选、去重并排序。Playground 使用该接口并禁用缓存，避免显示内置目录中后台未配置的模型；渠道管理原有目录保持兼容，用户提示使用英文。
+- **关联计划**: `docs/plans/2026-09-09-playground-available-models.md`
+
+### test(auth): 验证注册邮箱在用户管理列表中返回
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `controller/register_test.go`；关联前端 `sections/user/tables/columns.tsx`、`sections/user/tables/index.tsx`、`sections/user/views/listing-page.tsx`
+- **说明**: 回归测试覆盖邮箱注册后分页列表及按邮箱搜索返回正确邮箱。旧版关闭验证时未保存的邮箱无法自动恢复；前端空邮箱改为英文 No email linked，并禁用用户列表缓存。v0.1.17 已修复新注册的邮箱保存逻辑。
+
 ### fix(auth): 密码注册强制邮箱验证（v0.1.17）
 - **分支**: `main`
 - **类型**: fix

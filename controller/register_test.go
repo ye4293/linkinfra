@@ -86,6 +86,22 @@ func TestRegisterVerifiedEmailAndRejectReplayAndDuplicate(t *testing.T) {
 	if err := db.Where("username = ?", "first").First(&user).Error; err != nil || user.Email != email {
 		t.Fatalf("verified email was not saved: email=%q err=%v", user.Email, err)
 	}
+	// 管理页使用搜索接口，分页列表也必须保留注册邮箱。
+	r.GET("/api/user/", GetAllUsers)
+	r.GET("/api/user/search", SearchUsers)
+	for _, path := range []string{"/api/user/?page=1&pagesize=10", "/api/user/search?keyword=person%40example.com&page=1&pagesize=10"} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		var response struct {
+			Success bool `json:"success"`
+			Data    struct {
+				List []model.User `json:"list"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil || !response.Success || len(response.Data.List) != 1 || response.Data.List[0].Email != email {
+			t.Fatalf("registered email missing from %s: %s", path, w.Body.String())
+		}
+	}
 	if got := submitRegistration(t, r, "second", email, code); got.Success {
 		t.Fatal("replayed code created a second account")
 	}

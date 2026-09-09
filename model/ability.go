@@ -9,6 +9,7 @@ import (
 	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/logger"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type Ability struct {
@@ -17,6 +18,17 @@ type Ability struct {
 	ChannelId int    `json:"channel_id" gorm:"primaryKey;autoIncrement:false;index"`
 	Enabled   bool   `json:"enabled"`
 	Priority  *int64 `json:"priority" gorm:"bigint;default:0;index"`
+}
+
+func GetEnabledModelsForGroup(group string) ([]string, error) {
+	models := make([]string, 0)
+	err := DB.Model(&Ability{}).
+		Joins("JOIN channels ON channels.id = abilities.channel_id").
+		Where(clause.Eq{Column: clause.Column{Table: "abilities", Name: "group"}, Value: group}).
+		Where("abilities.enabled = ? AND channels.status = ? AND TRIM(abilities.model) <> ?",
+			true, common.ChannelStatusEnabled, "").
+		Distinct("abilities.model").Order("abilities.model").Pluck("abilities.model", &models).Error
+	return models, err
 }
 
 func GetRandomSatisfiedChannel(group string, model string) (*Channel, error) {
