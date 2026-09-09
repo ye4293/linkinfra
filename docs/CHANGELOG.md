@@ -8,6 +8,13 @@
 
 ## 2026-09-09
 
+### feat(deepseek): 单渠道自动分发 Chat、Responses 和 Anthropic 协议（v0.1.19）
+- **分支**: `main`
+- **类型**: feat
+- **涉及文件**: `relay/channel/openai/adaptor.go`、`relay/channel/openai/deepseek.go`、`relay/channel/openai/deepseek_test.go`
+- **说明**: DeepSeek 渠道继续复用 OpenAI adaptor，按请求协议自动选择 `/v1/chat/completions`、`/v1/responses` 或 `/anthropic/v1/messages`；统一使用渠道 key，Anthropic 分支补齐 version 默认值并透传 beta。只需配置一次 DeepSeek 渠道和 `https://api.deepseek.com`，也兼容 BaseURL 末尾的 `/v1`、`/anthropic`、`/anthropic/v1` 和斜杠。保留请求路径及查询参数，以及原有 Chat 请求体处理行为。
+- **验证**: 三个官方上游端点均用测试 key 实测返回 200；本地回归覆盖生产 adaptor 工厂及实际 HTTP 发送链路、流式/非流式透传、地址规范化和鉴权头；`go test ./relay/channel/openai ./relay/channel/minimax ./relay/helper ./relay/controller`、`go build ./...`、`go vet ./...` 通过。测试 key 未写入仓库。
+
 ### fix(playground): 模型下拉读取后台实际可用模型（v0.1.18）
 - **分支**: `main`
 - **类型**: fix

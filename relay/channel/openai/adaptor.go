@@ -30,6 +30,8 @@ func (a *Adaptor) Init(meta *util.RelayMeta) {
 
 func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
 	switch meta.ChannelType {
+	case common.ChannelTypeDeepseek:
+		return deepseekRequestURL(meta), nil
 	case common.ChannelTypeAzure:
 		// https://learn.microsoft.com/en-us/azure/cognitive-services/openai/chatgpt-quickstart?pivots=rest-api&tabs=command-line#rest-api
 		requestURL := strings.Split(meta.RequestURLPath, "?")[0]
@@ -56,6 +58,10 @@ func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Request, meta *util.RelayMeta) error {
 	channel.SetupCommonRequestHeader(c, req, meta)
+	if meta.ChannelType == common.ChannelTypeDeepseek {
+		setupDeepseekRequestHeader(c, req, meta)
+		return nil
+	}
 	if meta.ChannelType == common.ChannelTypeAzure {
 		req.Header.Set("api-key", meta.APIKey)
 		return nil
