@@ -3286,6 +3286,22 @@ func RelayClaudeCountTokens(c *gin.Context) {
 
 	logger.Infof(ctx, "Selected channel #%d (%s) for count_tokens request, model: %s", channel.Id, channel.Name, req.Model)
 
+	// 渠道按客户端模型选择，转发时使用该渠道配置的实际模型。
+	if mappedModel, mapped := util.GetMappedModelName(req.Model, channel.GetModelMapping()); mapped {
+		bodyBytes, err = util.RewriteRequestModel(bodyBytes, mappedModel)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"type": "error",
+				"error": gin.H{
+					"type":    "api_error",
+					"message": "Failed to rewrite request model: " + err.Error(),
+				},
+			})
+			return
+		}
+		req.Model = mappedModel
+	}
+
 	// 4. 根据渠道类型转发请求
 	switch channel.Type {
 	case common.ChannelTypeAnthropic:

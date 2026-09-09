@@ -87,3 +87,21 @@ func TestGetRequestURL_GeminiStillWorks(t *testing.T) {
 		t.Errorf("gemini path broken: %s", url)
 	}
 }
+
+func TestGetRequestURLUsesMappedModel(t *testing.T) {
+	for _, origin := range []string{"my-alias", "claude-opus-4-6"} {
+		for _, stream := range []bool{false, true} {
+			a := &Adaptor{AccountCredentials: Credentials{ProjectID: "test-proj"}}
+			meta := newVertexMetaForTest(origin, "us-east5", stream)
+			meta.ActualModelName = "claude-opus-4-7"
+			url, err := a.GetRequestURL(meta)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "publishers/anthropic/models/claude-opus-4-7:" + claudeSuffix(stream)
+			if !strings.Contains(url, want) {
+				t.Errorf("origin %q: URL = %q, want %q", origin, url, want)
+			}
+		}
+	}
+}

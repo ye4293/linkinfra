@@ -69,7 +69,10 @@ func (a *Adaptor) Init(meta *util.RelayMeta) {
 
 // GetRequestURL implements channel.Adaptor.
 func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
-	modelName := meta.OriginModelName
+	modelName := meta.ActualModelName
+	if modelName == "" {
+		modelName = meta.OriginModelName
+	}
 	if modelName == "" {
 		modelName = "gemini-pro"
 	}
@@ -308,16 +311,12 @@ func (a *Adaptor) DoRequest(c *gin.Context, meta *util.RelayMeta, requestBody io
 	// Claude on Vertex：RelayClaudeNative 直接把原始 Anthropic 请求体塞过来，
 	// 不走 ConvertRequest。这里需要注入 anthropic_version 并剔除 model 字段，
 	// 否则 Vertex 的 Anthropic publisher 会返回 400。
-	// 同时兼容 OriginModelName / ActualModelName 其一为 Claude 的情况（某些 Alias
-	// 渠道下 OriginModelName 可能不是 claude-* 但 ActualModelName 是）。
-	var claudeModel string
-	switch {
-	case isClaudeModel(meta.OriginModelName):
+	// URL 和参数适配都以重定向后的模型为准。
+	claudeModel := meta.ActualModelName
+	if claudeModel == "" {
 		claudeModel = meta.OriginModelName
-	case isClaudeModel(meta.ActualModelName):
-		claudeModel = meta.ActualModelName
 	}
-	if claudeModel != "" {
+	if isClaudeModel(claudeModel) {
 		raw, readErr := io.ReadAll(requestBody)
 		if readErr != nil {
 			return nil, fmt.Errorf("failed to read request body for claude rewrite: %w", readErr)

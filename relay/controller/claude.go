@@ -35,11 +35,7 @@ const (
 	claudeCacheReadRatio = 0.1
 )
 
-// ensureGeminiContentsRole 确保 Gemini 请求体中的 contents 数组中每个元素都有 role 字段
-// Vertex AI API 要求必须指定 role 字段(值为 "user" 或 "model"),而 Gemini 原生 API 可以省略
-// 此函数用于在发送请求到 Vertex AI 之前自动补全缺失的 role 字段
-
-// RelayClaudeNative 处理 Gemini 原生 API 请求
+// RelayClaudeNative 处理 Claude 原生 API 请求
 func RelayClaudeNative(c *gin.Context) *model.ErrorWithStatusCode {
 	ctx := c.Request.Context()
 	startTime := time.Now()
@@ -58,12 +54,6 @@ func RelayClaudeNative(c *gin.Context) *model.ErrorWithStatusCode {
 		return openai.ErrorWrapper(err, "failed_to_get_request_body", http.StatusInternalServerError)
 	}
 	meta := util.GetRelayMeta(c)
-	meta.ActualModelName = meta.OriginModelName
-	if len(meta.ModelMapping) > 0 {
-		if mappedModel, ok := meta.ModelMapping[meta.OriginModelName]; ok && mappedModel != "" {
-			meta.ActualModelName = mappedModel
-		}
-	}
 	adaptor := helper.GetAdaptor(meta.APIType)
 	if adaptor == nil {
 		return openai.ErrorWrapper(fmt.Errorf("invalid api type: %d", meta.APIType), "invalid_api_type", http.StatusBadRequest)
@@ -95,11 +85,18 @@ func RelayClaudeNative(c *gin.Context) *model.ErrorWithStatusCode {
 
 	meta.PromptTokens = prePromptTokens
 
+	if meta.ActualModelName != meta.OriginModelName {
+		originRequestBody, err = util.RewriteRequestModel(originRequestBody, meta.ActualModelName)
+		if err != nil {
+			return openai.ErrorWrapper(err, "rewrite_request_model_failed", http.StatusInternalServerError)
+		}
+	}
+
 	// 确保 max_tokens 存在（Claude API 必填字段），透传时用户可能未传
 	if claudeReq.MaxTokens == 0 {
-		var rawBody map[string]interface{}
+		var rawBody map[string]json.RawMessage
 		if jsonErr := json.Unmarshal(originRequestBody, &rawBody); jsonErr == nil {
-			rawBody["max_tokens"] = 4096
+			rawBody["max_tokens"] = json.RawMessage("4096")
 			originRequestBody, _ = json.Marshal(rawBody)
 		}
 	}

@@ -2,9 +2,76 @@ package vertexai
 
 import (
 	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/bytedance/gopkg/cache/asynccache"
+	"github.com/gin-gonic/gin"
+	"github.com/songquanpeng/one-api/relay/util"
 )
+
+type mappedModelTransport func(*http.Request) (*http.Response, error)
+
+func (f mappedModelTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestDoRequestAppliesMappedClaudeModel(t *testing.T) {
+	previousClient := util.HTTPClient
+	previousCache := Cache
+	Cache = asynccache.NewAsyncCache(asynccache.Options{
+		RefreshDuration: time.Hour,
+		Fetcher:         func(string) (interface{}, error) { return "test-token", nil },
+	})
+	t.Cleanup(func() {
+		util.HTTPClient = previousClient
+		Cache.Close()
+		Cache = previousCache
+	})
+	called := false
+	util.HTTPClient = &http.Client{Transport: mappedModelTransport(func(req *http.Request) (*http.Response, error) {
+		called = true
+		if !strings.Contains(req.URL.Path, "publishers/anthropic/models/claude-opus-4-7:rawPredict") {
+			t.Errorf("unexpected URL: %s", req.URL)
+		}
+		var body map[string]json.RawMessage
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		for _, field := range []string{"model", "temperature", "top_p", "top_k"} {
+			if _, exists := body[field]; exists {
+				t.Errorf("%s must be removed for mapped Opus 4.7", field)
+			}
+		}
+		var thinking map[string]any
+		if err := json.Unmarshal(body["thinking"], &thinking); err != nil {
+			t.Fatal(err)
+		}
+		if thinking["type"] != "adaptive" || thinking["budget_tokens"] != nil {
+			t.Errorf("mapped model thinking adaptation missing: %v", thinking)
+		}
+		if string(body["extra"]) != `{"keep":true}` {
+			t.Errorf("extension field lost: %s", body["extra"])
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+	})}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	a := &Adaptor{AccountCredentials: Credentials{ProjectID: "test-proj"}}
+	meta := newVertexMetaForTest("claude-opus-4-6", "us-east5", false)
+	meta.ActualModelName = "claude-opus-4-7"
+	resp, err := a.DoRequest(c, meta, strings.NewReader(`{"model":"claude-opus-4-6","thinking":{"type":"enabled","budget_tokens":1024},"temperature":0.5,"top_p":0.9,"top_k":10,"extra":{"keep":true}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if !called {
+		t.Fatal("upstream request was not sent")
+	}
+}
 
 // TestDoRequest_ClaudeModelInvokesRewrite 证明 DoRequest 在 Claude 模型上会先走
 // rewriteBodyForVertexClaude 再去建 URL。
