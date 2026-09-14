@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/helper"
 	"github.com/songquanpeng/one-api/model"
@@ -15,6 +16,10 @@ import (
 
 func validateOptionUpdate(option model.Option) string {
 	switch option.Key {
+	case common.AudioDurationPricesOption:
+		if _, err := common.ParseAudioDurationPrices(option.Value); err != nil {
+			return err.Error()
+		}
 	case "Theme":
 		if !config.ValidThemes[option.Value] {
 			return "Invalid theme."

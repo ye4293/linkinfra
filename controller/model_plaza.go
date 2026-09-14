@@ -13,25 +13,27 @@ import (
 
 // ModelPlazaItem 模型广场单个模型信息
 type ModelPlazaItem struct {
-	ModelName       string       `json:"model_name"`
-	Provider        string       `json:"provider"`
-	PriceType       string       `json:"price_type"` // "ratio" | "fixed"
-	BaseInputPrice  float64      `json:"base_input_price"`
-	BaseOutputPrice float64      `json:"base_output_price"`
-	BaseFixedPrice  float64      `json:"base_fixed_price"`
-	ChannelDiscount float64      `json:"channel_discount"`
-	GroupPrices     []GroupPrice `json:"group_prices"`
+	BaseDurationPricePerMinute *float64     `json:"base_duration_price_per_minute,omitempty"`
+	ModelName                  string       `json:"model_name"`
+	Provider                   string       `json:"provider"`
+	PriceType                  string       `json:"price_type"` // "ratio" | "fixed"
+	BaseInputPrice             float64      `json:"base_input_price"`
+	BaseOutputPrice            float64      `json:"base_output_price"`
+	BaseFixedPrice             float64      `json:"base_fixed_price"`
+	ChannelDiscount            float64      `json:"channel_discount"`
+	GroupPrices                []GroupPrice `json:"group_prices"`
 }
 
 // GroupPrice 某个等级对应的折后价格
 type GroupPrice struct {
-	GroupKey         string  `json:"group_key"`
-	DisplayName      string  `json:"display_name"`
-	GroupDiscount    float64 `json:"group_discount"`
-	CombinedDiscount float64 `json:"combined_discount"`
-	FinalInputPrice  float64 `json:"final_input_price"`
-	FinalOutputPrice float64 `json:"final_output_price"`
-	FinalFixedPrice  float64 `json:"final_fixed_price"`
+	FinalDurationPricePerMinute *float64 `json:"final_duration_price_per_minute,omitempty"`
+	GroupKey                    string   `json:"group_key"`
+	DisplayName                 string   `json:"display_name"`
+	GroupDiscount               float64  `json:"group_discount"`
+	CombinedDiscount            float64  `json:"combined_discount"`
+	FinalInputPrice             float64  `json:"final_input_price"`
+	FinalOutputPrice            float64  `json:"final_output_price"`
+	FinalFixedPrice             float64  `json:"final_fixed_price"`
 }
 
 // ModelPlazaResponse 模型广场API响应
@@ -125,7 +127,10 @@ func GetModelPlaza(c *gin.Context) {
 				GroupDiscount:    gc.Discount,
 				CombinedDiscount: combinedDiscount,
 			}
-			if pt == "fixed" {
+			if pt == "duration" && price.DurationPricePerMinute != nil {
+				amount := *price.DurationPricePerMinute * combinedDiscount
+				gp.FinalDurationPricePerMinute = &amount
+			} else if pt == "fixed" {
 				gp.FinalFixedPrice = baseFixedPrice * combinedDiscount
 			} else {
 				gp.FinalInputPrice = baseInputPrice * combinedDiscount
@@ -143,6 +148,9 @@ func GetModelPlaza(c *gin.Context) {
 			BaseFixedPrice:  baseFixedPrice,
 			ChannelDiscount: channelDiscount,
 			GroupPrices:     groupPrices,
+		}
+		if hasPriceConfig {
+			item.BaseDurationPricePerMinute = price.DurationPricePerMinute
 		}
 
 		// 统计供应商（不受筛选影响）
@@ -294,38 +302,8 @@ func isGenericProvider(provider string) bool {
 // buildPriceMap 构建模型名 → 价格信息的 map
 func buildPriceMap() map[string]*ModelPriceInfo {
 	result := make(map[string]*ModelPriceInfo)
-
-	basePricePerK := 0.002
-
-	for modelName, ratio := range common.ModelRatio {
-		completionRatio := common.GetCompletionRatio(modelName)
-		inputPricePerM := ratio * basePricePerK * 1000
-		outputPricePerM := inputPricePerM * completionRatio
-
-		result[modelName] = &ModelPriceInfo{
-			ModelName:       modelName,
-			ModelRatio:      ratio,
-			CompletionRatio: completionRatio,
-			InputPrice:      inputPricePerM,
-			OutputPrice:     outputPricePerM,
-			PriceType:       "ratio",
-			HasRatio:        true,
-		}
+	for _, price := range getAllModelPrices() {
+		result[price.ModelName] = &price
 	}
-
-	for modelName, price := range common.ModelPrice {
-		if existing, ok := result[modelName]; ok {
-			existing.FixedPrice = price
-			existing.PriceType = "fixed"
-		} else {
-			result[modelName] = &ModelPriceInfo{
-				ModelName:  modelName,
-				FixedPrice: price,
-				PriceType:  "fixed",
-				HasRatio:   true,
-			}
-		}
-	}
-
 	return result
 }

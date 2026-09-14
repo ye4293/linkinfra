@@ -97,6 +97,26 @@ func RelayAudioHelper(c *gin.Context, relayMode int) *relaymodel.ErrorWithStatus
 		}
 	}
 
+	if relayMode == constant.RelayModeAudioTranscription || relayMode == constant.RelayModeAudioTranslation {
+		if price, ok := common.GetAudioDurationPrice(audioModel); ok {
+			return relayDurationTranscription(c, relayMode, audioModel, price)
+		}
+		upstreamModel := audioModel
+		if mapping := c.GetString("model_mapping"); mapping != "" {
+			var models map[string]string
+			if err := json.Unmarshal([]byte(mapping), &models); err != nil {
+				return openai.ErrorWrapper(err, "invalid_model_mapping", http.StatusInternalServerError)
+			}
+			if models[audioModel] != "" {
+				upstreamModel = models[audioModel]
+			}
+		}
+		_, upstreamUsesDuration := common.GetAudioDurationPrice(upstreamModel)
+		if audioModel == "gpt-transcribe" || upstreamModel == "gpt-transcribe" || upstreamUsesDuration {
+			return openai.ErrorWrapper(errors.New("this transcription model requires a configured per-minute price for the requested model name"), "audio_price_not_configured", http.StatusBadRequest)
+		}
+	}
+
 	// 配额相关处理
 	modelRatio := common.GetModelRatio(audioModel)
 	// groupRatio 融合 等级折扣 × 渠道折扣 × 用户渠道折扣
