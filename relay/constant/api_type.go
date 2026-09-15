@@ -20,6 +20,7 @@ const (
 	APITypeVertexAI
 	APITypeFlux
 	APITypeMoonshot
+	APITypeMimo
 	APITypeDummy // this one is only for count, do not add any channel after this
 )
 
@@ -46,6 +47,8 @@ func ChannelType2APIType(channelType int) int {
 		apiType = APITypeAwsClaude
 	case common.ChannelTypeMinimax:
 		apiType = APITypeMinimax
+	case common.ChannelTypeMimo:
+		apiType = APITypeMimo
 	case common.ChannelTypeXAI:
 		apiType = APITypeXAI
 	case common.ChannelTypeVertexAI:

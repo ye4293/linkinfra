@@ -88,6 +88,7 @@ const (
 	ChannelTypeFlux
 	ChannelTypeXAI
 	ChannelTypeVertexAI
+	ChannelTypeMimo
 	ChannelTypeDummy
 )
 
@@ -141,7 +142,8 @@ var ChannelBaseURLs = []string{
 	"https://api.bfl.ai",                        // 46 ChannelTypeFlux
 	"https://api.x.ai",                          // 47 ChannelTypeXAI
 	"",                                          // 48 ChannelTypeVertexAI
-	"",                                          // 49 ChannelTypeDummy
+	"https://api.xiaomimimo.com",                // 49 ChannelTypeMimo
+	"",                                          // 50 ChannelTypeDummy
 }
 
 const (

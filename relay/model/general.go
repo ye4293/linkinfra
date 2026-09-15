@@ -65,6 +65,8 @@ type GeneralOpenAIRequest struct {
 	MaxCompletionTokens int               `json:"max_completion_tokens,omitempty"`
 	ThinkingTokens      int               `json:"thinking_token,omitempty"`
 	ReasoningContent    string            `json:"reasoning_content,omitempty"`
+	// Thinking preserves MiMo's thinking configuration (for example {"type":"disabled"}).
+	Thinking any `json:"thinking,omitempty"`
 	// EnableThinking 控制 Qwen3 / DeepSeek 等思考模型是否开启思维链。
 	// 阿里百炼 compatible-mode、OpenRouter reasoning 等均识别此字段。
 	EnableThinking *bool `json:"enable_thinking,omitempty"`

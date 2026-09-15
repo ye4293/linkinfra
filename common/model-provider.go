@@ -32,6 +32,7 @@ var ChannelTypeToProvider = map[int]string{
 	ChannelTypeMoonshot:       "Moonshot",
 	ChannelTypeBaichuan:       "Baichuan",
 	ChannelTypeMinimax:        "Minimax",
+	ChannelTypeMimo:           "MiMo",
 	ChannelTypeMistral:        "Mistral",
 	ChannelTypeLingYiWanWu:    "01.AI",
 	ChannelTypeCoze:           "Coze",
@@ -47,18 +48,18 @@ var ChannelTypeToProvider = map[int]string{
 	ChannelTypeXAI:            "xAI",
 	ChannelTypeDummy:          "Dummy",
 	// ChannelTypeReplicate 的 iota 值 = 40，实际被用作豆包渠道
-	ChannelTypeReplicate:      "Doubao",
+	ChannelTypeReplicate: "Doubao",
 }
 
 // aggregatorChannelTypes 聚合平台渠道类型
 // 这些渠道可以托管多个供应商的模型，需要用模型名推断真实供应商
 var aggregatorChannelTypes = map[int]bool{
-	ChannelTypeOpenRouter:  true,
-	ChannelTypeNovita:      true,
-	ChannelTypeTogetherAi:  true,
-	ChannelTypeGroq:        true,
-	ChannelTypeOllama:      true,
-	ChannelTypeCoze:        true,
+	ChannelTypeOpenRouter: true,
+	ChannelTypeNovita:     true,
+	ChannelTypeTogetherAi: true,
+	ChannelTypeGroq:       true,
+	ChannelTypeOllama:     true,
+	ChannelTypeCoze:       true,
 }
 
 // modelNamePrefixes 模型名前缀 → 供应商映射（用于聚合渠道的模型识别）
@@ -80,6 +81,7 @@ var modelNamePrefixes = []struct {
 	{"mistral-", "Mistral"}, {"mixtral-", "Mistral"},
 	{"llama-", "Meta"}, {"llama3", "Meta"},
 	{"abab", "Minimax"},
+	{"mimo-", "MiMo"},
 	{"yi-", "01.AI"},
 	{"doubao", "Doubao"},
 	{"flux-", "Flux"}, {"flux.", "Flux"},
