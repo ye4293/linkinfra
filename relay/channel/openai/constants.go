@@ -27,7 +27,7 @@ var ModelList = []string{
 	"gpt-4o-search-preview", "gpt-4o-search-preview-2025-03-11", "gpt-4o-mini-search-preview", "gpt-4o-mini-search-preview-2025-03-11",
 
 	// GPT-4o 其他功能
-	"gpt-4o-transcribe", "gpt-4o-mini-transcribe", "gpt-4o-mini-tts",
+	"gpt-transcribe", "gpt-4o-transcribe", "gpt-4o-mini-transcribe", "gpt-4o-mini-tts",
 
 	// O1 系列
 	"o1", "o1-2024-12-17", "o1-mini", "o1-mini-2024-09-12",

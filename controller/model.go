@@ -179,6 +179,7 @@ var channelOptions = []ChannelOption{
 	{Key: 23, Text: "腾讯混元", Value: 23, Color: "teal"},
 	{Key: 26, Text: "百川大模型", Value: 26, Color: "orange"},
 	{Key: 27, Text: "MiniMax", Value: 27, Color: "red"},
+	{Key: common.ChannelTypeMimo, Text: "Xiaomi MiMo", Value: common.ChannelTypeMimo, Color: "orange"},
 	{Key: 8, Text: "Custom Channel", Value: 8, Color: "pink"},
 	{Key: 41, Text: "可灵", Value: 41, Color: "purple"},
 	{Key: 42, Text: "Runway", Value: 42, Color: "purple"},
@@ -205,7 +206,7 @@ func ListModelDetails(c *gin.Context) {
 	var allModelDetails []model.APIModel // 一维数组
 
 	for _, channelOption := range channelOptions {
-		adaptor := helper.GetAdaptor(channelOption.Value - 1)
+		adaptor := helper.GetAdaptor(constant.ChannelType2APIType(channelOption.Value))
 		if adaptor == nil {
 			continue
 		}

@@ -229,7 +229,10 @@ func getModelPricing(modelName string) *ModelPlazaItem {
 			GroupDiscount:    gc.Discount,
 			CombinedDiscount: combinedDiscount,
 		}
-		if pt == "fixed" {
+		if pt == "duration" && price.DurationPricePerMinute != nil {
+			amount := *price.DurationPricePerMinute * combinedDiscount
+			gp.FinalDurationPricePerMinute = &amount
+		} else if pt == "fixed" {
 			gp.FinalFixedPrice = baseFixedPrice * combinedDiscount
 		} else {
 			gp.FinalInputPrice = baseInputPrice * combinedDiscount
@@ -238,7 +241,7 @@ func getModelPricing(modelName string) *ModelPlazaItem {
 		groupPrices = append(groupPrices, gp)
 	}
 
-	return &ModelPlazaItem{
+	item := &ModelPlazaItem{
 		ModelName:       modelName,
 		Provider:        info.Provider,
 		PriceType:       pt,
@@ -248,4 +251,8 @@ func getModelPricing(modelName string) *ModelPlazaItem {
 		ChannelDiscount: channelDiscount,
 		GroupPrices:     groupPrices,
 	}
+	if hasPriceConfig {
+		item.BaseDurationPricePerMinute = price.DurationPricePerMinute
+	}
+	return item
 }

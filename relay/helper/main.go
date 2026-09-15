@@ -6,18 +6,19 @@ import (
 	"github.com/songquanpeng/one-api/relay/channel"
 	"github.com/songquanpeng/one-api/relay/channel/ali"
 	"github.com/songquanpeng/one-api/relay/channel/anthropic"
-	"github.com/songquanpeng/one-api/relay/channel/doubao"
 	"github.com/songquanpeng/one-api/relay/channel/aws"
-	"github.com/songquanpeng/one-api/relay/channel/keling"
 	"github.com/songquanpeng/one-api/relay/channel/baidu"
 	"github.com/songquanpeng/one-api/relay/channel/cohere"
+	"github.com/songquanpeng/one-api/relay/channel/doubao"
 	"github.com/songquanpeng/one-api/relay/channel/flux"
 	"github.com/songquanpeng/one-api/relay/channel/gemini"
+	"github.com/songquanpeng/one-api/relay/channel/keling"
 	"github.com/songquanpeng/one-api/relay/channel/luma"
+	"github.com/songquanpeng/one-api/relay/channel/mimo"
 	"github.com/songquanpeng/one-api/relay/channel/minimax"
 	"github.com/songquanpeng/one-api/relay/channel/moonshot"
-	"github.com/songquanpeng/one-api/relay/channel/pixverse"
 	"github.com/songquanpeng/one-api/relay/channel/openai"
+	"github.com/songquanpeng/one-api/relay/channel/pixverse"
 	"github.com/songquanpeng/one-api/relay/channel/runway"
 	"github.com/songquanpeng/one-api/relay/channel/tencent"
 	"github.com/songquanpeng/one-api/relay/channel/vertexai"
@@ -120,6 +121,8 @@ func GetAdaptor(apiType int) channel.Adaptor {
 		return &cohere.Adaptor{}
 	case constant.APITypeMinimax:
 		return &minimax.Adaptor{}
+	case constant.APITypeMimo:
+		return &mimo.Adaptor{}
 	case constant.APITypeMoonshot:
 		return &moonshot.Adaptor{}
 	case constant.APITypeXAI:

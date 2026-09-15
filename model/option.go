@@ -70,6 +70,7 @@ func InitOptionMap() {
 	config.OptionMap["QuotaRemindThreshold"] = strconv.FormatInt(config.QuotaRemindThreshold, 10)
 	config.OptionMap["PreConsumedQuota"] = strconv.FormatInt(config.PreConsumedQuota, 10)
 	config.OptionMap["ModelRatio"] = common.ModelRatio2JSONString()
+	config.OptionMap[common.AudioDurationPricesOption] = common.AudioDurationPricesJSON()
 	config.OptionMap["GroupRatio"] = common.GroupRatio2JSONString()
 	config.OptionMap["CompletionRatio"] = common.CompletionRatio2JSONString()
 	config.OptionMap["AudioInputRatio"] = common.AudioInputRatio2JSONString()
@@ -177,6 +178,11 @@ func SyncOptions(frequency int) {
 }
 
 func UpdateOption(key string, value string) error {
+	if key == common.AudioDurationPricesOption {
+		if _, err := common.ParseAudioDurationPrices(value); err != nil {
+			return err
+		}
+	}
 	// Save to database first
 	option := Option{
 		Key: key,
@@ -199,6 +205,11 @@ func UpdateOption(key string, value string) error {
 func updateOptionMap(key string, value string) (err error) {
 	config.OptionMapRWMutex.Lock()
 	defer config.OptionMapRWMutex.Unlock()
+	if key == common.AudioDurationPricesOption {
+		if _, err := common.ParseAudioDurationPrices(value); err != nil {
+			return err
+		}
+	}
 	// 旧数据库中的 false 不能重新开放无邮箱注册。
 	if key == "EmailVerificationEnabled" {
 		value = "true"
@@ -307,6 +318,8 @@ func updateOptionMap(key string, value string) (err error) {
 		config.RetryTimes, _ = strconv.Atoi(value)
 	case "ModelRatio":
 		err = common.UpdateModelRatioByJSONString(value)
+	case common.AudioDurationPricesOption:
+		err = common.UpdateAudioDurationPrices(value)
 	case "GroupRatio":
 		err = common.UpdateGroupRatioByJSONString(value)
 	case "CompletionRatio":

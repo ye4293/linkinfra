@@ -14,20 +14,21 @@ import (
 
 // ModelPriceInfo 模型价格信息
 type ModelPriceInfo struct {
-	ModelName        string  `json:"model_name"`
-	ModelRatio       float64 `json:"model_ratio"`
-	CompletionRatio  float64 `json:"completion_ratio"`
-	FixedPrice       float64 `json:"fixed_price"`
-	InputPrice       float64 `json:"input_price"`
-	OutputPrice      float64 `json:"output_price"`
-	PriceType        string  `json:"price_type"`
-	HasRatio         bool    `json:"has_ratio"`
-	CacheRatio       float64 `json:"cache_ratio"`
-	CreateCacheRatio float64 `json:"create_cache_ratio"`
-	ImageInputRatio  float64 `json:"image_input_ratio"`
-	ImageOutputRatio float64 `json:"image_output_ratio"`
-	AudioInputRatio  float64 `json:"audio_input_ratio"`
-	AudioOutputRatio float64 `json:"audio_output_ratio"`
+	DurationPricePerMinute *float64 `json:"duration_price_per_minute,omitempty"`
+	ModelName              string   `json:"model_name"`
+	ModelRatio             float64  `json:"model_ratio"`
+	CompletionRatio        float64  `json:"completion_ratio"`
+	FixedPrice             float64  `json:"fixed_price"`
+	InputPrice             float64  `json:"input_price"`
+	OutputPrice            float64  `json:"output_price"`
+	PriceType              string   `json:"price_type"`
+	HasRatio               bool     `json:"has_ratio"`
+	CacheRatio             float64  `json:"cache_ratio"`
+	CreateCacheRatio       float64  `json:"create_cache_ratio"`
+	ImageInputRatio        float64  `json:"image_input_ratio"`
+	ImageOutputRatio       float64  `json:"image_output_ratio"`
+	AudioInputRatio        float64  `json:"audio_input_ratio"`
+	AudioOutputRatio       float64  `json:"audio_output_ratio"`
 }
 
 // GetModelPrices 获取所有模型的价格信息
@@ -115,6 +116,9 @@ func GetUnsetRatioModels(c *gin.Context) {
 
 	// 获取已配置倍率的模型
 	configuredModels := make(map[string]bool)
+	for modelName := range common.GetAudioDurationPrices() {
+		configuredModels[modelName] = true
+	}
 	for modelName := range common.ModelRatio {
 		configuredModels[modelName] = true
 	}
@@ -504,7 +508,15 @@ func getAllModelPrices() []ModelPriceInfo {
 
 	// 处理按倍率计费的模型
 	processedModels := make(map[string]bool)
+	durationPrices := common.GetAudioDurationPrices()
+	for name, price := range durationPrices {
+		prices = append(prices, ModelPriceInfo{ModelName: name, PriceType: "duration", HasRatio: true, DurationPricePerMinute: &price})
+		processedModels[name] = true
+	}
 	for modelName, ratio := range common.ModelRatio {
+		if processedModels[modelName] {
+			continue
+		}
 		processedModels[modelName] = true
 
 		// 计算输入价格 ($/1M tokens)
@@ -536,6 +548,9 @@ func getAllModelPrices() []ModelPriceInfo {
 
 	// 处理按次计费的模型
 	for modelName, price := range common.ModelPrice {
+		if _, ok := durationPrices[modelName]; ok {
+			continue
+		}
 		if processedModels[modelName] {
 			// 如果已经在倍率模型中处理过，更新固定价格
 			for i, p := range prices {
