@@ -180,7 +180,7 @@ func GetUnsetRatioModels(c *gin.Context) {
 // UpdateModelRatio 更新单个模型的倍率
 func UpdateModelRatio(c *gin.Context) {
 	var req struct {
-		ModelName        string   `json:"model_name" binding:"required"`
+		model.AudioDurationPriceUpdate
 		ModelRatio       *float64 `json:"model_ratio"`
 		CompletionRatio  *float64 `json:"completion_ratio"`
 		FixedPrice       *float64 `json:"fixed_price"`
@@ -197,6 +197,11 @@ func UpdateModelRatio(c *gin.Context) {
 			"success": false,
 			"message": "Invalid parameters: " + err.Error(),
 		})
+		return
+	}
+
+	if err := model.UpdateAudioDurationPriceEntries([]model.AudioDurationPriceUpdate{req.AudioDurationPriceUpdate}); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save duration prices: " + err.Error()})
 		return
 	}
 
@@ -322,7 +327,7 @@ func UpdateModelRatio(c *gin.Context) {
 func BatchUpdateModelRatio(c *gin.Context) {
 	var req struct {
 		Models []struct {
-			ModelName        string   `json:"model_name"`
+			model.AudioDurationPriceUpdate
 			ModelRatio       *float64 `json:"model_ratio"`
 			CompletionRatio  *float64 `json:"completion_ratio"`
 			FixedPrice       *float64 `json:"fixed_price"`
@@ -340,6 +345,15 @@ func BatchUpdateModelRatio(c *gin.Context) {
 			"success": false,
 			"message": "Invalid parameters: " + err.Error(),
 		})
+		return
+	}
+
+	durationUpdates := make([]model.AudioDurationPriceUpdate, 0, len(req.Models))
+	for _, entry := range req.Models {
+		durationUpdates = append(durationUpdates, entry.AudioDurationPriceUpdate)
+	}
+	if err := model.UpdateAudioDurationPriceEntries(durationUpdates); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save duration prices: " + err.Error()})
 		return
 	}
 

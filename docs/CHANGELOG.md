@@ -6,6 +6,16 @@
 
 ---
 
+## 2026-09-16
+
+### feat(audio): 发布模型级分钟价格更新并补齐实际前端
+- **分支**: `main`
+- **类型**: feat / fix / docs
+- **涉及文件**: `model/audio-pricing.go`、`model/option.go`、`controller/pricing.go`、`controller/audio-pricing_test.go`、`docs/gpt-transcribe-billing.md`
+- **说明**: 单个/批量 pricing 接口支持设置或移除美元/分钟单价，在进程锁内合并所选模型；先校验并持久化，失败不修改运行价格。修正实际前端仓库与保存方式说明，前端另行提交管理界面、公开价格和消费日志。
+- **验证**: 音频配置与目录、并发保存、余额、转录与流式回归通过；在不含本地 output 草稿的隔离检出目录执行 `go build ./...` 与 `go vet ./...` 通过。前端生产构建通过；本次未完成管理页浏览器点击或真实上游验收。
+- **关联计划**: `docs/plans/2026-09-16-audio-pricing-completion.md`
+
 ## 2026-09-09
 
 ### feat(deepseek): 单渠道自动分发 Chat、Responses 和 Anthropic 协议（v0.1.19）

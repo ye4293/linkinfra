@@ -179,6 +179,14 @@ func SyncOptions(frequency int) {
 
 func UpdateOption(key string, value string) error {
 	if key == common.AudioDurationPricesOption {
+		audioDurationPricingMu.Lock()
+		defer audioDurationPricingMu.Unlock()
+	}
+	return updateOption(key, value)
+}
+
+func updateOption(key string, value string) error {
+	if key == common.AudioDurationPricesOption {
 		if _, err := common.ParseAudioDurationPrices(value); err != nil {
 			return err
 		}
