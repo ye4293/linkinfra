@@ -14,6 +14,7 @@ import (
 	"github.com/songquanpeng/one-api/common/helper"
 	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/model"
+	"github.com/songquanpeng/one-api/relay/channel/baidu"
 )
 
 func GetAllChannels(c *gin.Context) {
@@ -1587,6 +1588,8 @@ func buildModelsURL(channelType int, baseURL string) string {
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
 	switch channelType {
+	case common.ChannelTypeBaidu:
+		return baidu.NormalizeBaseURL(baseURL) + "/v2/models"
 	case common.ChannelTypeGemini:
 		return fmt.Sprintf("%s/v1beta/openai/models", baseURL)
 	case common.ChannelTypeAli:

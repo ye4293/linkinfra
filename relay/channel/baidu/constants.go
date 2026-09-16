@@ -2,28 +2,31 @@ package baidu
 
 import "github.com/songquanpeng/one-api/relay/model"
 
+// 千帆 V2 模型 ID；完整可用列表通过 /v2/models 获取。
 var ModelList = []string{
-	"ERNIE-Bot-4",
-	"ERNIE-Bot-8K",
-	"ERNIE-Bot",
-	"ERNIE-Speed",
-	"ERNIE-Bot-turbo",
-	"Embedding-V1",
+	"ernie-5.1",
+	"ernie-5.0",
+	"ernie-4.5-turbo-32k",
+	"ernie-4.5-turbo-128k",
+	"ernie-4.5-turbo-vl",
+	"ernie-x1.1",
+	"deepseek-v4-flash",
+	"deepseek-v4-pro",
+	"deepseek-v3.2",
+	"qwen3.5-397b-a17b",
+	"glm-5.3",
+	"kimi-k2.6",
+	"embedding",
 	"bge-large-zh",
 	"bge-large-en",
-	"tao-8k",
 }
 
 var ModelDetails = []model.APIModel{
 	{
 		Provider:    "Baidu",
-		Name:        "ERNIE-Bot-4",
-		Tags:        []string{"baidu", "chat"},
+		Name:        "ernie-5.1",
+		Tags:        []string{"qianfanv2", "chat"},
 		PriceType:   "pay-per-token",
-		Description: "ERNIE-Bot-4 - Fast and efficient for everyday tasks",
-		Prices: map[string]interface{}{
-			"InputTokens":  "$0.25 /M tokens",
-			"OutputTokens": "$1.25 /M tokens",
-		},
+		Description: "百度千帆 ERNIE 5.1，支持 Chat、Responses 和 Anthropic 兼容接口。",
 	},
 }

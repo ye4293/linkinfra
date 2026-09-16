@@ -8,6 +8,14 @@
 
 ## 2026-09-16
 
+### feat(qianfanv2): 百度千帆支持 Chat、Responses 与 Anthropic Messages
+- **分支**: `main`
+- **类型**: feat / fix
+- **涉及文件**: `common/constants.go`、`controller/channel.go`、`controller/model.go`、`controller/qianfan_test.go`、`relay/channel/baidu/adaptor.go`、`relay/channel/baidu/constants.go`、`relay/channel/baidu/adaptor_test.go`、`relay/channel/baidu/request_test.go`、`relay/channel/baidu/live_test.go`；关联前端 `linkinfra-web/constants/index.ts`、`linkinfra-web/sections/channel/channel-form.tsx`
+- **说明**: 保留渠道编号 15，更名为 `qianfanv2`，改用千帆 V2 API Key。按客户端协议转发到 `/v2/chat/completions`、`/v2/responses` 或 `/anthropic/v1/messages`，同步模型发现、默认模型和前端配置提示；保留扩展参数并兼容后台无 HTTP Body 的渠道测试。
+- **验证**: 三种协议的流式和非流式上游请求均返回 200；Responses 使用 `deepseek-v3.2`。相关 Go 回归、隔离代码副本的完整 build/vet 通过。前端 ESLint 诊断与 HEAD 一致（表单原有 8 个错误）；真实模型发现遇到上游 429。
+- **关联计划**: `docs/plans/2026-09-16-qianfanv2.md`
+
 ### feat(audio): 发布模型级分钟价格更新并补齐实际前端
 - **分支**: `main`
 - **类型**: feat / fix / docs

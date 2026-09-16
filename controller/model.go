@@ -170,7 +170,7 @@ var channelOptions = []ChannelOption{
 	{Key: 38, Text: "Stability", Value: 38, Color: "blue"},
 
 	{Key: 29, Text: "Groq", Value: 29, Color: "orange"},
-	{Key: 15, Text: "百度文心千帆", Value: 15, Color: "blue"},
+	{Key: 15, Text: "qianfanv2", Value: 15, Color: "blue"},
 	{Key: 17, Text: "Qwen", Value: 17, Color: "orange"},
 	{Key: 18, Text: "讯飞星火认知", Value: 18, Color: "blue"},
 	{Key: 16, Text: "ZAI", Value: 16, Color: "violet"},

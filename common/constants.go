@@ -108,7 +108,7 @@ var ChannelBaseURLs = []string{
 	"https://api.api2gpt.com",                   // 12
 	"https://api.aigc2d.com",                    // 13
 	"https://api.anthropic.com",                 // 14
-	"https://aip.baidubce.com",                  // 15
+	"https://qianfan.baidubce.com",              // 15 qianfanv2
 	"https://open.bigmodel.cn",                  // 16
 	"https://dashscope.aliyuncs.com",            // 17
 	"",                                          // 18
