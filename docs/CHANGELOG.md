@@ -6,6 +6,16 @@
 
 ---
 
+## 2026-09-18
+
+### feat(pricing): 模型折扣配置、计费及公开价格展示
+- **分支**: `main`
+- **类型**: feat
+- **涉及文件**: `common/model-discount.go`、`model/model-discount.go`、`model/option.go`、`controller/pricing.go`、`controller/option.go`、`controller/model_plaza.go`、`controller/model_metrics.go`、`relay/util/ratio.go`、`relay/util/relay_meta.go`、`relay/controller/` 中的文字、图片、音频及视频计费入口、Flux 和豆包适配器；关联前端 `linkinfra-web` 的价格配置及模型广场。
+- **说明**: 新增模型折扣，默认 1.0，合法范围为大于 0 且不超过 1。单个与批量配置使用现有 Option 持久化，基础价格不变；现有计费金额额外乘以模型折扣。公开价格卡片、表格和详情展示原价删除线、折后价及 OFF 比例。
+- **验证**: 隔离代码副本 `go build ./...`、`go vet ./...`、`go test ./...` 全部通过；前端类型检查、生产构建及 9 项目录测试通过。本地浏览器使用模拟目录验证桌面卡片、表格、详情和 390px 手机布局，无脚本错误或手机横向溢出；未部署线上。
+- **关联计划**: `docs/plans/2026-09-18-model-discount.md`
+
 ## 2026-09-16
 
 ### feat(qianfanv2): 百度千帆支持 Chat、Responses 与 Anthropic Messages

@@ -16,6 +16,10 @@ import (
 
 func validateOptionUpdate(option model.Option) string {
 	switch option.Key {
+	case common.ModelDiscountOption:
+		if _, err := common.ParseModelDiscounts(option.Value); err != nil {
+			return err.Error()
+		}
 	case common.AudioDurationPricesOption:
 		if _, err := common.ParseAudioDurationPrices(option.Value); err != nil {
 			return err.Error()

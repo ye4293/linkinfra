@@ -75,7 +75,7 @@ func RelayOpenaiResponseNative(c *gin.Context) *model.ErrorWithStatusCode {
 
 	meta.IsStream = openaiResponseRequest.Stream
 	// 计算预消费配额
-	groupRatio := util.GetBillingGroupRatio(c, group)
+	groupRatio := util.GetBillingGroupRatio(c, group, modelName)
 	modelRatio := common.GetModelRatio(modelName)
 	ratio := modelRatio * groupRatio
 

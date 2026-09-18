@@ -176,9 +176,9 @@ func buildGPTImageUsageDetailsForLog(usage openai.ImageResponse) GPTImageUsageDe
 	in := usage.Usage.InputTokensDetails
 	out := usage.Usage.OutputTokensDetails
 	details := GPTImageUsageDetailsForLog{
-		InputText:  in.TextTokens,
-		InputImage: in.ImageTokens,
-		OutputText: out.TextTokens,
+		InputText:   in.TextTokens,
+		InputImage:  in.ImageTokens,
+		OutputText:  out.TextTokens,
 		OutputImage: out.ImageTokens,
 	}
 	// 上游未拆 output_tokens_details 时，将 output_tokens 归入 output_image
@@ -1054,7 +1054,7 @@ func RelayImageHelper(c *gin.Context, relayMode int) *relaymodel.ErrorWithStatus
 		return openai.ErrorWrapper(fmt.Errorf("invalid api typezz: %d", meta.APIType), "invalid_api_type", http.StatusBadRequest)
 	}
 	adaptor.Init(meta)
-	groupRatio := meta.CombinedGroupRatio()
+	groupRatio := meta.CombinedGroupRatio(imageRequest.Model)
 	// userModelTypeRatio := common.GetUserModelTypeRation(meta.Group, imageRequest.Model)
 	ratio := groupRatio
 
@@ -1200,7 +1200,7 @@ func RelayImageHelper(c *gin.Context, relayMode int) *relaymodel.ErrorWithStatus
 				modelRatio := common.GetModelRatio(meta.ActualModelName)
 				imageOutputRatio := common.GetImageOutputRatio(meta.ActualModelName) // 图片输出倍率 = 图片输出价格 / 文字输入价格
 				imageInputRatio := common.GetImageInputRatio(meta.ActualModelName)   // 图片输入倍率
-				groupRatio := meta.CombinedGroupRatio()
+				groupRatio := meta.CombinedGroupRatio(meta.ActualModelName)
 
 				// 【输入计算】
 				// 输入包含文本和图片两部分，图片需要乘以 ImageInputRatio 转换为等效文本 token
@@ -1258,7 +1258,7 @@ func RelayImageHelper(c *gin.Context, relayMode int) *relaymodel.ErrorWithStatus
 					modelPrice = 0.3 // 默认价格 0.3 美金
 				}
 
-				groupRatio := meta.CombinedGroupRatio()
+				groupRatio := meta.CombinedGroupRatio(meta.ActualModelName)
 				generatedImages := usageInfo.Usage.GeneratedImages
 				if generatedImages <= 0 {
 					generatedImages = 1 // 至少生成1张图片
@@ -1572,7 +1572,7 @@ func RelayImageHelper(c *gin.Context, relayMode int) *relaymodel.ErrorWithStatus
 			c.JSON(http.StatusBadRequest, errorResponse)
 
 			// 处理配额消费 - 使用精确计费
-			groupRatio := meta.CombinedGroupRatio()
+			groupRatio := meta.CombinedGroupRatio(meta.OriginModelName)
 			promptTokens := geminiResponse.UsageMetadata.PromptTokenCount
 			completionTokens := geminiResponse.UsageMetadata.CandidatesTokenCount
 			thinkingTokens := geminiResponse.UsageMetadata.ThoughtsTokenCount
@@ -1594,7 +1594,7 @@ func RelayImageHelper(c *gin.Context, relayMode int) *relaymodel.ErrorWithStatus
 
 		// 检查是否有候选项
 		if len(geminiResponse.Candidates) == 0 {
-			groupRatio := meta.CombinedGroupRatio()
+			groupRatio := meta.CombinedGroupRatio(meta.OriginModelName)
 			promptTokens := geminiResponse.UsageMetadata.PromptTokenCount
 			completionTokens := geminiResponse.UsageMetadata.CandidatesTokenCount
 			thinkingTokens := geminiResponse.UsageMetadata.ThoughtsTokenCount
@@ -1664,7 +1664,7 @@ func RelayImageHelper(c *gin.Context, relayMode int) *relaymodel.ErrorWithStatus
 				c.JSON(http.StatusBadRequest, errorResponse)
 
 				// 处理配额消费（即使失败也要扣费，因为已经消耗了token）- 使用精确计费
-				groupRatio := meta.CombinedGroupRatio()
+				groupRatio := meta.CombinedGroupRatio(meta.OriginModelName)
 				promptTokens := geminiResponse.UsageMetadata.PromptTokenCount
 				completionTokens := geminiResponse.UsageMetadata.CandidatesTokenCount
 				thinkingTokens := geminiResponse.UsageMetadata.ThoughtsTokenCount
@@ -1782,7 +1782,7 @@ func RelayImageHelper(c *gin.Context, relayMode int) *relaymodel.ErrorWithStatus
 			c.JSON(http.StatusBadRequest, errorResponse)
 
 			// 处理配额消费（即使失败也要扣费，因为已经消耗了token）- 使用精确计费
-			groupRatio := meta.CombinedGroupRatio()
+			groupRatio := meta.CombinedGroupRatio(meta.OriginModelName)
 			promptTokens := geminiResponse.UsageMetadata.PromptTokenCount
 			completionTokens := geminiResponse.UsageMetadata.CandidatesTokenCount
 			thinkingTokens := geminiResponse.UsageMetadata.ThoughtsTokenCount
@@ -2184,8 +2184,8 @@ func proxyOpenAIImageSSE(c *gin.Context, ctx context.Context, resp *http.Respons
 		ImageTokens int `json:"image_tokens"`
 	}
 	type outputTokensDetails struct {
-		TextTokens      int `json:"text_tokens"`
-		ImageTokens     int `json:"image_tokens"`
+		TextTokens  int `json:"text_tokens"`
+		ImageTokens int `json:"image_tokens"`
 	}
 	type usagePayload struct {
 		InputTokens         int                  `json:"input_tokens"`
@@ -2281,8 +2281,8 @@ func proxyOpenAIImageSSE(c *gin.Context, ctx context.Context, resp *http.Respons
 		ImageTokens int `json:"image_tokens"`
 	}
 	type billingOutputTokensDetails struct {
-		TextTokens      int `json:"text_tokens"`
-		ImageTokens     int `json:"image_tokens"`
+		TextTokens  int `json:"text_tokens"`
+		ImageTokens int `json:"image_tokens"`
 	}
 	type billingUsage struct {
 		InputTokens         int                         `json:"input_tokens"`
@@ -2307,8 +2307,8 @@ func proxyOpenAIImageSSE(c *gin.Context, ctx context.Context, resp *http.Respons
 	}
 	if capturedUsage.OutputTokensDetails != nil {
 		b.Usage.OutputTokensDetails = &billingOutputTokensDetails{
-			TextTokens:      capturedUsage.OutputTokensDetails.TextTokens,
-			ImageTokens:     capturedUsage.OutputTokensDetails.ImageTokens,
+			TextTokens:  capturedUsage.OutputTokensDetails.TextTokens,
+			ImageTokens: capturedUsage.OutputTokensDetails.ImageTokens,
 		}
 	}
 	billingBytes, _ := json.Marshal(b)
@@ -3068,7 +3068,7 @@ func calculateImageQuota(modelName string, mode string, n int) int64 {
 	}
 
 	// Calculate quota based on model price and number of images
-	quota := int64(modelPrice*500000) * int64(n)
+	quota := int64(modelPrice*500000*common.GetModelDiscount(modelName)) * int64(n)
 	return quota
 }
 
@@ -3567,7 +3567,7 @@ func handleGeminiFormRequest(c *gin.Context, ctx context.Context, imageRequest *
 		modelPrice = 0.1 // 默认价格
 	}
 
-	groupRatio := meta.CombinedGroupRatio()
+	groupRatio := meta.CombinedGroupRatio(imageRequest.Model)
 	estimatedQuota := int64(modelPrice*500000*groupRatio) * int64(imageRequest.N)
 
 	// 预扣费：实际扣减用户余额，防止并发请求超刷
@@ -4031,7 +4031,7 @@ func handleGeminiResponse(c *gin.Context, ctx context.Context, resp *http.Respon
 		duration := math.Round(rowDuration*1000) / 1000
 
 		// 处理配额消费 - 使用精确计费
-		groupRatio := meta.CombinedGroupRatio()
+		groupRatio := meta.CombinedGroupRatio(meta.OriginModelName)
 		promptTokens := geminiResponse.UsageMetadata.PromptTokenCount
 		completionTokens := geminiResponse.UsageMetadata.CandidatesTokenCount
 		thinkingTokens := geminiResponse.UsageMetadata.ThoughtsTokenCount
@@ -4064,7 +4064,7 @@ func handleGeminiResponse(c *gin.Context, ctx context.Context, resp *http.Respon
 		rowDuration := time.Since(startTime).Seconds()
 		duration := math.Round(rowDuration*1000) / 1000
 
-		groupRatio := meta.CombinedGroupRatio()
+		groupRatio := meta.CombinedGroupRatio(meta.OriginModelName)
 		promptTokens := geminiResponse.UsageMetadata.PromptTokenCount
 		completionTokens := geminiResponse.UsageMetadata.CandidatesTokenCount
 		thinkingTokens := geminiResponse.UsageMetadata.ThoughtsTokenCount
@@ -4138,7 +4138,7 @@ func handleGeminiResponse(c *gin.Context, ctx context.Context, resp *http.Respon
 			duration := math.Round(rowDuration*1000) / 1000
 
 			// 处理配额消费（即使失败也要扣费，因为已经消耗了token）- 使用精确计费
-			groupRatio := meta.CombinedGroupRatio()
+			groupRatio := meta.CombinedGroupRatio(meta.OriginModelName)
 			promptTokens := geminiResponse.UsageMetadata.PromptTokenCount
 			completionTokens := geminiResponse.UsageMetadata.CandidatesTokenCount
 			thinkingTokens := geminiResponse.UsageMetadata.ThoughtsTokenCount
@@ -4253,7 +4253,7 @@ func handleGeminiResponse(c *gin.Context, ctx context.Context, resp *http.Respon
 		duration := math.Round(rowDuration*1000) / 1000
 
 		// 处理配额消费（即使失败也要扣费，因为已经消耗了token）- 使用精确计费
-		groupRatio := meta.CombinedGroupRatio()
+		groupRatio := meta.CombinedGroupRatio(meta.OriginModelName)
 		promptTokens := geminiResponse.UsageMetadata.PromptTokenCount
 		completionTokens := geminiResponse.UsageMetadata.CandidatesTokenCount
 		thinkingTokens := geminiResponse.UsageMetadata.ThoughtsTokenCount
@@ -4378,7 +4378,7 @@ func handleGeminiResponse(c *gin.Context, ctx context.Context, resp *http.Respon
 	duration := math.Round(rowDuration*1000) / 1000
 
 	// 使用精确计费机制
-	groupRatio := meta.CombinedGroupRatio()
+	groupRatio := meta.CombinedGroupRatio(meta.OriginModelName)
 	promptTokens := geminiResponse.UsageMetadata.PromptTokenCount
 	completionTokens := geminiResponse.UsageMetadata.CandidatesTokenCount
 	thinkingTokens := geminiResponse.UsageMetadata.ThoughtsTokenCount
@@ -4472,7 +4472,7 @@ func handleGeminiTokenConsumption(c *gin.Context, ctx context.Context, meta *uti
 	}
 
 	// 使用精确计费机制
-	groupRatio := meta.CombinedGroupRatio()
+	groupRatio := meta.CombinedGroupRatio(meta.OriginModelName)
 	thinkingTokens := 0
 	if usageDetails != nil {
 		thinkingTokens = usageDetails.ReasoningTokens

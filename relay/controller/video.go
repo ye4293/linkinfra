@@ -190,7 +190,7 @@ func handleRunwayVideoRequest(c *gin.Context, ctx context.Context, videoRequest 
 
 func sendRequestMinimaxAndHandleResponse(c *gin.Context, ctx context.Context, fullRequestUrl string, jsonData []byte, meta *util.RelayMeta, modelName string) *model.ErrorWithStatusCode {
 	// 预扣费检查 - 预扣0.2，后续处理完多退少补
-	quota := int64(0.2 * config.QuotaPerUnit)
+	quota := int64(0.2 * config.QuotaPerUnit * common.GetModelDiscount(modelName))
 	userQuota, err := dbmodel.CacheGetUserQuota(ctx, meta.UserId)
 	if err != nil {
 		return openai.ErrorWrapper(err, "get_user_quota_error", http.StatusInternalServerError)
@@ -237,7 +237,7 @@ func sendRequestMinimaxAndHandleResponse(c *gin.Context, ctx context.Context, fu
 
 func sendRequestZhipuAndHandleResponse(c *gin.Context, ctx context.Context, fullRequestUrl string, jsonData []byte, meta *util.RelayMeta, modelName string) *model.ErrorWithStatusCode {
 	// 预扣费检查 - 预扣0.2，后续处理完多退少补
-	quota := int64(0.2 * config.QuotaPerUnit)
+	quota := int64(0.2 * config.QuotaPerUnit * common.GetModelDiscount(modelName))
 	userQuota, err := dbmodel.CacheGetUserQuota(ctx, meta.UserId)
 	if err != nil {
 		return openai.ErrorWrapper(err, "get_user_quota_error", http.StatusInternalServerError)
@@ -282,7 +282,7 @@ func sendRequestZhipuAndHandleResponse(c *gin.Context, ctx context.Context, full
 }
 func sendRequestRunwayAndHandleResponse(c *gin.Context, ctx context.Context, fullRequestUrl string, jsonData []byte, meta *util.RelayMeta, modelName string) *model.ErrorWithStatusCode {
 	// 预扣费检查 - 预扣0.2，后续处理完多退少补
-	quota := int64(0.2 * config.QuotaPerUnit)
+	quota := int64(0.2 * config.QuotaPerUnit * common.GetModelDiscount(modelName))
 	userQuota, err := dbmodel.CacheGetUserQuota(ctx, meta.UserId)
 	if err != nil {
 		return openai.ErrorWrapper(err, "get_user_quota_error", http.StatusInternalServerError)
@@ -332,7 +332,7 @@ func handleMinimaxVideoResponse(c *gin.Context, ctx context.Context, videoRespon
 	switch videoResponse.BaseResp.StatusCode {
 	case 0:
 		// 先计算quota
-		quota := calculateQuota(meta, modelName, "", "", c)
+		quota := int64(float64(calculateQuota(meta, modelName, "", "", c)) * common.GetModelDiscount(modelName))
 
 		// 从 context 中获取 duration 和 resolution
 		var durationStr string
@@ -409,7 +409,7 @@ func handleMZhipuVideoResponse(c *gin.Context, ctx context.Context, videoRespons
 	switch videoResponse.StatusCode {
 	case 200:
 		// 先计算quota
-		quota := calculateQuota(meta, modelName, "", "", c)
+		quota := int64(float64(calculateQuota(meta, modelName, "", "", c)) * common.GetModelDiscount(modelName))
 
 		err := CreateVideoLog("zhipu", videoResponse.ID, meta, "", "", "", "", quota, 0, "", "")
 		if err != nil {
@@ -472,7 +472,7 @@ func handleRunwayVideoResponse(c *gin.Context, ctx context.Context, videoRespons
 	switch videoResponse.StatusCode {
 	case 200:
 		// 先计算quota
-		quota := calculateQuota(meta, modelName, "", "", c)
+		quota := int64(float64(calculateQuota(meta, modelName, "", "", c)) * common.GetModelDiscount(modelName))
 
 		err := CreateVideoLog("runway", videoResponse.Id, meta, "", "", "", "", quota, 0, "", "")
 		if err != nil {
@@ -739,7 +739,7 @@ func handleSuccessfulResponseWithQuota(c *gin.Context, ctx context.Context, meta
 // invokeVideoAdaptorRequest 通过 VideoAdaptor 接口处理视频生成请求
 func invokeVideoAdaptorRequest(c *gin.Context, ctx context.Context, adaptor relaychannel.VideoAdaptor, videoRequest *model.VideoRequest, meta *util.RelayMeta) *model.ErrorWithStatusCode {
 	// 预扣费余额检查
-	prePayment := adaptor.GetPrePaymentQuota()
+	prePayment := int64(float64(adaptor.GetPrePaymentQuota()) * common.GetModelDiscount(meta.BillingModelName()))
 	userQuota, err := dbmodel.CacheGetUserQuota(ctx, meta.UserId)
 	if err != nil {
 		return openai.ErrorWrapper(err, "get_user_quota_error", http.StatusInternalServerError)
@@ -755,6 +755,7 @@ func invokeVideoAdaptorRequest(c *gin.Context, ctx context.Context, adaptor rela
 	}
 
 	// 创建视频任务日志
+	taskResult.Quota = int64(float64(taskResult.Quota) * common.GetModelDiscount(meta.BillingModelName()))
 	_ = CreateVideoLog(adaptor.GetProviderName(), taskResult.TaskId, meta,
 		taskResult.Mode, taskResult.Duration, taskResult.VideoType,
 		taskResult.VideoId, taskResult.Quota, taskResult.VideoDuration, taskResult.Resolution, taskResult.Sound)

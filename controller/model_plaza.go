@@ -13,6 +13,7 @@ import (
 
 // ModelPlazaItem 模型广场单个模型信息
 type ModelPlazaItem struct {
+	ModelDiscount              float64      `json:"model_discount"`
 	BaseDurationPricePerMinute *float64     `json:"base_duration_price_per_minute,omitempty"`
 	ModelName                  string       `json:"model_name"`
 	Provider                   string       `json:"provider"`
@@ -120,7 +121,7 @@ func GetModelPlaza(c *gin.Context) {
 		// 计算各等级折后价格
 		var groupPrices []GroupPrice
 		for _, gc := range groupConfigs {
-			combinedDiscount := channelDiscount * gc.Discount
+			combinedDiscount := channelDiscount * gc.Discount * common.GetModelDiscount(modelName)
 			gp := GroupPrice{
 				GroupKey:         gc.GroupKey,
 				DisplayName:      gc.DisplayName,
@@ -147,6 +148,7 @@ func GetModelPlaza(c *gin.Context) {
 			BaseOutputPrice: baseOutputPrice,
 			BaseFixedPrice:  baseFixedPrice,
 			ChannelDiscount: channelDiscount,
+			ModelDiscount:   common.GetModelDiscount(modelName),
 			GroupPrices:     groupPrices,
 		}
 		if hasPriceConfig {

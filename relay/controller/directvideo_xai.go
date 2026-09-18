@@ -40,7 +40,7 @@ func directRelayXaiVideo(c *gin.Context, meta *util.RelayMeta, endpoint string) 
 	}
 
 	params := xai.ParseNativeVideoParams(requestBody)
-	quota := xai.CalculateNativeVideoQuota(endpoint, params)
+	quota := int64(float64(xai.CalculateNativeVideoQuota(endpoint, params)) * common.GetModelDiscount(meta.BillingModelName()))
 
 	userQuota, err := dbmodel.CacheGetUserQuota(ctx, meta.UserId)
 	if err != nil {

@@ -222,7 +222,7 @@ func getModelPricing(modelName string) *ModelPlazaItem {
 
 	var groupPrices []GroupPrice
 	for _, gc := range groupConfigs {
-		combinedDiscount := channelDiscount * gc.Discount
+		combinedDiscount := channelDiscount * gc.Discount * common.GetModelDiscount(modelName)
 		gp := GroupPrice{
 			GroupKey:         gc.GroupKey,
 			DisplayName:      gc.DisplayName,
@@ -249,6 +249,7 @@ func getModelPricing(modelName string) *ModelPlazaItem {
 		BaseOutputPrice: baseOutputPrice,
 		BaseFixedPrice:  baseFixedPrice,
 		ChannelDiscount: channelDiscount,
+		ModelDiscount:   common.GetModelDiscount(modelName),
 		GroupPrices:     groupPrices,
 	}
 	if hasPriceConfig {

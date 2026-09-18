@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/config"
 	dbmodel "github.com/songquanpeng/one-api/model"
 	relaychannel "github.com/songquanpeng/one-api/relay/channel"
@@ -152,7 +153,7 @@ func (a *VideoAdaptor) HandleVideoResult(c *gin.Context, videoTask *dbmodel.Vide
 		}
 		// Adjust quota based on actual token usage
 		if doubaoResp.Usage != nil && doubaoResp.Usage.TotalTokens > 0 {
-			actualQuota := calculateQuotaForDoubao(doubaoResp.Model, int64(doubaoResp.Usage.TotalTokens))
+			actualQuota := int64(float64(calculateQuotaForDoubao(doubaoResp.Model, int64(doubaoResp.Usage.TotalTokens))) * common.GetModelDiscount(videoTask.Model))
 			preQuota := videoTask.Quota
 			quotaDiff := int64(actualQuota - preQuota)
 			if quotaDiff != 0 {
