@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -1646,10 +1647,7 @@ func FetchModels(c *gin.Context) {
 		key = strings.TrimSpace(key)
 	}
 
-	url := buildModelsURL(req.Type, req.BaseURL)
-	headers := getAuthHeader(req.Type, key)
-
-	models, err := fetchModelsFromURL(url, headers)
+	models, err := fetchUpstreamModelList(req.Type, req.BaseURL, key)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -1715,10 +1713,7 @@ func FetchUpstreamModels(c *gin.Context) {
 		baseURL = *channel.BaseURL
 	}
 
-	url := buildModelsURL(channel.Type, baseURL)
-	headers := getAuthHeader(channel.Type, key)
-
-	models, err := fetchModelsFromURL(url, headers)
+	models, err := fetchUpstreamModelList(channel.Type, baseURL, key)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -1732,6 +1727,29 @@ func FetchUpstreamModels(c *gin.Context) {
 		"message": "",
 		"data":    models,
 	})
+}
+
+// upstreamModelsStatusError 用状态码判断是否需要兼容回退，避免匹配错误文本。
+type upstreamModelsStatusError struct {
+	StatusCode int
+}
+
+func (e *upstreamModelsStatusError) Error() string {
+	return fmt.Sprintf("upstream returned error status: %d", e.StatusCode)
+}
+
+// fetchUpstreamModelList 供新建、编辑渠道及自动同步共用。
+func fetchUpstreamModelList(channelType int, baseURL, key string) ([]string, error) {
+	url := buildModelsURL(channelType, baseURL)
+	headers := getAuthHeader(channelType, key)
+	models, err := fetchModelsFromURL(url, headers)
+	var statusErr *upstreamModelsStatusError
+	if channelType == common.ChannelTypeGemini && errors.As(err, &statusErr) && statusErr.StatusCode == http.StatusNotFound {
+		// 部分中转平台仅提供 OpenAI 模型列表；保留自定义代理路径前缀。
+		fallbackURL := strings.TrimSuffix(url, "/v1beta/openai/models") + "/v1/models"
+		return fetchModelsFromURL(fallbackURL, headers)
+	}
+	return models, err
 }
 
 // fetchModelsFromURL 从指定URL获取模型列表
@@ -1759,7 +1777,7 @@ func fetchModelsFromURL(url string, headers http.Header) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upstream returned error status: %d", resp.StatusCode)
+		return nil, &upstreamModelsStatusError{StatusCode: resp.StatusCode}
 	}
 
 	var result OpenAIModelsResponse

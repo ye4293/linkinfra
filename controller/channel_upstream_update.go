@@ -132,7 +132,6 @@ func upstreamApplySelectedModelChanges(origin, addModels, removeModels []string)
 	return upstreamSubtractModelNames(upstreamMergeModelNames(origin, normalizedAdd), normalizedRemove)
 }
 
-
 // upstreamNormalizeChannelModelMapping 解析 channel.ModelMapping JSON
 func upstreamNormalizeChannelModelMapping(channel *model.Channel) map[string]string {
 	if channel.ModelMapping == nil {
@@ -163,7 +162,7 @@ func upstreamNormalizeChannelModelMapping(channel *model.Channel) map[string]str
 // 从上游获取模型 ID 列表
 // ──────────────────────────────────────────
 
-// fetchChannelUpstreamModelList 复用已有的 buildModelsURL / getAuthHeader / fetchModelsFromURL
+// fetchChannelUpstreamModelList 复用手动获取模型的兼容逻辑
 func fetchChannelUpstreamModelList(channel *model.Channel) ([]string, error) {
 	// 选取第一个可用 Key（兼容单 Key、多 Key 及旧式 \n 分隔格式）
 	key := channel.Key
@@ -186,10 +185,7 @@ func fetchChannelUpstreamModelList(channel *model.Channel) ([]string, error) {
 	}
 
 	baseURL := channel.GetBaseURL()
-	url := buildModelsURL(channel.Type, baseURL)
-	headers := getAuthHeader(channel.Type, key)
-
-	return fetchModelsFromURL(url, headers)
+	return fetchUpstreamModelList(channel.Type, baseURL, key)
 }
 
 // ──────────────────────────────────────────

@@ -6,6 +6,16 @@
 
 ---
 
+## 2026-09-18
+
+### fix(gemini): 补齐模型发现接口及平台上游回退
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `controller/channel.go`、`controller/channel_upstream_update.go`、`controller/model.go`、`router/relay-router.go`、`controller/gemini_models_test.go`、`router/gemini_models_test.go`
+- **说明**: 参考本地 new-api，新增 `/v1beta/openai/models` 和 `/v1beta/models`，复用现有模型目录与 TokenAuth。Gemini 上游模型发现仅在兼容入口返回 404 时回退 `/v1/models`，新建、已有渠道及自动同步共用逻辑。
+- **验证**: Gemini 回归测试通过，覆盖模型列表格式、三种鉴权方式、未认证/无效令牌、路径前缀、404 回退与失败传播、非 404 不回退、三个获取入口；`go build ./...`、`go vet ./...` 通过。未执行真实上游或线上部署验证。
+- **关联计划**: `docs/plans/2026-09-18-gemini-model-list.md`
+
 ## 2026-09-16
 
 ### feat(qianfanv2): 百度千帆支持 Chat、Responses 与 Anthropic Messages
