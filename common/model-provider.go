@@ -54,8 +54,6 @@ var ChannelTypeToProvider = map[int]string{
 // aggregatorChannelTypes 聚合平台渠道类型
 // 这些渠道可以托管多个供应商的模型，需要用模型名推断真实供应商
 var aggregatorChannelTypes = map[int]bool{
-	// 千帆 V2 同时托管 DeepSeek、GLM 等第三方模型，不能统一归为百度。
-	ChannelTypeBaidu:      true,
 	ChannelTypeOpenRouter: true,
 	ChannelTypeNovita:     true,
 	ChannelTypeTogetherAi: true,

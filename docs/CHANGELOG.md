@@ -8,6 +8,14 @@
 
 ## 2026-09-18
 
+### fix(model-plaza): 按渠道独立展示同名模型
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `common/model-provider.go`、`controller/model_plaza.go`、`controller/model_metrics.go`、`controller/qianfan_test.go`；关联前端 `linkinfra-web` 的目录类型、首页目录工具及组件、模型广场、详情路由与组件、目录测试。
+- **说明**: 根据用户要求，以渠道 ID 和模型名共同标识条目，不再跨渠道合并同名模型或取最优折扣；千帆条目保留 Baidu 分类，各渠道分别计数、计算折扣和展示详情价格。前端同步修正二次去重、列表标识、详情链接和 All 总数。监控保持模型汇总并标注范围；无渠道参数且存在多个来源的旧详情链接不再任意选择价格。
+- **验证**: 后端 common/controller 回归通过，覆盖独立价格、厂商计数、跨页顺序、重复配置、禁用渠道及详情参数；隔离工作树完整 `go build ./...`、`go vet ./...` 通过。前端类型检查及 10 项目录测试通过。未部署线上，未修改实际渠道配置。
+- **关联计划**: `docs/plans/2026-09-18-model-plaza-per-channel.md`
+
 ### fix(model-plaza): 修正千帆第三方模型的厂商分类
 - **分支**: `main`
 - **类型**: fix

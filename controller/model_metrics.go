@@ -2,6 +2,7 @@ package controller
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
@@ -55,7 +56,20 @@ func GetModelMetricsDetail(c *gin.Context) {
 	summary := model.GetCachedModelSummary(modelName)
 
 	// 获取定价数据（复用模型广场逻辑）
-	pricing := getModelPricing(modelName)
+	channelID := 0
+	if raw, supplied := c.GetQuery("channel_id"); supplied {
+		var err error
+		channelID, err = strconv.Atoi(raw)
+		if err != nil || channelID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid channel_id"})
+			return
+		}
+	}
+	pricing := getModelPricing(modelName, channelID)
+	provider := ""
+	if pricing != nil {
+		provider = pricing.Provider
+	}
 
 	// 检查是否为管理员 → 返回 channel 级明细（无论是否有公开数据都检查）
 	var channels []model.ChannelMetricsSummary
@@ -72,7 +86,7 @@ func GetModelMetricsDetail(c *gin.Context) {
 			"message": "",
 			"data": gin.H{
 				"model_name": modelName,
-				"provider":   "",
+				"provider":   provider,
 				"current":    nil,
 				"period_24h": nil,
 				"pricing":    pricing,
@@ -87,7 +101,7 @@ func GetModelMetricsDetail(c *gin.Context) {
 		"message": "",
 		"data": gin.H{
 			"model_name": summary.ModelName,
-			"provider":   summary.Provider,
+			"provider":   provider,
 			"current":    summary.Current,
 			"period_24h": summary.Period24h,
 			"pricing":    pricing,
@@ -187,12 +201,29 @@ func isRequestFromAdmin(c *gin.Context) bool {
 }
 
 // getModelPricing 获取模型的定价信息（复用现有逻辑）
-func getModelPricing(modelName string) *ModelPlazaItem {
+func getModelPricing(modelName string, channelIDs ...int) *ModelPlazaItem {
 	infoMap := getModelInfoFromChannels()
 	priceMap := buildPriceMap()
 
-	info, hasChannel := infoMap[modelName]
-	if !hasChannel {
+	channelID := 0
+	if len(channelIDs) > 0 {
+		channelID = channelIDs[0]
+	}
+	var info *modelChannelInfo
+	if channelID > 0 {
+		info = infoMap[modelChannelKey{ChannelID: channelID, ModelName: modelName}]
+	} else {
+		// 兼容只有一个渠道的旧链接；多渠道时不能任意选择或合并价格。
+		for key, candidate := range infoMap {
+			if key.ModelName == modelName {
+				if info != nil {
+					return nil
+				}
+				info, channelID = candidate, key.ChannelID
+			}
+		}
+	}
+	if info == nil {
 		return nil
 	}
 
@@ -213,7 +244,7 @@ func getModelPricing(modelName string) *ModelPlazaItem {
 		pt = "ratio"
 	}
 
-	channelDiscount := info.BestDiscount
+	channelDiscount := info.Discount
 
 	groupConfigs, err := model.GetAllGroupConfigs()
 	if err != nil {
@@ -242,6 +273,7 @@ func getModelPricing(modelName string) *ModelPlazaItem {
 	}
 
 	item := &ModelPlazaItem{
+		ChannelID:       channelID,
 		ModelName:       modelName,
 		Provider:        info.Provider,
 		PriceType:       pt,
