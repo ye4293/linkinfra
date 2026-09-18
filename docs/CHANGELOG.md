@@ -8,6 +8,14 @@
 
 ## 2026-09-18
 
+### feat(ali): 同步百炼模型目录并保留思考与工具参数
+- **分支**: `main`
+- **类型**: feat / fix
+- **涉及文件**: `relay/channel/ali/adaptor.go`、`relay/channel/ali/constants.go`、`relay/channel/ali/request_test.go`、`relay/channel/ali/live_test.go`、`docs/ali-model-api-sync-2026-09-18.md`
+- **说明**: Ali Chat/Embedding 改为原始 JSON 局部改写模型名，保留思考、并行工具、工具参数流式输出及显式 false/0，保留阿里原生 token 限制语义。Responses 迁移至 `/compatible-mode/v1/responses`，鉴权优先使用本次选中的渠道密钥，并更新 Qwen 3.8/3.7、Coder/VL/Omni 与文本向量目录。Messages 延续原生透传并验证 `output_config` 的推理力度与 JSON Schema。
+- **验证**: 用户指定北京业务空间的 4 个文本/代码模型、3 个向量模型、两轮思考、并行工具、复杂参数流式输出、Messages Schema/effort 及 Responses 新路径通过上游实测；最终 15 个子用例经首次执行与定向补测全部通过。隔离工作树完整 `go build ./...`、`go vet ./...` 及 Ali/util 回归通过；未部署，凭据未写入仓库。
+- **关联计划**: `docs/plans/2026-09-18-ali-model-api-update.md`
+
 ### feat(pricing): 模型折扣配置、计费及公开价格展示
 - **分支**: `main`
 - **类型**: feat
