@@ -8,6 +8,13 @@
 
 ## 2026-09-18
 
+### fix(model-plaza): 修正千帆第三方模型的厂商分类
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `common/model-provider.go`、`controller/qianfan_test.go`、`docs/CHANGELOG.md`
+- **说明**: 将千帆 V2 纳入聚合渠道，按模型名前缀识别 DeepSeek、GLM 等真实厂商，补齐 Qwen3、Kimi 前缀。修复第三方模型被归为 Baidu、与官方渠道同名合并后分类随渠道顺序变化的问题；未知模型仍回退 Baidu，同名去重与最优折扣保持不变。
+- **验证**: 新增回归先复现旧逻辑失败，修复后 `go test ./common ./controller -count=1` 通过，覆盖厂商筛选、计数、渠道顺序、去重、禁用渠道及折扣。隔离工作树 `go build ./...`、`go vet ./...` 通过；未部署线上，未修改渠道配置。
+
 ### feat(ali): 同步百炼模型目录并保留思考与工具参数
 - **分支**: `main`
 - **类型**: feat / fix
