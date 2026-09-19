@@ -14,10 +14,17 @@ var ErrInvalidNewsletterEmail = errors.New("invalid newsletter email")
 // NewsletterSubscriber records explicit consent from the public signup form.
 // Registration and account email addresses are never added automatically.
 type NewsletterSubscriber struct {
-	ID        int       `json:"id" gorm:"primaryKey"`
-	Email     string    `json:"email" gorm:"size:254;uniqueIndex;not null"`
-	Language  string    `json:"language" gorm:"size:2;not null"`
-	CreatedAt time.Time `json:"created_at"`
+	ID              int       `json:"id" gorm:"primaryKey"`
+	Email           string    `json:"email" gorm:"size:254;uniqueIndex;not null"`
+	Language        string    `json:"language" gorm:"size:2;not null"`
+	CreatedAt       time.Time `json:"created_at"`
+	ResendContactID string    `json:"resend_contact_id" gorm:"size:64;not null;default:''"`
+	SyncedSegmentID string    `json:"synced_segment_id" gorm:"size:64;not null;default:''"`
+	SyncState       string    `json:"sync_state" gorm:"size:20;not null;default:'pending'"`
+	SyncError       string    `json:"sync_error" gorm:"size:100;not null;default:''"`
+	SyncAttempts    int       `json:"sync_attempts" gorm:"not null;default:0"`
+	NextSyncAt      int64     `json:"next_sync_at" gorm:"not null;default:0;index"`
+	LeaseUntil      int64     `json:"-" gorm:"not null;default:0"`
 }
 
 func SubscribeNewsletter(email, language string) error {

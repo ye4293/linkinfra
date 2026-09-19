@@ -47,6 +47,7 @@ func InitOptionMap() {
 	config.OptionMap["EmailDomainWhitelist"] = strings.Join(config.EmailDomainWhitelist, ",")
 	config.OptionMap["ResendApiKey"] = ""
 	config.OptionMap["ResendFrom"] = ""
+	config.OptionMap["ResendNewsletterSegmentId"] = ""
 	config.OptionMap["Notice"] = ""
 	config.OptionMap["About"] = ""
 	config.OptionMap["HomePageContent"] = ""

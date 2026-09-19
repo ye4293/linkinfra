@@ -138,6 +138,9 @@ func main() {
 
 	// Initialize options
 	model.InitOptionMap()
+	newsletterCtx, stopNewsletter := context.WithCancel(context.Background())
+	defer stopNewsletter()
+	go controller.StartNewsletterSync(newsletterCtx)
 	logger.SysLog(fmt.Sprintf("using theme %s", config.Theme))
 	warnOAuthLoginConfig()
 	if common.RedisEnabled {

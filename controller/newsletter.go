@@ -31,6 +31,7 @@ func SubscribeNewsletter(c *gin.Context) {
 		return
 	}
 	// Do not disclose whether this address was already subscribed.
+	wakeNewsletterSync()
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "subscribed"})
 }
 
