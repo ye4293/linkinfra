@@ -130,6 +130,10 @@ func InitDB(envName string) (db *gorm.DB, err error) {
 		if err != nil {
 			return nil, err
 		}
+		err = db.AutoMigrate(&NewsletterSubscriber{})
+		if err != nil {
+			return nil, err
+		}
 		err = db.AutoMigrate(&Redemption{})
 		if err != nil {
 			return nil, err
