@@ -134,7 +134,7 @@ func DirectRelayRunway(c *gin.Context, meta *util.RelayMeta) {
 				if mode == "texttoimage" {
 					// fmt.Printf("DEBUG: 进入图像扣费分支\n")
 					// 如果是图像类型，调用图像日志记录
-					quota := calculateRunwayQuota(string(requestBody))
+					quota := int64(float64(calculateRunwayQuota(string(requestBody))) * common.GetModelDiscount(meta.OriginModelName))
 					err := handleRunwayImageBilling(c, meta, meta.OriginModelName, mode, 1, quota)
 					if err != nil {
 						fmt.Printf("处理Runway图像任务扣费失败: %v\n", err)
@@ -155,7 +155,7 @@ func DirectRelayRunway(c *gin.Context, meta *util.RelayMeta) {
 					duration := extractDurationFromRequest(string(requestBody))
 
 					// 计算quota
-					quota := calculateRunwayQuota(string(requestBody))
+					quota := int64(float64(calculateRunwayQuota(string(requestBody))) * common.GetModelDiscount(meta.OriginModelName))
 					// fmt.Printf("DEBUG: 视频参数 - duration=%s, quota=%d, modifiedTaskId=%s\n", duration, quota, modifiedTaskId)
 					err := handleRunwayVideoBilling(c, meta, meta.OriginModelName, mode, duration, quota, modifiedTaskId)
 					if err != nil {
@@ -928,7 +928,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 				logger.Debugf(ctx, "成功下载并添加 input_reference 图片")
 			}
 		}
-		
+
 		// 2. 如果没有处理过，检查是否有 input_reference 作为文件
 		if !inputReferenceHandled {
 			if fileHeaders, exists := c.Request.MultipartForm.File["input_reference"]; exists && len(fileHeaders) > 0 {
@@ -1105,7 +1105,7 @@ func DirectRelaySoraVideo(c *gin.Context, meta *util.RelayMeta) {
 				}
 
 				// 计算quota - 根据Sora的定价计算
-				quota := calculateSoraQuotaFromForm(formParams)
+				quota := int64(float64(calculateSoraQuotaFromForm(formParams)) * common.GetModelDiscount(meta.OriginModelName))
 
 				// 提取seconds
 				seconds := formParams["seconds"]
@@ -1412,8 +1412,8 @@ func calculateSoraQuotaFromForm(formParams map[string]string) int64 {
 		// 检查是否是高分辨率 (1024x1792 或 1792x1024)
 		if strings.Contains(size, "1024x1792") || strings.Contains(size, "1792x1024") {
 			pricePerSecond = 0.50 // $0.50/秒
-		}else if strings.Contains(size, "1920x1080") || strings.Contains(size, "1080x1920") {
-				pricePerSecond = 0.70 // $0.70/秒
+		} else if strings.Contains(size, "1920x1080") || strings.Contains(size, "1080x1920") {
+			pricePerSecond = 0.70 // $0.70/秒
 		} else {
 			// 标准分辨率 (720x1280 或 1280x720)
 			pricePerSecond = 0.30 // $0.30/秒
@@ -2004,7 +2004,7 @@ func DirectRelaySoraVideoRemix(c *gin.Context, originalVideoId string) {
 				}
 
 				// 计算配额
-				quota := calculateSoraRemixQuota(seconds, size, model)
+				quota := int64(float64(calculateSoraRemixQuota(seconds, size, model)) * common.GetModelDiscount(model))
 
 				logger.Debugf(ctx, "DirectRelaySoraVideoRemix: calculated quota %d for seconds=%s, size=%s, model=%s", quota, seconds, size, model)
 
@@ -2314,7 +2314,7 @@ func DirectRelaySoraVideoEdit(c *gin.Context) {
 					model = m
 				}
 
-				quota := calculateSoraRemixQuota(seconds, size, model)
+				quota := int64(float64(calculateSoraRemixQuota(seconds, size, model)) * common.GetModelDiscount(model))
 
 				meta := &util.RelayMeta{
 					UserId:          c.GetInt("id"),
@@ -2462,7 +2462,7 @@ func DirectRelaySoraVideoExtension(c *gin.Context) {
 					model = m
 				}
 
-				quota := calculateSoraRemixQuota(seconds, size, model)
+				quota := int64(float64(calculateSoraRemixQuota(seconds, size, model)) * common.GetModelDiscount(model))
 
 				meta := &util.RelayMeta{
 					UserId:          c.GetInt("id"),

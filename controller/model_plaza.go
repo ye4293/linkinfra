@@ -13,6 +13,8 @@ import (
 
 // ModelPlazaItem 模型广场单个模型信息
 type ModelPlazaItem struct {
+	ChannelID                  int          `json:"channel_id"`
+	ModelDiscount              float64      `json:"model_discount"`
 	BaseDurationPricePerMinute *float64     `json:"base_duration_price_per_minute,omitempty"`
 	ModelName                  string       `json:"model_name"`
 	Provider                   string       `json:"provider"`
@@ -54,8 +56,13 @@ type ProviderInfo struct {
 
 // modelChannelInfo 从渠道收集的模型信息
 type modelChannelInfo struct {
-	BestDiscount float64 // 最优渠道折扣
-	Provider     string  // 根据渠道类型确定的供应商
+	Discount float64 // 当前渠道折扣
+	Provider string  // 根据渠道类型确定的供应商
+}
+
+type modelChannelKey struct {
+	ChannelID int
+	ModelName string
 }
 
 // GetModelPlaza 公开API：获取模型广场数据
@@ -78,7 +85,7 @@ func GetModelPlaza(c *gin.Context) {
 		pageSize = 200
 	}
 
-	// 1. 从启用渠道收集：每个模型的供应商 + 最优折扣
+	// 1. 每个启用渠道独立提供模型条目及折扣。
 	modelInfoMap := getModelInfoFromChannels()
 
 	// 2. 获取所有模型基础价格
@@ -94,7 +101,8 @@ func GetModelPlaza(c *gin.Context) {
 	allProviderCount := make(map[string]int)
 	var items []ModelPlazaItem
 
-	for modelName, info := range modelInfoMap {
+	for key, info := range modelInfoMap {
+		modelName := key.ModelName
 		price, hasPriceConfig := priceMap[modelName]
 
 		// 确定价格类型和基础价格
@@ -115,12 +123,12 @@ func GetModelPlaza(c *gin.Context) {
 			pt = "ratio"
 		}
 
-		channelDiscount := info.BestDiscount
+		channelDiscount := info.Discount
 
 		// 计算各等级折后价格
 		var groupPrices []GroupPrice
 		for _, gc := range groupConfigs {
-			combinedDiscount := channelDiscount * gc.Discount
+			combinedDiscount := channelDiscount * gc.Discount * common.GetModelDiscount(modelName)
 			gp := GroupPrice{
 				GroupKey:         gc.GroupKey,
 				DisplayName:      gc.DisplayName,
@@ -140,6 +148,7 @@ func GetModelPlaza(c *gin.Context) {
 		}
 
 		item := ModelPlazaItem{
+			ChannelID:       key.ChannelID,
 			ModelName:       modelName,
 			Provider:        info.Provider,
 			PriceType:       pt,
@@ -147,6 +156,7 @@ func GetModelPlaza(c *gin.Context) {
 			BaseOutputPrice: baseOutputPrice,
 			BaseFixedPrice:  baseFixedPrice,
 			ChannelDiscount: channelDiscount,
+			ModelDiscount:   common.GetModelDiscount(modelName),
 			GroupPrices:     groupPrices,
 		}
 		if hasPriceConfig {
@@ -172,6 +182,9 @@ func GetModelPlaza(c *gin.Context) {
 
 	// 排序
 	sort.Slice(items, func(i, j int) bool {
+		if items[i].ModelName == items[j].ModelName {
+			return items[i].ChannelID < items[j].ChannelID
+		}
 		return items[i].ModelName < items[j].ModelName
 	})
 
@@ -186,6 +199,9 @@ func GetModelPlaza(c *gin.Context) {
 		providers = append(providers, ProviderInfo{Name: name, Count: count})
 	}
 	sort.Slice(providers, func(i, j int) bool {
+		if providers[i].Count == providers[j].Count {
+			return providers[i].Name < providers[j].Name
+		}
 		return providers[i].Count > providers[j].Count
 	})
 	if providers == nil {
@@ -218,9 +234,9 @@ func GetModelPlaza(c *gin.Context) {
 	})
 }
 
-// getModelInfoFromChannels 从所有启用渠道获取模型的供应商和最优折扣
-func getModelInfoFromChannels() map[string]*modelChannelInfo {
-	result := make(map[string]*modelChannelInfo)
+// getModelInfoFromChannels 仅在同一渠道内去重，不合并跨渠道的同名模型。
+func getModelInfoFromChannels() map[modelChannelKey]*modelChannelInfo {
+	result := make(map[modelChannelKey]*modelChannelInfo)
 
 	channels, err := model.GetAllChannels(0, 0, "all")
 	if err != nil {
@@ -255,20 +271,9 @@ func getModelInfoFromChannels() map[string]*modelChannelInfo {
 			// 综合判断供应商：聚合渠道用模型名推断，其他用渠道类型
 			provider := common.GetModelProvider(modelName, channel.Type)
 
-			if existing, ok := result[modelName]; ok {
-				// 取最优折扣
-				if discount < existing.BestDiscount {
-					existing.BestDiscount = discount
-				}
-				// 更具体的供应商优先（非 OpenAI/Other/聚合平台名 优先）
-				if isGenericProvider(existing.Provider) && !isGenericProvider(provider) {
-					existing.Provider = provider
-				}
-			} else {
-				result[modelName] = &modelChannelInfo{
-					BestDiscount: discount,
-					Provider:     provider,
-				}
+			result[modelChannelKey{ChannelID: channel.Id, ModelName: modelName}] = &modelChannelInfo{
+				Discount: discount,
+				Provider: provider,
 			}
 		}
 	}
@@ -284,16 +289,6 @@ func shouldSkipModel(name string) bool {
 	}
 	// 包含 "/" 的内部路径标识符（如 accounts/xxx/models/yyy）
 	if strings.Contains(name, "/") {
-		return true
-	}
-	return false
-}
-
-// isGenericProvider 判断是否为通用/聚合平台供应商名（优先级低）
-func isGenericProvider(provider string) bool {
-	switch provider {
-	case "OpenAI", "Other", "OpenRouter", "Novita",
-		"TogetherAI", "Groq", "Ollama", "Coze":
 		return true
 	}
 	return false

@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -60,11 +61,13 @@ func TestDurationTranscriptionRelayAndBalances(t *testing.T) {
 	previousRedis, previousBatch, previousLogs := common.RedisEnabled, config.BatchUpdateEnabled, config.LogConsumeEnabled
 	previousQuota, previousClient, previousPrices := config.QuotaPerUnit, util.HTTPClient, common.AudioDurationPricesJSON()
 	previousGroups := common.GroupRatio
+	previousDiscounts := common.ModelDiscountsJSON()
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB = previousDB, previousLogDB
 		common.RedisEnabled, config.BatchUpdateEnabled, config.LogConsumeEnabled = previousRedis, previousBatch, previousLogs
 		config.QuotaPerUnit, util.HTTPClient, common.GroupRatio = previousQuota, previousClient, previousGroups
 		require.NoError(t, common.UpdateAudioDurationPrices(previousPrices))
+		require.NoError(t, common.UpdateModelDiscounts(previousDiscounts))
 	})
 	common.RedisEnabled, config.BatchUpdateEnabled, config.LogConsumeEnabled = false, false, true
 	common.GroupRatio = map[string]float64{"audio-test": 1}
@@ -79,6 +82,8 @@ func TestDurationTranscriptionRelayAndBalances(t *testing.T) {
 		{"one second", `{"text":"hello","usage":{"type":"duration","seconds":1}}`, "upstream", false, 200, 0.0045, 1, 38},
 		{"explicit zero", `{"text":"","usage":{"type":"duration","seconds":0}}`, "upstream", false, 200, 0.0045, 1, 0},
 		{"free tariff", `{"text":"hello","usage":{"type":"duration","seconds":600}}`, "upstream", false, 200, 0, 1, 0},
+		{"model discount", `{"text":"hello","usage":{"type":"duration","seconds":600}}`, "upstream", false, 200, 0.0045, 0.5, 5625},
+		{"model discount failure refunds", `{"error":{"message":"test failure"}}`, "", false, 400, 0.0045, 0.5, 0},
 		{"channel discount", `{"text":"hello","usage":{"type":"duration","seconds":600}}`, "upstream", false, 200, 0.0045, 0.5, 11250},
 		{"missing usage refunds", `{"text":"hello"}`, "missing", false, 200, 0.0045, 1, 0},
 		{"token usage cannot replace duration", `{"text":"hello","usage":{"type":"tokens","input_tokens":1000,"output_tokens":20}}`, "missing", false, 200, 0.0045, 1, 0},
@@ -88,6 +93,10 @@ func TestDurationTranscriptionRelayAndBalances(t *testing.T) {
 		{"unfinished stream refunds", "data: {\"type\":\"transcript.text.delta\",\"delta\":\"hello\"}\n\n", "missing", true, 200, 0.0045, 1, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, common.UpdateModelDiscounts(`{}`))
+			if strings.HasPrefix(tc.name, "model discount") {
+				require.NoError(t, common.UpdateModelDiscounts(`{"gpt-transcribe":0.5}`))
+			}
 			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 			require.NoError(t, err)
 			sqlDB, err := db.DB()

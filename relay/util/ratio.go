@@ -6,7 +6,7 @@ import (
 	"github.com/songquanpeng/one-api/model"
 )
 
-// GetBillingGroupRatio 返回计费所需的"组合倍率"，= 等级折扣 × 渠道折扣 × 用户渠道折扣。
+// GetBillingGroupRatio 返回组合倍率：等级折扣 × 渠道折扣 × 用户渠道折扣 × 模型折扣。
 //
 // 历史上各 controller 里的 `groupRatio` 只包含等级折扣。为了一次性引入
 // 渠道折扣与用户针对渠道类型的折扣，让所有老 call site 直接把原来的
@@ -15,9 +15,9 @@ import (
 //
 // channel_discount 和 user_channel_ratio 由 middleware/distributor 在选中渠道时
 // 写入 c，缺省 1.0。拆开三个维度分别打印/调试时调 GetBillingFactors。
-func GetBillingGroupRatio(c *gin.Context, group string) float64 {
+func GetBillingGroupRatio(c *gin.Context, group string, modelName string) float64 {
 	groupRatio, channelDiscount, userChannelRatio := GetBillingFactors(c, group)
-	return groupRatio * channelDiscount * userChannelRatio
+	return groupRatio * channelDiscount * userChannelRatio * common.GetModelDiscount(modelName)
 }
 
 // GetBillingFactors 返回三段折扣分量：等级折扣、渠道折扣、用户渠道折扣。
@@ -44,7 +44,7 @@ func GetBillingFactors(c *gin.Context, group string) (groupRatio, channelDiscoun
 // GetAsyncBillingGroupRatio 在异步回调等场景（没有活的 gin.Context）计算组合倍率。
 // 通过 userId 直查缓存，通过 channelId 从 DB 拉渠道拿 Discount。
 // 任何一段失败都回退到 1.0，不会因为取不到数据阻塞计费。
-func GetAsyncBillingGroupRatio(group string, userId int, channelId int, channelType int) float64 {
+func GetAsyncBillingGroupRatio(group string, userId int, channelId int, channelType int, modelName string) float64 {
 	groupRatio := common.GetGroupRatio(group)
 
 	channelDiscount := 1.0
@@ -64,5 +64,5 @@ func GetAsyncBillingGroupRatio(group string, userId int, channelId int, channelT
 			}
 		}
 	}
-	return groupRatio * channelDiscount * userChannelRatio
+	return groupRatio * channelDiscount * userChannelRatio * common.GetModelDiscount(modelName)
 }

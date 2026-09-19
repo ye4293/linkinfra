@@ -16,6 +16,37 @@
 - **验证**: Gemini 回归测试通过，覆盖模型列表格式、三种鉴权方式、未认证/无效令牌、路径前缀、404 回退与失败传播、非 404 不回退、三个获取入口；`go build ./...`、`go vet ./...` 通过。未执行真实上游或线上部署验证。
 - **关联计划**: `docs/plans/2026-09-18-gemini-model-list.md`
 
+### fix(model-plaza): 按渠道独立展示同名模型
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `common/model-provider.go`、`controller/model_plaza.go`、`controller/model_metrics.go`、`controller/qianfan_test.go`；关联前端 `linkinfra-web` 的目录类型、首页目录工具及组件、模型广场、详情路由与组件、目录测试。
+- **说明**: 根据用户要求，以渠道 ID 和模型名共同标识条目，不再跨渠道合并同名模型或取最优折扣；千帆条目保留 Baidu 分类，各渠道分别计数、计算折扣和展示详情价格。前端同步修正二次去重、列表标识、详情链接和 All 总数。监控保持模型汇总并标注范围；无渠道参数且存在多个来源的旧详情链接不再任意选择价格。
+- **验证**: 后端 common/controller 回归通过，覆盖独立价格、厂商计数、跨页顺序、重复配置、禁用渠道及详情参数；隔离工作树完整 `go build ./...`、`go vet ./...` 通过。前端类型检查及 10 项目录测试通过。未部署线上，未修改实际渠道配置。
+- **关联计划**: `docs/plans/2026-09-18-model-plaza-per-channel.md`
+
+### fix(model-plaza): 修正千帆第三方模型的厂商分类
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `common/model-provider.go`、`controller/qianfan_test.go`、`docs/CHANGELOG.md`
+- **说明**: 将千帆 V2 纳入聚合渠道，按模型名前缀识别 DeepSeek、GLM 等真实厂商，补齐 Qwen3、Kimi 前缀。修复第三方模型被归为 Baidu、与官方渠道同名合并后分类随渠道顺序变化的问题；未知模型仍回退 Baidu，同名去重与最优折扣保持不变。
+- **验证**: 新增回归先复现旧逻辑失败，修复后 `go test ./common ./controller -count=1` 通过，覆盖厂商筛选、计数、渠道顺序、去重、禁用渠道及折扣。隔离工作树 `go build ./...`、`go vet ./...` 通过；未部署线上，未修改渠道配置。
+
+### feat(ali): 同步百炼模型目录并保留思考与工具参数
+- **分支**: `main`
+- **类型**: feat / fix
+- **涉及文件**: `relay/channel/ali/adaptor.go`、`relay/channel/ali/constants.go`、`relay/channel/ali/request_test.go`、`relay/channel/ali/live_test.go`、`docs/ali-model-api-sync-2026-09-18.md`
+- **说明**: Ali Chat/Embedding 改为原始 JSON 局部改写模型名，保留思考、并行工具、工具参数流式输出及显式 false/0，保留阿里原生 token 限制语义。Responses 迁移至 `/compatible-mode/v1/responses`，鉴权优先使用本次选中的渠道密钥，并更新 Qwen 3.8/3.7、Coder/VL/Omni 与文本向量目录。Messages 延续原生透传并验证 `output_config` 的推理力度与 JSON Schema。
+- **验证**: 用户指定北京业务空间的 4 个文本/代码模型、3 个向量模型、两轮思考、并行工具、复杂参数流式输出、Messages Schema/effort 及 Responses 新路径通过上游实测；最终 15 个子用例经首次执行与定向补测全部通过。隔离工作树完整 `go build ./...`、`go vet ./...` 及 Ali/util 回归通过；未部署，凭据未写入仓库。
+- **关联计划**: `docs/plans/2026-09-18-ali-model-api-update.md`
+
+### feat(pricing): 模型折扣配置、计费及公开价格展示
+- **分支**: `main`
+- **类型**: feat
+- **涉及文件**: `common/model-discount.go`、`model/model-discount.go`、`model/option.go`、`controller/pricing.go`、`controller/option.go`、`controller/model_plaza.go`、`controller/model_metrics.go`、`relay/util/ratio.go`、`relay/util/relay_meta.go`、`relay/controller/` 中的文字、图片、音频及视频计费入口、Flux 和豆包适配器；关联前端 `linkinfra-web` 的价格配置及模型广场。
+- **说明**: 新增模型折扣，默认 1.0，合法范围为大于 0 且不超过 1。单个与批量配置使用现有 Option 持久化，基础价格不变；现有计费金额额外乘以模型折扣。公开价格卡片、表格和详情展示原价删除线、折后价及 OFF 比例。
+- **验证**: 隔离代码副本 `go build ./...`、`go vet ./...`、`go test ./...` 全部通过；前端类型检查、生产构建及 9 项目录测试通过。本地浏览器使用模拟目录验证桌面卡片、表格、详情和 390px 手机布局，无脚本错误或手机横向溢出；未部署线上。
+- **关联计划**: `docs/plans/2026-09-18-model-discount.md`
+
 ## 2026-09-16
 
 ### feat(qianfanv2): 百度千帆支持 Chat、Responses 与 Anthropic Messages

@@ -386,7 +386,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *util.Rel
 	if group == "" {
 		group = "Lv1"
 	}
-	groupRatio := util.GetAsyncBillingGroupRatio(group, a.ImageRecord.UserId, a.ImageRecord.ChannelId, common.ChannelTypeFlux)
+	groupRatio := util.GetAsyncBillingGroupRatio(group, a.ImageRecord.UserId, a.ImageRecord.ChannelId, common.ChannelTypeFlux, meta.OriginModelName)
 
 	// 优先用响应中的 cost（美分），次选 MP 分级，最后固定价兜底
 	quota := CalculateQuota(fluxResp.Cost, groupRatio)
@@ -512,7 +512,7 @@ func (a *Adaptor) handleReplicateSuccess(c *gin.Context, replicateResp Replicate
 	if err != nil {
 		group = "Lv1"
 	}
-	groupRatio := util.GetAsyncBillingGroupRatio(group, a.ImageRecord.UserId, a.ImageRecord.ChannelId, common.ChannelTypeFlux)
+	groupRatio := util.GetAsyncBillingGroupRatio(group, a.ImageRecord.UserId, a.ImageRecord.ChannelId, common.ChannelTypeFlux, meta.OriginModelName)
 	quota := CalculateReplicateQuota(meta.OriginModelName, replicateResp.Metrics, groupRatio)
 
 	// 任务创建成功即扣费——同步路径已拿到结果，仍按"创建成功"统一计费
@@ -558,7 +558,7 @@ func (a *Adaptor) handleReplicatePending(c *gin.Context, replicateResp Replicate
 	if err != nil || group == "" {
 		group = "Lv1"
 	}
-	groupRatio := util.GetAsyncBillingGroupRatio(group, a.ImageRecord.UserId, a.ImageRecord.ChannelId, common.ChannelTypeFlux)
+	groupRatio := util.GetAsyncBillingGroupRatio(group, a.ImageRecord.UserId, a.ImageRecord.ChannelId, common.ChannelTypeFlux, meta.OriginModelName)
 	quota := CalculateReplicateQuota(meta.OriginModelName, replicateResp.Metrics, groupRatio)
 
 	a.ImageRecord.TaskId = replicateResp.ID
@@ -770,7 +770,7 @@ func handleSuccessCallback(c *gin.Context, image *model.Image, notification Flux
 		if group == "" {
 			group = "Lv1"
 		}
-		groupRatio := util.GetAsyncBillingGroupRatio(group, image.UserId, image.ChannelId, common.ChannelTypeFlux)
+		groupRatio := util.GetAsyncBillingGroupRatio(group, image.UserId, image.ChannelId, common.ChannelTypeFlux, image.Model)
 		if price, ok := FluxPriceMap[image.Model]; ok {
 			quota = int64(price * 500000 * groupRatio)
 		} else {
@@ -1046,7 +1046,7 @@ func HandleReplicateCallback(c *gin.Context, replicateResp ReplicateResponse, ra
 			if group == "" {
 				group = "Lv1"
 			}
-			groupRatio := util.GetAsyncBillingGroupRatio(group, image.UserId, image.ChannelId, common.ChannelTypeFlux)
+			groupRatio := util.GetAsyncBillingGroupRatio(group, image.UserId, image.ChannelId, common.ChannelTypeFlux, image.Model)
 			quota = CalculateReplicateQuota(image.Model, replicateResp.Metrics, groupRatio)
 			image.Quota = quota
 			logger.Warnf(c, "[flux-billing] 创建时 quota=0，webhook 用 metrics 重算: task_id=%s, quota=%d", taskID, quota)

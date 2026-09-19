@@ -47,6 +47,7 @@ func InitOptionMap() {
 	config.OptionMap["EmailDomainWhitelist"] = strings.Join(config.EmailDomainWhitelist, ",")
 	config.OptionMap["ResendApiKey"] = ""
 	config.OptionMap["ResendFrom"] = ""
+	config.OptionMap["ResendNewsletterSegmentId"] = ""
 	config.OptionMap["Notice"] = ""
 	config.OptionMap["About"] = ""
 	config.OptionMap["HomePageContent"] = ""
@@ -71,6 +72,7 @@ func InitOptionMap() {
 	config.OptionMap["PreConsumedQuota"] = strconv.FormatInt(config.PreConsumedQuota, 10)
 	config.OptionMap["ModelRatio"] = common.ModelRatio2JSONString()
 	config.OptionMap[common.AudioDurationPricesOption] = common.AudioDurationPricesJSON()
+	config.OptionMap[common.ModelDiscountOption] = common.ModelDiscountsJSON()
 	config.OptionMap["GroupRatio"] = common.GroupRatio2JSONString()
 	config.OptionMap["CompletionRatio"] = common.CompletionRatio2JSONString()
 	config.OptionMap["AudioInputRatio"] = common.AudioInputRatio2JSONString()
@@ -178,6 +180,10 @@ func SyncOptions(frequency int) {
 }
 
 func UpdateOption(key string, value string) error {
+	if key == common.ModelDiscountOption {
+		modelDiscountUpdateMu.Lock()
+		defer modelDiscountUpdateMu.Unlock()
+	}
 	if key == common.AudioDurationPricesOption {
 		audioDurationPricingMu.Lock()
 		defer audioDurationPricingMu.Unlock()
@@ -186,6 +192,11 @@ func UpdateOption(key string, value string) error {
 }
 
 func updateOption(key string, value string) error {
+	if key == common.ModelDiscountOption {
+		if _, err := common.ParseModelDiscounts(value); err != nil {
+			return err
+		}
+	}
 	if key == common.AudioDurationPricesOption {
 		if _, err := common.ParseAudioDurationPrices(value); err != nil {
 			return err
@@ -213,6 +224,11 @@ func updateOption(key string, value string) error {
 func updateOptionMap(key string, value string) (err error) {
 	config.OptionMapRWMutex.Lock()
 	defer config.OptionMapRWMutex.Unlock()
+	if key == common.ModelDiscountOption {
+		if _, err := common.ParseModelDiscounts(value); err != nil {
+			return err
+		}
+	}
 	if key == common.AudioDurationPricesOption {
 		if _, err := common.ParseAudioDurationPrices(value); err != nil {
 			return err
@@ -326,6 +342,8 @@ func updateOptionMap(key string, value string) (err error) {
 		config.RetryTimes, _ = strconv.Atoi(value)
 	case "ModelRatio":
 		err = common.UpdateModelRatioByJSONString(value)
+	case common.ModelDiscountOption:
+		err = common.UpdateModelDiscounts(value)
 	case common.AudioDurationPricesOption:
 		err = common.UpdateAudioDurationPrices(value)
 	case "GroupRatio":

@@ -143,7 +143,7 @@ func relayDurationTranscription(c *gin.Context, relayMode int, modelName string,
 	start := time.Now()
 	userID, tokenID, channelID := c.GetInt("id"), c.GetInt("token_id"), c.GetInt("channel_id")
 	// Freeze all tariff inputs before sending the request.
-	groupRatio := util.GetBillingGroupRatio(c, c.GetString("group"))
+	groupRatio := util.GetBillingGroupRatio(c, c.GetString("group"), modelName)
 	quotaPerUnit := config.QuotaPerUnit
 	reserve, err := audioDurationQuota(60, price, quotaPerUnit, groupRatio)
 	if err != nil {

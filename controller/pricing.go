@@ -14,6 +14,7 @@ import (
 
 // ModelPriceInfo 模型价格信息
 type ModelPriceInfo struct {
+	ModelDiscount          float64  `json:"model_discount"`
 	DurationPricePerMinute *float64 `json:"duration_price_per_minute,omitempty"`
 	ModelName              string   `json:"model_name"`
 	ModelRatio             float64  `json:"model_ratio"`
@@ -136,6 +137,7 @@ func GetUnsetRatioModels(c *gin.Context) {
 			}
 			unsetModels = append(unsetModels, ModelPriceInfo{
 				ModelName:       modelName,
+				ModelDiscount:   common.GetModelDiscount(modelName),
 				ModelRatio:      0,
 				CompletionRatio: 0,
 				FixedPrice:      0,
@@ -181,6 +183,7 @@ func GetUnsetRatioModels(c *gin.Context) {
 func UpdateModelRatio(c *gin.Context) {
 	var req struct {
 		model.AudioDurationPriceUpdate
+		ModelDiscount    *float64 `json:"model_discount"`
 		ModelRatio       *float64 `json:"model_ratio"`
 		CompletionRatio  *float64 `json:"completion_ratio"`
 		FixedPrice       *float64 `json:"fixed_price"`
@@ -200,12 +203,25 @@ func UpdateModelRatio(c *gin.Context) {
 		return
 	}
 
+	if req.ModelDiscount != nil {
+		if err := common.ValidateModelDiscount(req.ModelName, *req.ModelDiscount); err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+	}
 	if err := model.UpdateAudioDurationPriceEntries([]model.AudioDurationPriceUpdate{req.AudioDurationPriceUpdate}); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save duration prices: " + err.Error()})
 		return
 	}
 
 	// 更新模型倍率
+	if req.ModelDiscount != nil {
+		if err := model.UpdateModelDiscountEntries(map[string]float64{req.ModelName: *req.ModelDiscount}); err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+	}
+
 	if req.ModelRatio != nil {
 		common.ModelRatio[req.ModelName] = *req.ModelRatio
 		// 保存到数据库
@@ -328,6 +344,7 @@ func BatchUpdateModelRatio(c *gin.Context) {
 	var req struct {
 		Models []struct {
 			model.AudioDurationPriceUpdate
+			ModelDiscount    *float64 `json:"model_discount"`
 			ModelRatio       *float64 `json:"model_ratio"`
 			CompletionRatio  *float64 `json:"completion_ratio"`
 			FixedPrice       *float64 `json:"fixed_price"`
@@ -348,12 +365,27 @@ func BatchUpdateModelRatio(c *gin.Context) {
 		return
 	}
 
+	discounts := map[string]float64{}
+	for _, entry := range req.Models {
+		if entry.ModelDiscount != nil {
+			if err := common.ValidateModelDiscount(entry.ModelName, *entry.ModelDiscount); err != nil {
+				c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+				return
+			}
+			discounts[entry.ModelName] = *entry.ModelDiscount
+		}
+	}
 	durationUpdates := make([]model.AudioDurationPriceUpdate, 0, len(req.Models))
 	for _, entry := range req.Models {
 		durationUpdates = append(durationUpdates, entry.AudioDurationPriceUpdate)
 	}
 	if err := model.UpdateAudioDurationPriceEntries(durationUpdates); err != nil {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to save duration prices: " + err.Error()})
+		return
+	}
+
+	if err := model.UpdateModelDiscountEntries(discounts); err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
 
@@ -578,6 +610,7 @@ func getAllModelPrices() []ModelPriceInfo {
 			processedModels[modelName] = true
 			prices = append(prices, ModelPriceInfo{
 				ModelName:       modelName,
+				ModelDiscount:   common.GetModelDiscount(modelName),
 				ModelRatio:      0,
 				CompletionRatio: 0,
 				FixedPrice:      price,
@@ -589,6 +622,9 @@ func getAllModelPrices() []ModelPriceInfo {
 		}
 	}
 
+	for i := range prices {
+		prices[i].ModelDiscount = common.GetModelDiscount(prices[i].ModelName)
+	}
 	return prices
 }
 

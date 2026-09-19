@@ -66,9 +66,13 @@ func (m *RelayMeta) SetFirstResponseTime() {
 	}
 }
 
-// CombinedGroupRatio 返回计费用的组合折扣 = 等级折扣 × 渠道折扣 × 用户渠道折扣。
+// CombinedGroupRatio 返回计费用的组合折扣 = 等级折扣 × 渠道折扣 × 用户渠道折扣 × 模型折扣。
 // 所有通过 meta 计费的 controller 都直接用它，避免 14 处重复表达式。
-func (m *RelayMeta) CombinedGroupRatio() float64 {
+func (m *RelayMeta) CombinedGroupRatio(modelNames ...string) float64 {
+	modelName := m.BillingModelName()
+	if len(modelNames) > 0 {
+		modelName = modelNames[0]
+	}
 	channelDiscount := m.ChannelDiscount
 	if channelDiscount <= 0 {
 		channelDiscount = 1.0
@@ -77,7 +81,7 @@ func (m *RelayMeta) CombinedGroupRatio() float64 {
 	if userChannelRatio <= 0 {
 		userChannelRatio = 1.0
 	}
-	return common.GetGroupRatio(m.Group) * channelDiscount * userChannelRatio
+	return common.GetGroupRatio(m.Group) * channelDiscount * userChannelRatio * common.GetModelDiscount(modelName)
 }
 
 // GetFirstWordLatency 获取首字延迟（秒）
