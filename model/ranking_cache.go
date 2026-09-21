@@ -1,11 +1,12 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync/atomic"
-
-	"gorm.io/gorm"
+	"time"
 )
 
 type CachedRanking struct {
@@ -17,14 +18,18 @@ var rankingCache atomic.Pointer[CachedRanking]
 
 // 固定一分钟从持久快照同步一次；HTTP 请求永远不触发 SQL 或缓存重建。
 func RefreshRankingCache() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	var snapshot RankingSnapshot
-	if err := LOG_DB.First(&snapshot, 1).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
-		}
-		return err
+	query := LOG_DB.WithContext(ctx).Where("id = 1")
+	if cached := rankingCache.Load(); cached != nil {
+		query = query.Where("version <> ?", strings.Trim(cached.ETag, `"`))
 	}
-	if cached := rankingCache.Load(); cached != nil && cached.ETag == `"`+snapshot.Version+`"` {
+	result := query.Limit(1).Find(&snapshot)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
 		return nil
 	}
 	if !json.Valid([]byte(snapshot.Payload)) {

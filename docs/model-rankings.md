@@ -10,12 +10,12 @@
 
 ## 开销与一致性
 
-- 正常每天只处理新增一天日志；拆成 24 个带时间范围的分组查询，每个查询超时 2 分钟、默认间隔 100ms。通过既有 `logs.created_at` 索引访问，不在排名页面请求里执行查询。
+- 正常每天只处理新增一天日志；拆成 24 个带时间范围的分组查询，每个查询超时 2 分钟、默认间隔 100ms。PG 使用 `idx_logs_ranking_daily` 部分覆盖索引，不在排名页面请求里执行查询。固定 type 字面量确保通用预编译计划可使用部分索引。
 - 最新已发布日次日再复核一次，然后标记 finalized。超出复核窗口的迟到数据可定向重算；不宣称支持无限迟到且永不漏记。
 - 一天的结果和任务状态同事务提交；重复运行完整替换该日，失败回滚。租约含 owner/generation 和心跳，旧 worker 不能覆盖新结果。
-- 日汇总保留 90 天；环比只读最多 60 天汇总数据。日志清理受同一租约保护，最多清理连续已完成复核的日期。应用外自行清理日志不受此保护。
+- 日汇总保留 90 天；环比只读最多 60 天汇总数据。日志清理受同一租约保护，最多清理连续已完成复核的日期；每个事务最多 500 行，单次 API 最多 10000 行/5 秒，返回实际删除数量，继续清理时再次调用。关闭榜单仍保护未处理日志。应用外自行清理日志不受此保护。
 - 关闭消费日志会暂停公开榜单，并重置完整统计区间；恢复后从新的完整日开始积累，避免把未采集日期当零用量。
-- 快照持久化到日志库，节点每分钟读取一条快照到内存。HTTP 返回预先序列化的 JSON，支持 ETag、60 秒浏览器缓存和 300 秒共享缓存。第一版不依赖 Redis，避免再维护一套缓存一致性机制。
+- 快照持久化到日志库，节点每分钟按版本检查；未变化时数据库不返回 JSON。空闲调度只读小表、不获取写租约。HTTP 返回预先序列化的 JSON，支持 ETag、60 秒浏览器缓存和 300 秒共享缓存。第一版不依赖 Redis，避免再维护一套缓存一致性机制。
 - 冷启动没有快照时返回 preparing；后台故障继续保留旧快照，页面显示真实截止日期和延迟提示。发布失败通过持久化 dirty 标志重试。
 - 现有 ModelMetrics 监控仍独立运行；其当前小时重扫开销不会因新增榜单自动消失。
 
@@ -33,7 +33,7 @@ RANKING_MODEL_ALIASES={"azure-deployment-a":"gpt-4.1","arn:aws:bedrock:example":
 
 ## 迁移与发布
 
-1. 新版本包含 GORM 迁移定义：logs 新增 `ranking_model_name`、`ranking_tokens`，以及 `ranking_daily`、`ranking_states`、`ranking_jobs`、`ranking_snapshots` 四张表。未启动新服务就不会运行迁移。
+1. 新版本包含迁移定义：logs 新增 `ranking_model_name`、`ranking_tokens` 和排名专用索引，以及 `ranking_daily`、`ranking_states`、`ranking_jobs`、`ranking_snapshots` 四张表。当前测试数据较少，普通建索引随 master 启动执行；若未来已有大表，先在事务外使用 `CREATE INDEX CONCURRENTLY` 创建同名索引，再发布新服务。已有同名索引不会重复创建。
 2. 需要提前审核 SQL 时见 `scripts/migrations/2026-09-21-rankings.pg.sql`。执行目标是 LOG_SQL_DSN 指向的日志库；未拆库则为业务库。脚本未在本次开发中对现有数据库执行。
 3. 默认 NODE_TYPE=master 启动会沿用项目既有 AutoMigrate 流程；非 master 节点需在表结构准备后启动。滚动升级应在首个采集完整日开始前完成，避免混合新旧节点导致统计缺失。
 4. 前端部署 `../linkinfra-web` 的排名页及公开代理，沿用 `NEXT_PUBLIC_API_BASE_URL`。
@@ -43,4 +43,4 @@ RANKING_MODEL_ALIASES={"azure-deployment-a":"gpt-4.1","arn:aws:bedrock:example":
 
 Root 身份调用 `POST /api/rankings/rebuild`，JSON 为 `{"date":"2026-09-20"}`。只标记任务，不在 HTTP 请求中扫日志。后台恢复时执行；最近一天仍按次日复核规则处理。已清理源日志、早于完整覆盖起点或超出保留期的日期拒绝重算。
 
-生产流量下仍需观察每小时分组查询的 EXPLAIN 和实际 IO/耗时。此次验证使用隔离内存数据库和模拟页面数据，未进行生产规模压测。
+生产流量下仍需观察每小时分组查询的 EXPLAIN 和实际 IO/耗时。隔离 PG 引擎 10 万条模拟数据验证了通用预编译计划的 Index Only Scan；回表是否为零取决于实际表的可见性映射与 autovacuum，不能保证新插入数据始终不回表。见 `docs/releases/v0.1.34-rankings-review.md`。

@@ -338,6 +338,14 @@ func DeleteOldLog(targetTimestamp int64) (int64, error) {
 	if config.RankingsEnabled {
 		return deleteLogsWithRankingGuard(targetTimestamp)
 	}
+	// 已启用过榜单的库，即使暂停 worker 也不能清理尚未统计的记录。
+	var rankingState RankingState
+	if err := LOG_DB.Select("id").Where("id = 1").Limit(1).Find(&rankingState).Error; err != nil {
+		return 0, err
+	}
+	if rankingState.ID != 0 {
+		return deleteLogsWithRankingGuard(targetTimestamp)
+	}
 	id, found := findMaxIdByTimestampGeneric(LOG_DB, "logs", targetTimestamp)
 	if !found {
 		// 表为空或 DB 错误

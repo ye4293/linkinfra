@@ -146,6 +146,9 @@ func InitDB(envName string) (db *gorm.DB, err error) {
 		if err != nil {
 			return nil, err
 		}
+		if err = EnsureRankingLogIndex(db); err != nil {
+			return nil, err
+		}
 		err = db.AutoMigrate(&Order{})
 		if err != nil {
 			return nil, err

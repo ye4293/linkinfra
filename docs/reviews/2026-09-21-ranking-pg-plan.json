@@ -1,0 +1,200 @@
+{
+  "engine": "PostgreSQL 18.3 (PGlite 0.5.8) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit",
+  "rows": 100000,
+  "before": [
+    {
+      "Plan": {
+        "Node Type": "Aggregate",
+        "Strategy": "Hashed",
+        "Partial Mode": "Simple",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Startup Cost": 110.12,
+        "Total Cost": 113.32,
+        "Plan Rows": 256,
+        "Plan Width": 61,
+        "Actual Startup Time": 0.797,
+        "Actual Total Time": 0.836,
+        "Actual Rows": 75,
+        "Actual Loops": 1,
+        "Disabled": false,
+        "Group Key": [
+          "ranking_model_name",
+          "provider"
+        ],
+        "Planned Partitions": 0,
+        "HashAgg Batches": 1,
+        "Peak Memory Usage": 48,
+        "Disk Usage": 0,
+        "Shared Hit Blocks": 105,
+        "Shared Read Blocks": 0,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 0,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Index Scan",
+            "Parent Relationship": "Outer",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Scan Direction": "Forward",
+            "Index Name": "idx_logs_created_at",
+            "Relation Name": "logs",
+            "Alias": "logs",
+            "Startup Cost": 0.29,
+            "Total Cost": 106.54,
+            "Plan Rows": 358,
+            "Plan Width": 29,
+            "Actual Startup Time": 0.072,
+            "Actual Total Time": 0.442,
+            "Actual Rows": 450,
+            "Actual Loops": 1,
+            "Disabled": false,
+            "Index Cond": "((created_at >= $1) AND (created_at < $2))",
+            "Rows Removed by Index Recheck": 0,
+            "Filter": "((ranking_tokens IS NOT NULL) AND (type = 2))",
+            "Rows Removed by Filter": 150,
+            "Index Searches": 1,
+            "Shared Hit Blocks": 105,
+            "Shared Read Blocks": 0,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 0,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          }
+        ]
+      },
+      "Planning": {
+        "Shared Hit Blocks": 62,
+        "Shared Read Blocks": 8,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 8,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning Time": 0.58,
+      "Triggers": [],
+      "Execution Time": 1.16
+    }
+  ],
+  "after": [
+    {
+      "Plan": {
+        "Node Type": "Aggregate",
+        "Strategy": "Hashed",
+        "Partial Mode": "Simple",
+        "Parallel Aware": false,
+        "Async Capable": false,
+        "Startup Cost": 23.13,
+        "Total Cost": 26.32,
+        "Plan Rows": 255,
+        "Plan Width": 61,
+        "Actual Startup Time": 0.876,
+        "Actual Total Time": 0.939,
+        "Actual Rows": 75,
+        "Actual Loops": 1,
+        "Disabled": false,
+        "Group Key": [
+          "ranking_model_name",
+          "provider"
+        ],
+        "Planned Partitions": 0,
+        "HashAgg Batches": 1,
+        "Peak Memory Usage": 48,
+        "Disk Usage": 0,
+        "Shared Hit Blocks": 1,
+        "Shared Read Blocks": 6,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 6,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0,
+        "Plans": [
+          {
+            "Node Type": "Index Only Scan",
+            "Parent Relationship": "Outer",
+            "Parallel Aware": false,
+            "Async Capable": false,
+            "Scan Direction": "Forward",
+            "Index Name": "idx_logs_ranking_daily",
+            "Relation Name": "logs",
+            "Alias": "logs",
+            "Startup Cost": 0.42,
+            "Total Cost": 19.56,
+            "Plan Rows": 357,
+            "Plan Width": 29,
+            "Actual Startup Time": 0.165,
+            "Actual Total Time": 0.475,
+            "Actual Rows": 450,
+            "Actual Loops": 1,
+            "Disabled": false,
+            "Index Cond": "((created_at >= $1) AND (created_at < $2))",
+            "Rows Removed by Index Recheck": 0,
+            "Heap Fetches": 0,
+            "Index Searches": 1,
+            "Shared Hit Blocks": 1,
+            "Shared Read Blocks": 6,
+            "Shared Dirtied Blocks": 0,
+            "Shared Written Blocks": 6,
+            "Local Hit Blocks": 0,
+            "Local Read Blocks": 0,
+            "Local Dirtied Blocks": 0,
+            "Local Written Blocks": 0,
+            "Temp Read Blocks": 0,
+            "Temp Written Blocks": 0
+          }
+        ]
+      },
+      "Planning": {
+        "Shared Hit Blocks": 33,
+        "Shared Read Blocks": 0,
+        "Shared Dirtied Blocks": 0,
+        "Shared Written Blocks": 0,
+        "Local Hit Blocks": 0,
+        "Local Read Blocks": 0,
+        "Local Dirtied Blocks": 0,
+        "Local Written Blocks": 0,
+        "Temp Read Blocks": 0,
+        "Temp Written Blocks": 0
+      },
+      "Planning Time": 0.523,
+      "Triggers": [],
+      "Execution Time": 1.028
+    }
+  ],
+  "sizes": {
+    "table_bytes": 136536064,
+    "time_index_bytes": 2260992,
+    "ranking_index_bytes": 4423680
+  },
+  "groups": 75,
+  "insert5000Ms": {
+    "baseline": [
+      46.23559999999998,
+      25.879300000000057,
+      27.505999999999858
+    ],
+    "coveringIndex": [
+      80.22410000000036,
+      63.721700000000055,
+      45.69509999999991
+    ]
+  },
+  "note": "Local in-memory PostgreSQL (PGlite); timings are not production capacity estimates."
+}

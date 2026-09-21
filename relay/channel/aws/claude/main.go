@@ -293,9 +293,10 @@ func Handler(c *gin.Context, awsCli *bedrockruntime.Client, meta *util.RelayMeta
 	openaiResp := anthropic.ResponseClaude2OpenAI(claudeResponse)
 	openaiResp.Model = c.GetString(ctxkey.RequestModel)
 	usage := relaymodel.Usage{
-		PromptTokens:     claudeResponse.Usage.InputTokens,
-		CompletionTokens: claudeResponse.Usage.OutputTokens,
-		TotalTokens:      claudeResponse.Usage.InputTokens + claudeResponse.Usage.OutputTokens,
+		RankingExtraInputTokens: claudeResponse.Usage.RankingCacheTokens(),
+		PromptTokens:            claudeResponse.Usage.InputTokens,
+		CompletionTokens:        claudeResponse.Usage.OutputTokens,
+		TotalTokens:             claudeResponse.Usage.InputTokens + claudeResponse.Usage.OutputTokens,
 	}
 	openaiResp.Usage = usage
 
@@ -422,8 +423,11 @@ func StreamHandler(c *gin.Context, awsCli *bedrockruntime.Client, meta *util.Rel
 
 			response, respMeta := anthropic.StreamResponseClaude2OpenAI(claudeResp)
 			if respMeta != nil {
-				usage.PromptTokens += respMeta.Usage.InputTokens
-				usage.CompletionTokens += respMeta.Usage.OutputTokens
+				if respMeta.Usage != nil {
+					usage.RankingExtraInputTokens = max(usage.RankingExtraInputTokens, respMeta.Usage.RankingCacheTokens())
+					usage.PromptTokens += respMeta.Usage.InputTokens
+					usage.CompletionTokens += respMeta.Usage.OutputTokens
+				}
 				if len(respMeta.Id) > 0 { // only message_start has an id, otherwise it's a finish_reason event.
 					id = respMeta.Id
 					modelName = respMeta.Model

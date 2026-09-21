@@ -507,9 +507,11 @@ func StreamHandler(c *gin.Context, resp *http.Response, relayMeta *util.RelayMet
 
 		response, meta := StreamResponseClaude2OpenAI(&claudeResponse)
 		if meta != nil {
-			usage.RankingExtraInputTokens = max(usage.RankingExtraInputTokens, meta.Usage.RankingCacheTokens())
-			usage.PromptTokens += meta.Usage.InputTokens
-			usage.CompletionTokens += meta.Usage.OutputTokens
+			if meta.Usage != nil {
+				usage.RankingExtraInputTokens = max(usage.RankingExtraInputTokens, meta.Usage.RankingCacheTokens())
+				usage.PromptTokens += meta.Usage.InputTokens
+				usage.CompletionTokens += meta.Usage.OutputTokens
+			}
 			if len(meta.Id) > 0 { // only message_start has an id, otherwise it's a finish_reason event.
 				modelName = meta.Model
 				id = meta.Id

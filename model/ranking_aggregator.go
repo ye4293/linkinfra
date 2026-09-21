@@ -84,7 +84,8 @@ func aggregateRankingDay(db *gorm.DB, state *RankingState, day int64, finalized 
 		}
 		err := db.WithContext(ctx).Model(&Log{}).
 			Select("ranking_model_name AS model_name, provider, SUM(ranking_tokens) AS tokens, COUNT(*) AS requests").
-			Where("created_at >= ? AND created_at < ? AND type = ? AND ranking_tokens IS NOT NULL", hour, hour+3600, LogTypeConsume).
+			Where("created_at >= ? AND created_at < ?", hour, hour+3600).
+			Where(rankingLogPredicate).
 			Group("ranking_model_name, provider").Scan(&rows).Error
 		cancel()
 		if err != nil {
@@ -162,6 +163,10 @@ func publishRankingSnapshot(db *gorm.DB, state *RankingState) error {
 }
 
 func runRankingCycle(db *gorm.DB, now int64) error {
+	due, err := rankingWorkDue(db, now)
+	if err != nil || !due {
+		return err
+	}
 	state, err := acquireRankingLease(db, now)
 	if err != nil {
 		return err
@@ -197,17 +202,8 @@ func runRankingCycle(db *gorm.DB, now int64) error {
 		}
 		changed = true
 	}
-	// 发布失败时下轮即使没有新日也要重试，不能留下永久过期快照。
-	var snapshot RankingSnapshot
-	err = db.First(&snapshot, 1).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
-	}
-	var prior RankingData
-	if snapshot.Payload != "" {
-		_ = json.Unmarshal([]byte(snapshot.Payload), &prior)
-	}
-	if changed || state.SnapshotDirty || prior.DataThrough != rankingDate(state.NextDay-rankingDay) {
+	// dirty 与日结果同事务保存，发布失败无需读取/解析旧快照就能重试。
+	if changed || state.SnapshotDirty {
 		if err := publishRankingSnapshot(db, state); err != nil {
 			return err
 		}
@@ -225,6 +221,34 @@ func runRankingCycle(db *gorm.DB, now int64) error {
 		}
 		return tx.Where("day_start < ? AND finalized = ?", cutoff, true).Delete(&RankingJob{}).Error
 	})
+}
+
+// 空闲时只读小表，不争抢写锁、不反复读取整份快照。
+func rankingWorkDue(db *gorm.DB, now int64) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	db = db.WithContext(ctx)
+	var state RankingState
+	r := db.Where("id = 1").Limit(1).Find(&state)
+	if r.Error != nil {
+		return false, r.Error
+	}
+	if r.RowsAffected == 0 {
+		return true, nil
+	}
+	today := floorRankingDay(now)
+	if !config.LogConsumeEnabled {
+		return state.CoverageStart < today+rankingDay, nil
+	}
+	if now < today+15*60 {
+		return false, nil
+	}
+	if state.NextDay < today || (state.SnapshotDirty && state.NextDay > state.CoverageStart) {
+		return true, nil
+	}
+	var job RankingJob
+	r = db.Select("day_start").Where("day_start >= ? AND day_start < ? AND finalized = ?", state.CoverageStart, today-rankingDay, false).Limit(1).Find(&job)
+	return r.RowsAffected > 0, r.Error
 }
 
 // StartRankingWorker 每个节点只加载一条快照；日汇总由 SQL 租约选出的单节点执行。
@@ -263,14 +287,18 @@ func RequestRankingRebuild(day int64) error {
 }
 
 func deleteLogsWithRankingGuard(target int64) (int64, error) {
-	state, err := acquireRankingLease(LOG_DB, time.Now().Unix())
+	// 最多 20 个 500 行短事务，单次请求预算 5 秒；返回实际删除数，可继续调用。
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	db := LOG_DB.WithContext(ctx)
+	state, err := acquireRankingLease(db, time.Now().Unix())
 	if err != nil {
 		return 0, err
 	}
 	defer releaseRankingLease(LOG_DB, state)
 	cutoff := state.NextDay
 	var pending RankingJob
-	err = LOG_DB.Where("day_start >= ? AND finalized = ?", state.CoverageStart, false).Order("day_start").First(&pending).Error
+	err = db.Where("day_start >= ? AND finalized = ?", state.CoverageStart, false).Order("day_start").First(&pending).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, err
 	}
@@ -281,19 +309,41 @@ func deleteLogsWithRankingGuard(target int64) (int64, error) {
 		cutoff = target
 	}
 	var count int64
-	err = LOG_DB.Transaction(func(tx *gorm.DB) error {
-		if err := rankingFence(tx, state); err != nil {
-			return err
+	for batch := 0; batch < 20; batch++ {
+		var deleted int64
+		err = db.Transaction(func(tx *gorm.DB) error {
+			if err := rankingFence(tx, state); err != nil {
+				return err
+			}
+			var ids []int
+			// 按已有 created_at 索引选择最旧的一批，删除后再选下一批，无 OFFSET。
+			if err := tx.Model(&Log{}).Where("created_at < ?", cutoff).Order("created_at").Limit(500).Pluck("id", &ids).Error; err != nil {
+				return err
+			}
+			if len(ids) == 0 {
+				return nil
+			}
+			r := tx.Where("id IN ? AND created_at < ?", ids, cutoff).Delete(&Log{})
+			if r.Error != nil {
+				return r.Error
+			}
+			deleted = r.RowsAffected
+			// 与删除同事务记录保守水位，禁止对部分清理过的日期重算。
+			if cutoff > state.LogPurgedBefore {
+				return tx.Model(&RankingState{}).Where("id = 1").Update("log_purged_before", cutoff).Error
+			}
+			return nil
+		})
+		if err != nil {
+			if count > 0 && ctx.Err() != nil {
+				return count, nil
+			}
+			return count, err
 		}
-		r := tx.Where("created_at < ?", cutoff).Delete(&Log{})
-		if r.Error != nil {
-			return r.Error
+		count += deleted
+		if deleted < 500 {
+			break
 		}
-		count = r.RowsAffected
-		if cutoff > state.LogPurgedBefore {
-			return tx.Model(&RankingState{}).Where("id = 1").Update("log_purged_before", cutoff).Error
-		}
-		return nil
-	})
-	return count, err
+	}
+	return count, nil
 }

@@ -8,6 +8,14 @@
 
 ## 2026-09-21
 
+### perf(rankings): 发布前审查与 PostgreSQL 覆盖索引
+- **分支**: `main`
+- **类型**: perf / fix
+- **涉及文件**: `model/ranking_index.go`、`model/ranking_aggregator.go`、`model/ranking_cache.go`、`model/log.go`、`model/main.go`、排名性能测试、Anthropic/AWS Claude 适配器与测试、PG 迁移和发布说明。
+- **说明**: 日统计新增 PG 部分覆盖索引并兼容通用预编译计划；空闲调度零写入、未变化快照不传输 JSON、日志清理分批且关闭榜单仍保护水位，修复 AWS Claude 缓存用量遗漏。
+- **关联计划**: `docs/plans/2026-09-21-rankings-review.md`
+- **验证记录**: `docs/releases/v0.1.34-rankings-review.md`
+
 ### feat(rankings): 每日模型用量趋势与排行榜
 - **分支**: `main`
 - **类型**: feat / perf

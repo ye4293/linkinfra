@@ -5,6 +5,12 @@ SET LOCAL lock_timeout = '5s';
 ALTER TABLE logs ADD COLUMN IF NOT EXISTS ranking_model_name varchar(180);
 ALTER TABLE logs ADD COLUMN IF NOT EXISTS ranking_tokens bigint;
 
+-- 当前测试期数据量小，随迁移一次建立；线上大表应改为事务外 CONCURRENTLY。
+-- type=2 是 LogTypeConsume，与后台聚合 SQL 的固定谓词一致。
+CREATE INDEX IF NOT EXISTS idx_logs_ranking_daily ON logs (created_at)
+    INCLUDE (ranking_model_name, provider, ranking_tokens)
+    WHERE type = 2 AND ranking_tokens IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS ranking_daily (
     day_start bigint NOT NULL,
     model_name varchar(180) NOT NULL,
