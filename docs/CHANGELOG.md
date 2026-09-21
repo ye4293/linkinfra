@@ -6,6 +6,16 @@
 
 ---
 
+## 2026-09-21
+
+### fix(xai): 完善 Chat、Messages、Responses 自动路径与渠道鉴权
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `relay/channel/xai/adaptor.go`、`relay/channel/xai/adaptor_test.go`、`docs/CHANGELOG.md`
+- **说明**: 核实 xAI 已按客户端协议分流至 `/v1/chat/completions`、`/v1/messages`、`/v1/responses`，Messages/Responses 由原生 controller 处理。补齐根地址和 `/v1` 地址的兼容，避免重复版本前缀，保留查询参数和子路径；鉴权优先使用本次选中的渠道密钥，空值回退 APIKey，保留 Anthropic version/beta 头。
+- **验证**: xAI/MiniMax/relay controller/controller 回归通过；隔离代码副本 `go build ./...`、`go vet ./...` 通过（SQLite C 依赖有既有警告）。使用用户提供的测试凭据，经修改后的 xAI adaptor 调用 `grok-4.20-0309-non-reasoning`，三种协议各自流式/非流式共 6 项均 HTTP 200，检查回复、非流式 usage 和流结束事件；凭据未写入文件。未部署或修改渠道配置。
+- **官方接口依据**: https://docs.x.ai/openapi.json
+
 ## 2026-09-18
 
 ### fix(model-plaza): 按渠道独立展示同名模型

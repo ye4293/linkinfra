@@ -24,23 +24,31 @@ func (a *Adaptor) Init(meta *util.RelayMeta) {
 
 func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
 	base := strings.TrimRight(meta.BaseURL, "/")
+	// 同时兼容渠道根地址和 SDK 常用的 /v1 base，避免重复拼接版本前缀。
+	base = strings.TrimSuffix(base, "/v1")
 	// 保留 Responses 查询/删除等带资源 ID 的路径以及查询参数。
-	if meta.RequestURLPath != "" {
-		return util.GetFullRequestURL(base, meta.RequestURLPath, meta.ChannelType), nil
+	requestPath := meta.RequestURLPath
+	if requestPath == "" {
+		switch meta.Mode {
+		case constant.RelayModeClaude:
+			requestPath = "/v1/messages"
+		case constant.RelayModeOpenaiResponse:
+			requestPath = "/v1/responses"
+		default:
+			requestPath = "/v1/chat/completions"
+		}
 	}
-	switch meta.Mode {
-	case constant.RelayModeClaude:
-		return base + "/v1/messages", nil
-	case constant.RelayModeOpenaiResponse:
-		return base + "/v1/responses", nil
-	}
-	fullrequestUrl := fmt.Sprintf("%s%s", base, "/v1/chat/completions")
-	return fullrequestUrl, nil
+	return util.GetFullRequestURL(base, requestPath, meta.ChannelType), nil
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Request, meta *util.RelayMeta) error {
 	channel.SetupCommonRequestHeader(c, req, meta)
-	req.Header.Set("Authorization", "Bearer "+meta.APIKey)
+	// 与 MiniMax 原生协议一致，优先使用本次分配的渠道密钥。
+	apiKey := meta.ActualAPIKey
+	if apiKey == "" {
+		apiKey = meta.APIKey
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	if meta.Mode == constant.RelayModeClaude {
 		anthropicVersion := c.Request.Header.Get("anthropic-version")
 		if anthropicVersion == "" {
