@@ -8,6 +8,14 @@
 
 ## 2026-09-21
 
+### feat(responses): 按 thinking 和压缩历史绑定原 Provider
+- **分支**: `main`
+- **类型**: feat / fix
+- **涉及文件**: `service/responses_state*.go`、`model/channel_provider.go`、`middleware/distributor.go`、`controller/relay.go`、`controller/retry_policy.go`、`relay/controller/opeai_response.go`、`relay/controller/responses_request.go`、`relay/channel/openai/adaptor.go` 及回归测试；前端渠道 Provider 说明。
+- **说明**: 根据用户追加要求，记录实际返回状态的指纹和来源，带 reasoning/compaction 的后续请求首次选渠也固定原 Provider；服务端引用固定渠道/key，未知或冲突来源明确失败。普通明文请求保留原首次路由；不清理历史正文。Redis 存储来源索引，未启用 Redis 时用有界本地缓存；支持普通、SSE 和 compact，模型映射保留未知字段与 false/0，修复 Azure compact 路径，防止流已开始后重放及本地缓存故障自动禁用上游。
+- **验证**: service/model/controller/middleware/Responses/OpenAI 适配器测试、service 的 race 检查及 `go build ./...`、`go vet ./...`、前端 TypeScript 检查通过；模拟流式与非流式上游和下一轮实际分发，覆盖高优先级跨 provider 候选排除、状态原样保留及用户隔离。未部署，未执行真实 OpenAI/Azure 调用。
+- **关联计划**: `docs/plans/2026-09-21-responses-state-binding.md`
+
 ### feat(channel): 支持按 Provider 限制失败重试
 - **分支**: `main`
 - **类型**: feat

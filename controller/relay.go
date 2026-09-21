@@ -197,7 +197,7 @@ func Relay(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, originalModel, &failedChannelIds)
 		if err != nil {
-			if lastChannel == nil || dbmodel.RetryProvider(ctx) != "" {
+			if lastChannel == nil || dbmodel.HasRetryBoundary(ctx) {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}
@@ -874,7 +874,7 @@ func RelayVideoGenerate(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, modelName, &failedChannelIds)
 		if err != nil {
-			if lastVideoChannel == nil || dbmodel.RetryProvider(ctx) != "" {
+			if lastVideoChannel == nil || dbmodel.HasRetryBoundary(ctx) {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}
@@ -1166,7 +1166,7 @@ func RelayRecraft(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, modelName, &failedChannelIds)
 		if err != nil {
-			if lastRecraftChannel == nil || dbmodel.RetryProvider(ctx) != "" {
+			if lastRecraftChannel == nil || dbmodel.HasRetryBoundary(ctx) {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}
@@ -1538,7 +1538,7 @@ func RelayImageGenerateAsync(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, modelName, &failedChannelIds)
 		if err != nil {
-			if lastImageChannel == nil || dbmodel.RetryProvider(ctx) != "" {
+			if lastImageChannel == nil || dbmodel.HasRetryBoundary(ctx) {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}
@@ -1696,7 +1696,7 @@ func RelayRunway(c *gin.Context) {
 
 		channel, err := selectRetryChannel(ctx, group, modelName, &failedChannelIds)
 		if err != nil {
-			if lastRunwayChannel == nil || dbmodel.RetryProvider(ctx) != "" {
+			if lastRunwayChannel == nil || dbmodel.HasRetryBoundary(ctx) {
 				logger.Errorf(ctx, "No channels available after cycling on retry %d/%d: %v", currentAttempt, retryTimes, err)
 				break
 			}
@@ -1984,7 +1984,7 @@ func relayXaiVideoWithRetry(c *gin.Context, endpoint string) {
 
 		channel, err := selectRetryChannel(ctx, group, modelName, &failedChannelIds)
 		if err != nil {
-			if lastChannel == nil || dbmodel.RetryProvider(ctx) != "" {
+			if lastChannel == nil || dbmodel.HasRetryBoundary(ctx) {
 				logger.Errorf(ctx, "[xAI Video] no channel available after cycling on retry %d/%d", currentAttempt, retryTimes)
 				break
 			}
@@ -2385,7 +2385,7 @@ func RelaySoraVideo(c *gin.Context) {
 
 		channel, err := selectRetryChannel(ctx, group, modelName, &failedChannelIds)
 		if err != nil {
-			if lastSoraChannel == nil || dbmodel.RetryProvider(ctx) != "" {
+			if lastSoraChannel == nil || dbmodel.HasRetryBoundary(ctx) {
 				logger.Errorf(ctx, "No channels available after cycling on retry %d/%d: %v", currentAttempt, retryTimes, err)
 				break
 			}
@@ -2766,7 +2766,7 @@ func RelayGemini(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, originalModel, &failedChannelIds)
 		if err != nil {
-			if lastGeminiChannel == nil || dbmodel.RetryProvider(ctx) != "" {
+			if lastGeminiChannel == nil || dbmodel.HasRetryBoundary(ctx) {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}
@@ -2930,7 +2930,7 @@ func RelayClaude(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, originalModel, &failedChannelIds)
 		if err != nil {
-			if lastClaudeChannel == nil || dbmodel.RetryProvider(ctx) != "" {
+			if lastClaudeChannel == nil || dbmodel.HasRetryBoundary(ctx) {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}
@@ -3081,7 +3081,9 @@ func RelayResponse(c *gin.Context) {
 	// 普通失败不再每次写 DB，统一在所有重试结束后由 recordFinalErrorLog 写一条
 
 	// 处理首次失败的渠道错误（包括自动禁用逻辑）
-	go processChannelRelayError(ctx, userId, originalChannelId, originalChannelName, originalKeyIndex, relayError, originalModel)
+	if !c.GetBool("responses_state_record_failed") {
+		go processChannelRelayError(ctx, userId, originalChannelId, originalChannelName, originalKeyIndex, relayError, originalModel)
+	}
 
 	// 记录所有已失败的渠道ID，用于重试时排除
 	failedChannelIds := []int{channelId}
@@ -3089,7 +3091,7 @@ func RelayResponse(c *gin.Context) {
 	group := c.GetString("group")
 	lastResponseChannel := getLastRetryFallbackChannel(originalChannelId)
 	retryTimes := config.RetryTimes
-	if !shouldRetry(c, relayError.StatusCode, relayError.Error.Message) {
+	if c.Writer.Written() || c.GetBool("responses_state_record_failed") || !shouldRetry(c, relayError.StatusCode, relayError.Error.Message) {
 		logger.Errorf(ctx, "claude relay error happen, status code is %d, won't retry in this case", relayError.StatusCode)
 		retryTimes = 0
 	}
@@ -3097,7 +3099,7 @@ func RelayResponse(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, originalModel, &failedChannelIds)
 		if err != nil {
-			if lastResponseChannel == nil || dbmodel.RetryProvider(ctx) != "" {
+			if lastResponseChannel == nil || dbmodel.HasRetryBoundary(ctx) {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}
@@ -3170,19 +3172,26 @@ func RelayResponse(c *gin.Context) {
 		})
 		util.PublishFailedRetryHistory(c, retryAttempts)
 
-		if !shouldRetry(c, relayError.StatusCode, relayError.Error.Message) {
+		if c.Writer.Written() || c.GetBool("responses_state_record_failed") || !shouldRetry(c, relayError.StatusCode, relayError.Error.Message) {
 			logger.Warnf(ctx, "Retry stopped: status %d is not retryable, stopping further retries", relayError.StatusCode)
-			go processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
+			if !c.GetBool("responses_state_record_failed") {
+				go processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
+			}
 			break
 		}
 
-		go processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
+		if !c.GetBool("responses_state_record_failed") {
+			go processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
+		}
 	}
 
 	if relayError != nil {
 		// 记录渠道历史到上下文中
 		c.Set("admin_channel_history", channelHistory)
 		recordFinalErrorLog(ctx, c, relayError, retryAttempts, channelHistory, service.GetAffinityLogTag(c))
+		if c.Writer.Written() {
+			return
+		}
 		//转换成claude 的错误格式
 		c.JSON(relayError.StatusCode, gin.H{
 			"error": gin.H{

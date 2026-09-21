@@ -19,6 +19,7 @@ import (
 	"github.com/songquanpeng/one-api/relay/helper"
 	"github.com/songquanpeng/one-api/relay/model"
 	"github.com/songquanpeng/one-api/relay/util"
+	"github.com/songquanpeng/one-api/service"
 )
 
 // ensureGeminiContentsRole 确保 Gemini 请求体中的 contents 数组中每个元素都有 role 字段
@@ -64,8 +65,7 @@ func RelayOpenaiResponseNative(c *gin.Context) *model.ErrorWithStatusCode {
 
 	// 如果模型发生了重定向，替换请求体中的 model 字段
 	if isModelMapped {
-		openaiResponseRequest.Model = meta.ActualModelName
-		newBody, err := json.Marshal(openaiResponseRequest)
+		newBody, err := mapResponsesModel(originRequestBody, meta.ActualModelName)
 		if err != nil {
 			return openai.ErrorWrapper(err, "json_marshal_failed", http.StatusInternalServerError)
 		}
@@ -74,6 +74,8 @@ func RelayOpenaiResponseNative(c *gin.Context) *model.ErrorWithStatusCode {
 	}
 
 	meta.IsStream = openaiResponseRequest.Stream
+	// 上游确认前不发送 ping，避免状态错误后已输出 HTTP 200。
+	meta.DisablePing = true
 	// 计算预消费配额
 	groupRatio := util.GetBillingGroupRatio(c, group, modelName)
 	modelRatio := common.GetModelRatio(modelName)
@@ -102,6 +104,7 @@ func RelayOpenaiResponseNative(c *gin.Context) *model.ErrorWithStatusCode {
 	if err != nil {
 		return openai.ErrorWrapper(err, "failed_to_send_request", http.StatusBadGateway)
 	}
+	meta.DisablePing = false
 
 	var usageMetadata *openai.ResponseUsage
 	var openaiErr *model.ErrorWithStatusCode
@@ -407,8 +410,11 @@ func doNativeOpenaiResponse(c *gin.Context, resp *http.Response, meta *util.Rela
 	if unmarshalErr := json.Unmarshal(responseBody, &openaiResponse); unmarshalErr != nil {
 		return nil, openai.ErrorWrapper(unmarshalErr, "unmarshal_response_failed", http.StatusInternalServerError)
 	}
+	if stateErr := service.RememberResponsesState(c, responseBody, false); stateErr != nil {
+		c.Set("responses_state_record_failed", true)
+		return nil, openai.ErrorWrapper(stateErr, "responses_state_cache_unavailable", http.StatusServiceUnavailable)
+	}
 	util.IOCopyBytesGracefully(c, resp, responseBody)
-	logger.Info(c.Request.Context(), fmt.Sprintf("OpenAI Response : %v", openaiResponse))
 	// 缓存 response_id 到 Redis
 	dbmodel.CacheResponseIdToChannel(openaiResponse.ID, c.GetInt("channel_id"), c.GetInt("key_index"), "OpenAI Response Cache")
 	c.Set("x_response_id", openaiResponse.ID)
@@ -450,6 +456,16 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 		err := json.Unmarshal([]byte(data), &streamResponse)
 		if err != nil {
 			openaiErr = openai.ErrorWrapper(err, "unmarshal_response_failed", http.StatusInternalServerError)
+			return false
+		}
+		if stateErr := service.RememberResponsesState(c, []byte(data), true); stateErr != nil {
+			c.Set("responses_state_record_failed", true)
+			openaiErr = openai.ErrorWrapper(stateErr, "responses_state_cache_unavailable", http.StatusServiceUnavailable)
+			// 流已经开始时发送明确错误，不能重放请求或伪造 completed。
+			if c.Writer.Written() {
+				payload, _ := json.Marshal(gin.H{"type": "error", "error": gin.H{"code": "responses_state_cache_unavailable", "message": stateErr.Error()}})
+				helper.StringData(c, string(payload))
+			}
 			return false
 		}
 		helper.OpenaiResponseChunkData(c, streamResponse, data)

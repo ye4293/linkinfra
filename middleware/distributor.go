@@ -56,6 +56,10 @@ func Distribute() func(c *gin.Context) {
 		userId := c.GetInt("id")
 		userGroup, _ := model.CacheGetUserGroup(userId)
 		c.Set("group", userGroup)
+		if err := service.BindResponsesState(c); err != nil {
+			abortWithMessage(c, http.StatusConflict, err.Error())
+			return
+		}
 
 		var channel *model.Channel
 		var err error
@@ -115,7 +119,7 @@ func Distribute() func(c *gin.Context) {
 									break
 								}
 							}
-							if groupOK && modelOK {
+							if groupOK && modelOK && model.RetryProviderAllows(c.Request.Context(), preferred) {
 								channel = preferred
 								logger.Infof(c.Request.Context(), "[Affinity] 使用亲和渠道 渠道=%d 模型=%s 分组=%s",
 									preferredID, modelRequest.Model, userGroup)
@@ -164,8 +168,20 @@ func Distribute() func(c *gin.Context) {
 		c.Set("model", requestModel)
 
 		if channel != nil {
+			if !model.RetryProviderAllows(c.Request.Context(), channel) {
+				abortWithMessage(c, http.StatusConflict, "Selected channel conflicts with the Responses history provider")
+				return
+			}
+			if err := service.RestoreResponsesStateKey(c, channel); err != nil {
+				abortWithMessage(c, http.StatusConflict, err.Error())
+				return
+			}
 			SetupContextForSelectedChannel(c, channel, requestModel)
-			// 只在首次分发后绑定；后续重试沿用该 provider，不改变首次选渠策略。
+			if err := service.VerifyResponsesStateKey(c); err != nil {
+				abortWithMessage(c, http.StatusConflict, err.Error())
+				return
+			}
+			// 初选确定后固定 provider；后续重试不能覆盖历史状态要求的来源。
 			c.Request = c.Request.WithContext(model.WithRetryProvider(c.Request.Context(), model.ChannelProvider(channel)))
 		}
 		c.Next()

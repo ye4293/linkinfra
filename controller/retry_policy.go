@@ -27,7 +27,7 @@ func selectRetryChannel(ctx context.Context, group string, model string, failedC
 	)
 	if err != nil {
 		// provider 组内耗尽时明确失败，不重置失败列表或进入其他 provider。
-		if dbmodel.RetryProvider(ctx) != "" {
+		if dbmodel.HasRetryBoundary(ctx) {
 			return nil, err
 		}
 		// 所有优先级均已耗尽，重置后从最高优先级重新开始
