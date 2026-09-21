@@ -410,6 +410,9 @@ func doNativeOpenaiResponse(c *gin.Context, resp *http.Response, meta *util.Rela
 	if unmarshalErr := json.Unmarshal(responseBody, &openaiResponse); unmarshalErr != nil {
 		return nil, openai.ErrorWrapper(unmarshalErr, "unmarshal_response_failed", http.StatusInternalServerError)
 	}
+	if payloadErr := responsesPayloadError(responseBody); payloadErr != nil {
+		return nil, payloadErr
+	}
 	if stateErr := service.RememberResponsesState(c, responseBody, false); stateErr != nil {
 		c.Set("responses_state_record_failed", true)
 		return nil, openai.ErrorWrapper(stateErr, "responses_state_cache_unavailable", http.StatusServiceUnavailable)
@@ -449,6 +452,8 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 	// 用于保存最后的 UsageMetadata 和文本内容
 	var lastUsageMetadata = &openai.ResponseUsage{}
 	var openaiErr *model.ErrorWithStatusCode
+	terminal := false
+	errorForwarded := false
 	var fullText strings.Builder // 累积完整文本
 	webSearchToolCallCount := 0
 	helper.StreamScannerHandler(c, resp, meta, func(data string) bool {
@@ -458,6 +463,16 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 			openaiErr = openai.ErrorWrapper(err, "unmarshal_response_failed", http.StatusInternalServerError)
 			return false
 		}
+		if payloadErr := responsesPayloadError([]byte(data)); payloadErr != nil {
+			openaiErr = payloadErr
+			logger.Warnf(c.Request.Context(), "Responses stream failed: channel=%d keyIndex=%d event=%s code=%v status=%d upstream_request_id=%s",
+				c.GetInt("channel_id"), c.GetInt("key_index"), streamResponse.Type, payloadErr.Error.Code, payloadErr.StatusCode, resp.Header.Get("X-Request-ID"))
+			if c.Writer.Written() {
+				helper.OpenaiResponseChunkData(c, streamResponse, data)
+				errorForwarded = true
+			}
+			return false
+		}
 		if stateErr := service.RememberResponsesState(c, []byte(data), true); stateErr != nil {
 			c.Set("responses_state_record_failed", true)
 			openaiErr = openai.ErrorWrapper(stateErr, "responses_state_cache_unavailable", http.StatusServiceUnavailable)
@@ -465,12 +480,14 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 			if c.Writer.Written() {
 				payload, _ := json.Marshal(gin.H{"type": "error", "error": gin.H{"code": "responses_state_cache_unavailable", "message": stateErr.Error()}})
 				helper.StringData(c, string(payload))
+				errorForwarded = true
 			}
 			return false
 		}
 		helper.OpenaiResponseChunkData(c, streamResponse, data)
 		switch streamResponse.Type {
-		case "response.completed":
+		case "response.completed", "response.incomplete":
+			terminal = streamResponse.Response != nil
 			if streamResponse.Response != nil {
 				if streamResponse.Response.Usage != nil {
 					lastUsageMetadata = streamResponse.Response.Usage
@@ -490,6 +507,7 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 					}
 				}
 			}
+			return false
 		case "response.output_text.delta":
 			// 处理输出文本
 			fullText.WriteString(streamResponse.Delta)
@@ -505,7 +523,10 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 		}
 		return true
 	})
-	if lastUsageMetadata.OutputTokens == 0 {
+	if openaiErr == nil && !terminal {
+		openaiErr = openai.ErrorWrapper(fmt.Errorf("Upstream Responses stream ended without a completed or incomplete response event"), "responses_stream_incomplete", http.StatusBadGateway)
+	}
+	if openaiErr == nil && lastUsageMetadata.OutputTokens == 0 {
 		// 计算输出文本的 token 数量
 		tempStr := fullText.String()
 		if len(tempStr) > 0 {
@@ -521,6 +542,10 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 	}
 
 	if openaiErr != nil {
+		if c.Writer.Written() && !errorForwarded {
+			payload, _ := json.Marshal(gin.H{"type": "error", "code": openaiErr.Error.Code, "message": openaiErr.Error.Message})
+			helper.StringData(c, string(payload))
+		}
 		if !c.Writer.Written() {
 			// 首个事件前失败时仍由外层返回 JSON，不能残留 SSE 响应头。
 			for _, header := range []string{"Content-Type", "Cache-Control", "Connection", "Transfer-Encoding", "X-Accel-Buffering"} {

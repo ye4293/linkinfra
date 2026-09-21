@@ -19,6 +19,8 @@
 
 多 key 渠道内的密钥也应属于同一个 Provider。资源是否互通由管理员确认，Provider 名称本身不构成平台互通保证。
 
+这里的 Provider 是“状态兼容组”，不能仅按厂商品牌分组。两个不同 Azure 资源即使都提供同一个模型，也不能仅凭同属 Azure 就假定 reasoning 密文互通。尚未验证兼容性时，使用不同的值，例如 `azure-resource-a`、`azure-resource-b`；同一渠道的多 key 若来自不同资源，应拆分渠道。更改 Provider 后，已有状态索引仍保留原 Provider，建议从新会话验证，不要清空共享索引或删除 reasoning 来绕过冲突。
+
 ## 携带 thinking 的连续对话
 
 Responses 和 `/v1/responses/compact` 自动按实际返回状态绑定来源，无需客户端新增会话 ID：
