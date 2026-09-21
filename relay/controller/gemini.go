@@ -410,6 +410,7 @@ func RelayGeminiNative(c *gin.Context) *model.ErrorWithStatusCode {
 		firstWordLatency = meta.GetFirstWordLatency()
 	}
 
+	ctx = dbmodel.WithRankingUsage(ctx, meta.BillingModelName(), meta.Config.Provider, int64(promptTokens)+int64(completionTokens))
 	go recordGeminiConsumption(ctx, userId, channelId, tokenId, modelName, tokenName, promptTokens, completionTokens, totalTokens, cachedTokens, actualQuota, c.Request.RequestURI, duration, meta.IsStream, c.Copy(), usageMetadata, firstWordLatency, groupRatio, modelRatio)
 	return nil
 }

@@ -71,6 +71,8 @@ git worktree remove /tmp/dev-test    # 用完清理
 
 Responses 流式错误测试若不验证 token 计费，使用不含文本的状态事件模拟流已开始；文本 delta 会触发 tokenizer，测试需先初始化 tokenizer 才能使用。
 
+日统计测试可以注入业务日期，但数据库租约必须使用独立的实时钟，避免历史日期让租约一创建就过期。MySQL 续租同时递增 heartbeat，避免同秒更新相同 lease_until 时 RowsAffected=0 被误判为失锁。
+
 ## 变更记录与计划文档（强制）
 
 ### 更新记录

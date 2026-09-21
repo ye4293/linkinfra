@@ -214,6 +214,8 @@ func main() {
 		logger.SysLog("model metrics aggregator started")
 	}
 
+	common.SafeGoroutine(model.StartRankingWorker)
+
 	// Initialize HTTP server
 	server := gin.New()
 	server.Use(gin.Recovery())

@@ -120,7 +120,6 @@ var GoogleClientSecret = ""
 var GoogleRedirectUri = ""
 var StripeKey = ""
 
-
 var MessagePusherAddress = ""
 var MessagePusherToken = ""
 
@@ -167,6 +166,7 @@ billing account
 imagen api
 generativelanguage.googleapis.com
 console.x.ai`
+
 // 跨渠道重试关键词配置（一行一个关键词，匹配到则触发跨渠道重试）
 var RetryKeywords = `api key not valid
 invalid_api_key
@@ -239,10 +239,14 @@ var MetricFailChanSize = env.Int("METRIC_FAIL_CHAN_SIZE", 128)
 var InitialRootToken = os.Getenv("INITIAL_ROOT_TOKEN")
 
 // 模型监控指标配置
+// 排名按日汇总，独立于实时监控；小时批次间默认暂停 100ms。
+var RankingsEnabled = env.Bool("RANKINGS_ENABLED", true)
+var RankingBatchPauseMS = env.Int("RANKING_BATCH_PAUSE_MS", 100)
+
 var ModelMetricsEnabled = env.Bool("MODEL_METRICS_ENABLED", true)
-var ModelMetricsAggregationInterval = env.Int("MODEL_METRICS_AGGREGATION_INTERVAL", 300)  // 聚合间隔（秒）
-var ModelMetricsRetentionDays = env.Int("MODEL_METRICS_RETENTION_DAYS", 30)               // 数据保留天数
-var ModelMetricsBackfillDays = env.Int("MODEL_METRICS_BACKFILL_DAYS", 7)                  // 首次回填天数
+var ModelMetricsAggregationInterval = env.Int("MODEL_METRICS_AGGREGATION_INTERVAL", 300) // 聚合间隔（秒）
+var ModelMetricsRetentionDays = env.Int("MODEL_METRICS_RETENTION_DAYS", 30)              // 数据保留天数
+var ModelMetricsBackfillDays = env.Int("MODEL_METRICS_BACKFILL_DAYS", 7)                 // 首次回填天数
 
 // Claude Thinking 模型配置
 var ClaudeThinkingEnabled = true                      // 是否启用 Claude 思考适配（-thinking 后缀）

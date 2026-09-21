@@ -178,6 +178,10 @@ func InitDB(envName string) (db *gorm.DB, err error) {
 		if err != nil {
 			return nil, err
 		}
+		err = db.AutoMigrate(&RankingDaily{}, &RankingState{}, &RankingJob{}, &RankingSnapshot{})
+		if err != nil {
+			return nil, err
+		}
 		err = db.AutoMigrate(&ModelMetrics{})
 		if err != nil {
 			return nil, err

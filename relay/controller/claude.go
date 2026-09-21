@@ -172,6 +172,7 @@ func RelayClaudeNative(c *gin.Context) *model.ErrorWithStatusCode {
 		firstWordLatency = meta.GetFirstWordLatency()
 	}
 
+	ctx = dbmodel.WithRankingUsage(ctx, meta.BillingModelName(), meta.Config.Provider, claudeRankingTokens(usageMetadata))
 	go recordClaudeConsumption(ctx, userId, channelId, tokenId, modelName, tokenName, promptTokens, completionTokens, totalTokens, 0, actualQuota, c.Request.RequestURI, duration, meta.IsStream, c.Copy(), usageMetadata, firstWordLatency, groupRatio, modelRatio)
 
 	return nil

@@ -307,7 +307,7 @@ func postConsumeQuota(ctx context.Context, c *gin.Context, usage *relaymodel.Usa
 	if err != nil {
 		logger.Error(ctx, "error update user quota cache: "+err.Error())
 	}
-	if quota != 0 {
+	if quota != 0 || promptTokens > 0 || completionTokens > 0 {
 		// 获取渠道历史信息
 		otherInfo := getChannelHistoryInfo(c)
 		// 追加模型重定向信息
@@ -353,6 +353,9 @@ func postConsumeQuota(ctx context.Context, c *gin.Context, usage *relaymodel.Usa
 		logModelName := textRequest.Model
 		if name := meta.BillingModelName(); name != "" {
 			logModelName = name
+		}
+		if meta.Mode == constant.RelayModeChatCompletions || meta.Mode == constant.RelayModeCompletions {
+			ctx = model.WithRankingUsage(ctx, logModelName, meta.Config.Provider, int64(promptTokens)+int64(completionTokens)+usage.RankingExtraInputTokens)
 		}
 		model.RecordConsumeLogWithOtherAndRequestID(ctx, meta.UserId, meta.ChannelId, promptTokens, completionTokens, logModelName, meta.TokenName, quota, logContent, duration, title, httpReferer, meta.IsStream, firstWordLatency, otherInfo, xRequestID, cachedTokens, xResponseID)
 		model.UpdateUserUsedQuotaAndRequestCount(meta.UserId, quota)

@@ -192,6 +192,11 @@ func UpdateOption(key string, value string) error {
 }
 
 func updateOption(key string, value string) error {
+	if key == "LogConsumeEnabled" && value == "false" && config.RankingsEnabled {
+		if err := resetRankingCoverage(); err != nil {
+			return err
+		}
+	}
 	if key == common.ModelDiscountOption {
 		if _, err := common.ParseModelDiscounts(value); err != nil {
 			return err

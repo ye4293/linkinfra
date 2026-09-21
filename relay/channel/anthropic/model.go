@@ -362,6 +362,17 @@ type Usage struct {
 	ServiceTier                 string           `json:"service_tier,omitempty"`    // 服务层级: "standard", "priority", "batch"
 }
 
+// RankingCacheTokens 返回未包含在原生 InputTokens 中的缓存输入总量。
+func (u Usage) RankingCacheTokens() int64 {
+	created := int64(u.CacheCreationInputTokens)
+	if u.CacheCreation != nil {
+		if detailed := int64(u.CacheCreation.Ephemeral5mInputTokens) + int64(u.CacheCreation.Ephemeral1hInputTokens); detailed > 0 {
+			created = detailed
+		}
+	}
+	return int64(u.CacheReadInputTokens) + created
+}
+
 // Error API 错误信息
 type Error struct {
 	Type    string `json:"type"`

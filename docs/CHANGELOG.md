@@ -8,6 +8,15 @@
 
 ## 2026-09-21
 
+### feat(rankings): 每日模型用量趋势与排行榜
+- **分支**: `main`
+- **类型**: feat / perf
+- **涉及文件**: `model/ranking*.go`、`model/log.go`、`model/option.go`、`model/main.go`、`controller/ranking*.go`、`relay/controller/` 文本结算路径、`relay/channel/anthropic/`、`relay/model/misc.go`、`router/api-router.go`、`main.go`、`common/config/config.go`、迁移脚本与说明。
+- **说明**: 按完整 UTC 日汇总文本模型 Token，保留实际 provider 快照，发布趋势与日/周/月榜；公开接口只读内存快照。加入租约隔离、幂等覆盖、次日复核、失败发布重试及日志清理保护，归一化 Claude 缓存用量而不更改计费公式。
+- **关联计划**: `docs/plans/2026-09-21-model-rankings.md`
+- **验证**: 隔离检出目录中完整 Go build/vet、model/controller/文本结算/Anthropic 回归测试通过；前端生产构建与桌面、390px、320px 浏览器检查通过，周期切换不新增请求。
+- **发布说明**: `docs/model-rankings.md`。未部署，未对现有数据库执行迁移。
+
 ### docs(release): 整理 v0.1.32 Provider 与状态绑定复用说明
 - **分支**: `main`
 - **类型**: docs

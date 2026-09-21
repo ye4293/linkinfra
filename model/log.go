@@ -42,6 +42,8 @@ type Log struct {
 	VideoTaskId      string  `json:"video_task_id" gorm:"type:varchar(200);index:idx_video_task_id;default:''"`
 	IsStream         bool    `json:"is_stream" gorm:"default:false"`
 	Other            string  `json:"other"`
+	RankingModelName string  `json:"-" gorm:"type:varchar(180)"`
+	RankingTokens    *int64  `json:"-"`
 }
 
 // applyLogIdRange 将时间范围转为 id 范围并应用到 logs 查询
@@ -147,16 +149,16 @@ func RecordConsumeLogWithOtherAndRequestID(ctx context.Context, userId int, chan
 		XRequestID:       xRequestID,
 		XResponseID:      xResponseID,
 	}
+	applyRankingUsage(ctx, log)
 	err := LOG_DB.Create(log).Error
 	if err != nil {
 		logger.Error(ctx, "failed to record log: "+err.Error())
 	}
 
 	// 增量更新直方图（用于 P50/P95/P99 计算，零 DB 查询）
-	// 注意：log.Provider 当前未在此处赋值（logs 表中 provider 字段也为空），
-	// 直方图按 model_name + channel_id 维度区分，provider 维度在 cache 层通过 channel 信息补充
+	// 与日志中的 provider 快照保持一致，避免监控聚合无法匹配直方图。
 	if config.ModelMetricsEnabled {
-		RecordMetricsHistogram(dbModelName, "", channelId, duration, speed)
+		RecordMetricsHistogram(dbModelName, log.Provider, channelId, duration, speed)
 	}
 }
 
@@ -333,6 +335,9 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 }
 
 func DeleteOldLog(targetTimestamp int64) (int64, error) {
+	if config.RankingsEnabled {
+		return deleteLogsWithRankingGuard(targetTimestamp)
+	}
 	id, found := findMaxIdByTimestampGeneric(LOG_DB, "logs", targetTimestamp)
 	if !found {
 		// 表为空或 DB 错误
