@@ -14,6 +14,11 @@ func SetRelayRouter(router *gin.Engine) {
 		modelsRouter.GET("", controller.ListModels)
 		modelsRouter.GET("/:model", controller.RetrieveModel)
 	}
+	// 模型发现只需鉴权，不需要按具体模型分配渠道。
+	geminiModelsRouter := router.Group("/v1beta", middleware.TokenAuth())
+	geminiModelsRouter.GET("/openai/models", controller.ListModels)
+	geminiModelsRouter.GET("/models", controller.ListGeminiModels)
+
 	relayV1Router := router.Group("/v1")
 	relayV1Router.Use(middleware.RelayPanicRecover(), middleware.TokenAuth())
 	{

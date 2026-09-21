@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"strings"
 
 	"net/http"
 
@@ -127,6 +128,22 @@ func ListModels(c *gin.Context) {
 		"object": "list",
 		"data":   openAIModels,
 	})
+}
+
+// ListGeminiModels 与 OpenAI 入口使用同一目录，按 Gemini 原生协议返回资源名。
+func ListGeminiModels(c *gin.Context) {
+	type geminiModel struct {
+		Name        string `json:"name"`
+		DisplayName string `json:"displayName"`
+	}
+	models := make([]geminiModel, 0, len(openAIModels))
+	for _, model := range openAIModels {
+		models = append(models, geminiModel{
+			Name:        "models/" + strings.TrimPrefix(model.Id, "models/"),
+			DisplayName: model.Id,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"models": models})
 }
 
 func RetrieveModel(c *gin.Context) {
