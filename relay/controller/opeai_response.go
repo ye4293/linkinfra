@@ -521,6 +521,12 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 	}
 
 	if openaiErr != nil {
+		if !c.Writer.Written() {
+			// 首个事件前失败时仍由外层返回 JSON，不能残留 SSE 响应头。
+			for _, header := range []string{"Content-Type", "Cache-Control", "Connection", "Transfer-Encoding", "X-Accel-Buffering"} {
+				c.Writer.Header().Del(header)
+			}
+		}
 		return lastUsageMetadata, openaiErr
 	}
 

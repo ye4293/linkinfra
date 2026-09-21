@@ -24,7 +24,7 @@
 Responses 和 `/v1/responses/compact` 自动按实际返回状态绑定来源，无需客户端新增会话 ID：
 
 - 后端记录返回的 reasoning/compaction 密文指纹、item ID、response ID、conversation ID 的来源；下一轮携带状态时，首次选渠和失败重试都限定在原 Provider。
-- `previous_response_id`、`item_reference`、`conversation` 是服务端资源引用，额外固定原渠道/key；没有配置 Provider 的状态也固定原渠道/key。原 key 禁用、更换或不再可用时明确失败。
+- `previous_response_id`、`item_reference`、`conversation` 以及没有密文的 reasoning/compaction ID 是服务端资源引用，额外固定原渠道/key；没有配置 Provider 的状态也固定原渠道/key。原 key 禁用、更换或不再可用时明确失败。
 - 不清理 thinking/compaction，不重写工具调用或结果。模型映射只修改 model，保留扩展字段和显式 false/0。
 - 普通响应和流式事件的状态在转发给客户端前写入索引。流开始后不透明重放；本地状态缓存失败不会被判定为上游渠道故障。
 - 多用户的状态索引隔离。索引只保存 SHA-256 指纹与 provider、渠道/key 元信息，不保存正文、密文或密钥明文。

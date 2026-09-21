@@ -189,3 +189,14 @@ func TestResponsesReferenceDoesNotReuseRotatedKey(t *testing.T) {
 	next.Set("actual_key", "rotated-key")
 	require.Error(t, VerifyResponsesStateKey(next))
 }
+
+func TestResponsesReasoningIDWithoutCiphertextPinsResource(t *testing.T) {
+	store := newMemoryResponsesStateStore(100)
+	require.NoError(t, rememberResponsesState(stateOutputContext(1, 10, "azure"), []byte(`{"output":[{"type":"reasoning","id":"rs_reference","summary":[]}]}`), false, store))
+	next := stateContext(1, `{"input":[{"type":"reasoning","id":"rs_reference","summary":[]}]}`)
+	require.NoError(t, bindResponsesState(next, store))
+	require.Equal(t, 10, model.ResponseStateChannel(next.Request.Context()))
+	unknown := stateContext(1, `{"input":[{"type":"reasoning","id":"rs_unknown"}]}`)
+	unknown.Request.Header.Set("X-Linkinfra-Provider", "azure")
+	require.Error(t, bindResponsesState(unknown, store))
+}

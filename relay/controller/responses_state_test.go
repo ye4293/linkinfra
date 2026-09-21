@@ -78,3 +78,36 @@ func TestResponsesReturnedStateRoutesNextRequest(t *testing.T) {
 		})
 	}
 }
+
+func TestResponsesStreamCacheFailureBeforeAndAfterFirstEvent(t *testing.T) {
+	oldRedis, oldRDB, oldPing := common.RedisEnabled, common.RDB, config.PingIntervalEnabled
+	common.RedisEnabled, common.RDB, config.PingIntervalEnabled = true, nil, false
+	t.Cleanup(func() { common.RedisEnabled, common.RDB, config.PingIntervalEnabled = oldRedis, oldRDB, oldPing })
+	for _, started := range []bool{false, true} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+		c.Set("id", 1)
+		c.Set("channel_id", 12)
+		payload := "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_failure\"}}\n\n"
+		if started {
+			payload = "data: {\"type\":\"response.in_progress\",\"response\":{}}\n\n" + payload
+		}
+		upstream := &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(payload)), Header: make(http.Header)}
+		_, err := doNativeOpenaiResponseStream(c, upstream, &util.RelayMeta{DisablePing: true})
+		require.NotNil(t, err)
+		require.Equal(t, http.StatusServiceUnavailable, err.StatusCode)
+		require.True(t, c.GetBool("responses_state_record_failed"))
+		require.NotContains(t, w.Body.String(), "resp_failure")
+		if started {
+			require.Contains(t, w.Body.String(), "responses_state_cache_unavailable")
+			require.Equal(t, "text/event-stream", w.Header().Get("Content-Type"))
+		} else {
+			require.False(t, c.Writer.Written())
+			require.Empty(t, w.Header().Get("Transfer-Encoding"))
+			c.JSON(err.StatusCode, gin.H{"error": err.Error})
+			require.Equal(t, http.StatusServiceUnavailable, w.Code)
+			require.Equal(t, "application/json; charset=utf-8", w.Header().Get("Content-Type"))
+		}
+	}
+}

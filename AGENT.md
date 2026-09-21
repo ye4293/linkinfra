@@ -69,6 +69,8 @@ git worktree remove /tmp/dev-test    # 用完清理
 
 百炼在线验证中，`stream_options` 只随 `stream:true` 请求发送；非流式用例携带该参数会被上游拒绝（HTTP 400），应修正测试输入，不让网关静默删除参数掩盖错误。
 
+Responses 流式错误测试若不验证 token 计费，使用不含文本的状态事件模拟流已开始；文本 delta 会触发 tokenizer，测试需先初始化 tokenizer 才能使用。
+
 ## 变更记录与计划文档（强制）
 
 ### 更新记录

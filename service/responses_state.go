@@ -58,7 +58,8 @@ func inputStateReferences(userID int, body []byte) []stateReference {
 			if encrypted := item.Get("encrypted_content").String(); encrypted != "" {
 				add("encrypted", encrypted, false)
 			} else {
-				add("item", item.Get("id").String(), false)
+				// 没有可携带密文时，ID 依赖原上游保存的资源。
+				add("item", item.Get("id").String(), true)
 			}
 		case "item_reference":
 			add("item", item.Get("id").String(), true)

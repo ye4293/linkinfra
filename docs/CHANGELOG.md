@@ -8,6 +8,14 @@
 
 ## 2026-09-21
 
+### fix(responses): 补齐代码审查发现的引用与错误响应边界
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `service/responses_state.go`、`service/responses_state_test.go`、`relay/controller/opeai_response.go`、`relay/controller/responses_state_test.go`、`docs/channel-provider.md`、`AGENT.md`
+- **说明**: 没有密文的 reasoning/compaction ID 固定原渠道和密钥，未知 ID 不允许仅凭 Provider 头恢复；流式首事件前失败时清除 SSE 响应头以正确返回 JSON 错误。
+- **验证**: 相关六个包回归测试、service race 检查、完整 build/vet 通过；新增首事件前后缓存故障和无密文 ID 回归测试。
+- **关联计划**: `docs/plans/2026-09-21-responses-state-binding.md`
+
 ### feat(responses): 按 thinking 和压缩历史绑定原 Provider
 - **分支**: `main`
 - **类型**: feat / fix
