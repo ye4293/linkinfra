@@ -8,6 +8,12 @@
 
 ## 2026-09-21
 
+### docs(release): 整理 v0.1.32 Provider 与状态绑定复用说明
+- **分支**: `main`
+- **类型**: docs
+- **涉及文件**: `docs/releases/v0.1.32-provider-state-binding.md`、`docs/CHANGELOG.md`
+- **说明**: 汇总前后端实现、路由规则、缓存与升级限制、代码入口及验证结果，随 v0.1.32 tag 发布供复用。
+
 ### fix(responses): 补齐代码审查发现的引用与错误响应边界
 - **分支**: `main`
 - **类型**: fix
