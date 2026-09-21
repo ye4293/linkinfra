@@ -197,7 +197,7 @@ func Relay(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, originalModel, &failedChannelIds)
 		if err != nil {
-			if lastChannel == nil {
+			if lastChannel == nil || dbmodel.RetryProvider(ctx) != "" {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}
@@ -874,7 +874,7 @@ func RelayVideoGenerate(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, modelName, &failedChannelIds)
 		if err != nil {
-			if lastVideoChannel == nil {
+			if lastVideoChannel == nil || dbmodel.RetryProvider(ctx) != "" {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}
@@ -1166,7 +1166,7 @@ func RelayRecraft(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, modelName, &failedChannelIds)
 		if err != nil {
-			if lastRecraftChannel == nil {
+			if lastRecraftChannel == nil || dbmodel.RetryProvider(ctx) != "" {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}
@@ -1538,7 +1538,7 @@ func RelayImageGenerateAsync(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, modelName, &failedChannelIds)
 		if err != nil {
-			if lastImageChannel == nil {
+			if lastImageChannel == nil || dbmodel.RetryProvider(ctx) != "" {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}
@@ -1696,7 +1696,7 @@ func RelayRunway(c *gin.Context) {
 
 		channel, err := selectRetryChannel(ctx, group, modelName, &failedChannelIds)
 		if err != nil {
-			if lastRunwayChannel == nil {
+			if lastRunwayChannel == nil || dbmodel.RetryProvider(ctx) != "" {
 				logger.Errorf(ctx, "No channels available after cycling on retry %d/%d: %v", currentAttempt, retryTimes, err)
 				break
 			}
@@ -1984,7 +1984,7 @@ func relayXaiVideoWithRetry(c *gin.Context, endpoint string) {
 
 		channel, err := selectRetryChannel(ctx, group, modelName, &failedChannelIds)
 		if err != nil {
-			if lastChannel == nil {
+			if lastChannel == nil || dbmodel.RetryProvider(ctx) != "" {
 				logger.Errorf(ctx, "[xAI Video] no channel available after cycling on retry %d/%d", currentAttempt, retryTimes)
 				break
 			}
@@ -2385,7 +2385,7 @@ func RelaySoraVideo(c *gin.Context) {
 
 		channel, err := selectRetryChannel(ctx, group, modelName, &failedChannelIds)
 		if err != nil {
-			if lastSoraChannel == nil {
+			if lastSoraChannel == nil || dbmodel.RetryProvider(ctx) != "" {
 				logger.Errorf(ctx, "No channels available after cycling on retry %d/%d: %v", currentAttempt, retryTimes, err)
 				break
 			}
@@ -2766,7 +2766,7 @@ func RelayGemini(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, originalModel, &failedChannelIds)
 		if err != nil {
-			if lastGeminiChannel == nil {
+			if lastGeminiChannel == nil || dbmodel.RetryProvider(ctx) != "" {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}
@@ -2930,7 +2930,7 @@ func RelayClaude(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, originalModel, &failedChannelIds)
 		if err != nil {
-			if lastClaudeChannel == nil {
+			if lastClaudeChannel == nil || dbmodel.RetryProvider(ctx) != "" {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}
@@ -3097,7 +3097,7 @@ func RelayResponse(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, originalModel, &failedChannelIds)
 		if err != nil {
-			if lastResponseChannel == nil {
+			if lastResponseChannel == nil || dbmodel.RetryProvider(ctx) != "" {
 				logger.Errorf(ctx, "No channels available after cycling: %v", err)
 				break
 			}

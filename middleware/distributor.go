@@ -165,6 +165,8 @@ func Distribute() func(c *gin.Context) {
 
 		if channel != nil {
 			SetupContextForSelectedChannel(c, channel, requestModel)
+			// 只在首次分发后绑定；后续重试沿用该 provider，不改变首次选渠策略。
+			c.Request = c.Request.WithContext(model.WithRetryProvider(c.Request.Context(), model.ChannelProvider(channel)))
 		}
 		c.Next()
 		// relay 层标记成功后写回规则亲和缓存（避免 SSE 流式响应下 HTTP 200 但实际失败时写入错误渠道）

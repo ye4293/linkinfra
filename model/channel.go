@@ -171,6 +171,7 @@ const (
 )
 
 type ChannelConfig struct {
+	Provider          string `json:"provider,omitempty"` // 上游 provider；重试限定为与首次渠道相同的 provider
 	Region            string `json:"region,omitempty"`
 	SK                string `json:"sk,omitempty"`
 	AK                string `json:"ak,omitempty"`

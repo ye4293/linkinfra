@@ -8,6 +8,16 @@
 
 ## 2026-09-21
 
+### feat(channel): 支持按 Provider 限制失败重试
+- **分支**: `main`
+- **类型**: feat
+- **涉及文件**: `model/channel.go`、`model/channel_provider.go`、`model/cache.go`、`middleware/distributor.go`、`controller/retry_policy.go`、`controller/relay.go` 及相关测试；前端 `linkinfra-web/sections/channel/channel-form.tsx`。
+- **说明**: 渠道 config 新增 provider，前端支持新建与编辑。首次选渠后固定本次请求的 provider，重试只选择同 provider 渠道，保留模型/用户组权限、优先级和权重；耗尽后停止，不进入循环或最后渠道兜底。留空保留原行为，不增加会话绑定，不改写 thinking/compaction，不涉及数据库迁移。
+- **验证**: 后端 model/controller/middleware 回归及 `go build ./...`、`go vet ./...` 通过；前端 TypeScript 检查通过。未部署、未修改线上渠道配置，未执行真实上游调用。
+- **关联计划**: `docs/plans/2026-09-21-channel-provider-retry.md`
+
+## 2026-09-21
+
 ### fix(xai): 完善 Chat、Messages、Responses 自动路径与渠道鉴权
 - **分支**: `main`
 - **类型**: fix

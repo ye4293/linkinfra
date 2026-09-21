@@ -435,7 +435,7 @@ func CacheGetRandomSatisfiedChannel(ctx context.Context, group string, model str
 							}
 
 							// 如果都匹配，直接返回该 channel
-							if groupMatched && modelMatched {
+							if groupMatched && modelMatched && RetryProviderAllows(ctx, channel) {
 								logger.Info(ctx, fmt.Sprintf("[Claude Cache] Using cached channel %d (keyIndex: %d) for responseID: %s, group: %s, model: %s",
 									channelID, cachedKeyIndex, responseID, group, model))
 								return channel, cachedKeyIndex, nil
@@ -496,6 +496,7 @@ func CacheGetRandomSatisfiedChannel(ctx context.Context, group string, model str
 	if err != nil {
 		return nil, -1, fmt.Errorf("failed to fetch channels: %w", err)
 	}
+	channels = filterRetryProviderChannels(ctx, channels)
 
 	if len(channels) == 0 {
 		logger.Error(ctx, fmt.Sprintf("No channels found for group=%s, model=%s, priority=%d, skipPriorityLevels=%d, excludeIds=%v", group, model, priorityToUse, skipPriorityLevels, excludeIds))
@@ -518,6 +519,7 @@ func CacheGetRandomSatisfiedChannel(ctx context.Context, group string, model str
 			if err != nil {
 				return nil, -1, fmt.Errorf("failed to fetch channels in fallback: %w", err)
 			}
+			channels = filterRetryProviderChannels(ctx, channels)
 
 			if len(channels) > 0 {
 				logger.Info(ctx, fmt.Sprintf("Fallback successful: found %d channels with priority %d", len(channels), priorityToUse))

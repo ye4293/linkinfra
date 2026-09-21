@@ -26,6 +26,10 @@ func selectRetryChannel(ctx context.Context, group string, model string, failedC
 		ctx, group, model, 0, "", *failedChannelIds,
 	)
 	if err != nil {
+		// provider 组内耗尽时明确失败，不重置失败列表或进入其他 provider。
+		if dbmodel.RetryProvider(ctx) != "" {
+			return nil, err
+		}
 		// 所有优先级均已耗尽，重置后从最高优先级重新开始
 		*failedChannelIds = nil
 		channel, _, err = dbmodel.CacheGetRandomSatisfiedChannel(
