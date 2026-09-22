@@ -8,6 +8,13 @@
 
 ## 2026-09-22
 
+### docs(metrics): 规划 PostgreSQL 多实例来源监控 V2
+- **分支**: `main`
+- **类型**: docs
+- **涉及文件**: `docs/plans/2026-09-22-source-metrics-v2.md`、`docs/CHANGELOG.md`
+- **说明**: 基于现有监控和 rankings 代码审查，规划来源快照、上游尝试统计口径、单租约有界聚合、持久化直方图、版本化缓存、PG 索引、连接预算、清理保护及渐进上线。按用户提供的 PG、自动扩容、1～30 天查询要求设计；统计口径待确认，未修改运行代码或执行数据库迁移。
+- **关联计划**: `docs/plans/2026-09-22-source-metrics-v2.md`
+
 ### fix(model-plaza): 按配置 provider 或渠道类型合并模型来源
 - **分支**: `main`
 - **类型**: fix
