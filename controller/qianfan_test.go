@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -124,7 +126,7 @@ func TestQianfanModelPlazaDeduplicatesWithinProvider(t *testing.T) {
 			}
 			require.Equal(t, all.Models, paged)
 			require.Len(t, read("keyword=deepseek-v3.2").Models, 2)
-			require.Equal(t, 4, read("provider=DeepSeek").Models[0].ChannelID)
+			require.Equal(t, 1, read("provider=DeepSeek").Models[0].ChannelID)
 			require.Nil(t, getModelPricing("deepseek-v3.2"))
 			require.Nil(t, getModelPricing("deepseek-v3.2", 5))
 			require.Nil(t, getModelPricing("deepseek-v3.2", 999))
@@ -169,9 +171,6 @@ func TestModelPlazaThreeChannelsProduceOnePrice(t *testing.T) {
 			require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.GroupConfig{}))
 			require.NoError(t, db.Create(&model.GroupConfig{GroupKey: "test", Discount: 0.5}).Error)
 			expectedID, expectedDiscount := 1, 1.0
-			if discounted {
-				expectedID, expectedDiscount = 2, 0.8
-			}
 			for id := 1; id <= 3; id++ {
 				discount := 1.0
 				if discounted && id >= 2 {
@@ -226,6 +225,10 @@ func TestModelPlazaSeparatesSourcesAndDeduplicatesChannels(t *testing.T) {
 	}{
 		{"gpt-6-astra", []int{common.ChannelTypeOpenAI, common.ChannelTypeAzure}, []string{"OpenAI", "Azure"}},
 		{"deepseek-v3.2", []int{common.ChannelTypeBaidu, common.ChannelTypeDeepseek}, []string{"Baidu", "DeepSeek"}},
+		{"claude-sonnet-4-5", []int{common.ChannelTypeAnthropic, common.ChannelTypeAwsClaude}, []string{"Anthropic", "AWS"}},
+		{"gemini-2.5-pro", []int{common.ChannelTypeGemini, common.ChannelTypeVertexAI}, []string{"Google", "Vertex AI"}},
+		{"gpt-6-astra-aggregators", []int{common.ChannelTypeOpenAI, common.ChannelTypeOpenRouter, common.ChannelTypeTogetherAi, common.ChannelTypeNovita}, []string{"OpenAI", "OpenRouter", "TogetherAI", "Novita"}},
+		{"custom-model", []int{common.ChannelTypeGroq, common.ChannelTypeOllama, common.ChannelTypeCustom}, []string{"Groq", "Ollama", "Custom"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupTestDB(t)
@@ -254,26 +257,119 @@ func TestModelPlazaSeparatesSourcesAndDeduplicatesChannels(t *testing.T) {
 				return response.Data
 			}
 			catalog := read("")
-			require.Equal(t, 2, catalog.Total)
-			require.Len(t, catalog.Models, 2)
-			require.ElementsMatch(t, []ProviderInfo{
-				{Name: tc.providers[0], Count: 1}, {Name: tc.providers[1], Count: 1},
-			}, catalog.Providers)
+			require.Equal(t, len(tc.providers), catalog.Total)
+			require.Len(t, catalog.Models, len(tc.providers))
+			var expectedProviders []ProviderInfo
+			for _, provider := range tc.providers {
+				expectedProviders = append(expectedProviders, ProviderInfo{Name: provider, Count: 1})
+			}
+			require.ElementsMatch(t, expectedProviders, catalog.Providers)
 			for source, provider := range tc.providers {
 				item := catalog.Models[source]
 				require.Equal(t, provider, item.Provider)
 				require.Equal(t, tc.name, item.ModelName)
 				require.Equal(t, source*3+1, item.ChannelID)
 				require.Equal(t, &item, getModelPricing(tc.name, item.ChannelID))
-				filtered := read("provider=" + provider)
+				filtered := read("provider=" + url.QueryEscape(provider))
 				require.Equal(t, 1, filtered.Total)
 				require.Equal(t, []ModelPlazaItem{item}, filtered.Models)
 				page := read("pagesize=1&page=" + strconv.Itoa(source+1))
-				require.Equal(t, 2, page.Total)
+				require.Equal(t, len(tc.providers), page.Total)
 				require.Equal(t, []ModelPlazaItem{item}, page.Models)
 			}
 			// 多来源详情必须通过渠道标识明确来源，不能随机展示其他来源的价格。
 			require.Nil(t, getModelPricing(tc.name))
 		})
 	}
+}
+
+func TestModelPlazaConfiguredProviders(t *testing.T) {
+	for _, reverse := range []bool{false, true} {
+		t.Run(strconv.FormatBool(reverse), func(t *testing.T) {
+			db := setupTestDB(t)
+			require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.GroupConfig{}))
+			require.NoError(t, db.Create(&model.GroupConfig{GroupKey: "test", Discount: 0.5}).Error)
+			channels := []model.Channel{
+				{Id: 1, Type: common.ChannelTypeOpenAI, Config: `{"provider":" Azure "}`},
+				{Id: 2, Type: common.ChannelTypeAzure},
+				{Id: 3, Type: common.ChannelTypeOpenAI},
+				{Id: 4, Type: common.ChannelTypeOpenAI, Config: `{"provider":"openAI"}`},
+				{Id: 5, Type: common.ChannelTypeOpenAI, Config: `{"provider":"Vendor A"}`},
+				{Id: 6, Type: common.ChannelTypeAzure, Config: `{"provider":" vendor a "}`},
+				{Id: 7, Type: common.ChannelTypeOpenAI, Config: `{"provider":"vendor-b"}`},
+				{Id: 8, Type: common.ChannelTypeAzure, Config: `{"provider":"   "}`},
+				{Id: 9, Type: common.ChannelTypeOpenAI, Config: `{`},
+			}
+			if reverse {
+				slices.Reverse(channels)
+			}
+			for i := range channels {
+				channels[i].Models = "gpt-6-astra"
+				channels[i].Status = common.ChannelStatusEnabled
+				discount := 1 - float64(channels[i].Id)*0.1
+				channels[i].Discount = &discount
+				require.NoError(t, db.Create(&channels[i]).Error)
+			}
+			read := func(query string) ModelPlazaResponse {
+				t.Helper()
+				w := httptest.NewRecorder()
+				ctx, _ := gin.CreateTestContext(w)
+				ctx.Request = httptest.NewRequest(http.MethodGet, "/api/model-plaza?"+query, nil)
+				GetModelPlaza(ctx)
+				require.Equal(t, http.StatusOK, w.Code)
+				var response struct {
+					Success bool               `json:"success"`
+					Data    ModelPlazaResponse `json:"data"`
+				}
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+				require.True(t, response.Success)
+				return response.Data
+			}
+			catalog := read("")
+			require.Equal(t, 4, catalog.Total)
+			require.Len(t, catalog.Models, 4)
+			require.ElementsMatch(t, []ProviderInfo{
+				{Name: "Azure", Count: 1}, {Name: "OpenAI", Count: 1},
+				{Name: "vendor a", Count: 1}, {Name: "vendor-b", Count: 1},
+			}, catalog.Providers)
+			for i, expected := range []struct {
+				id       int
+				provider string
+			}{{1, "Azure"}, {3, "OpenAI"}, {5, "vendor a"}, {7, "vendor-b"}} {
+				item := catalog.Models[i]
+				require.Equal(t, expected.id, item.ChannelID)
+				require.Equal(t, expected.provider, item.Provider)
+				discount := 1 - float64(expected.id)*0.1
+				require.InDelta(t, discount, item.ChannelDiscount, 1e-12)
+				require.InDelta(t, item.BaseInputPrice*discount*0.5*item.ModelDiscount, item.GroupPrices[0].FinalInputPrice, 1e-12)
+				require.Equal(t, &item, getModelPricing(item.ModelName, item.ChannelID))
+				filtered := read("provider=" + url.QueryEscape(strings.ToUpper(expected.provider)))
+				require.Equal(t, 1, filtered.Total)
+				require.Equal(t, []ModelPlazaItem{item}, filtered.Models)
+				page := read("pagesize=1&page=" + strconv.Itoa(i+1))
+				require.Equal(t, 4, page.Total)
+				require.Equal(t, []ModelPlazaItem{item}, page.Models)
+			}
+			// 显式 provider 用于目录分组，但不改变状态兼容组的现有归一化规则。
+			require.Equal(t, "azure", model.ChannelProvider(&model.Channel{Config: `{"provider":" Azure "}`}))
+			require.Empty(t, model.ChannelProvider(&model.Channel{Type: common.ChannelTypeAzure}))
+		})
+	}
+}
+
+func TestModelPlazaFallbackSourcesAreDistinct(t *testing.T) {
+	seen := make(map[string]int)
+	for channelType := 1; channelType <= common.ChannelTypeDummy; channelType++ {
+		if channelType == 32 { // 已移除的渠道类型
+			continue
+		}
+		provider := common.GetCatalogProvider(channelType, "")
+		previous, exists := seen[provider]
+		require.False(t, exists, "channel types %d and %d share fallback %s", previous, channelType, provider)
+		seen[provider] = channelType
+		require.Equal(t, provider, common.GetCatalogProvider(channelType, "   "))
+		require.Equal(t, provider, common.GetCatalogProvider(common.ChannelTypeCustom, " "+strings.ToUpper(provider)+" "))
+	}
+	require.Equal(t, "channel-type-9001", common.GetCatalogProvider(9001, ""))
+	require.Equal(t, "channel-type-9002", common.GetCatalogProvider(9002, ""))
 }

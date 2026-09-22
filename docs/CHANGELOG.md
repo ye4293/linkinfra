@@ -8,6 +8,14 @@
 
 ## 2026-09-22
 
+### fix(model-plaza): 按配置 provider 或渠道类型合并模型来源
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `common/model-provider.go`、`controller/model_plaza.go`、`controller/qianfan_test.go`
+- **说明**: 来源优先采用 config.provider，未配置时使用渠道类型；忽略 provider 大小写和首尾空格，同一来源同名模型只展示一条。AWS、Vertex AI、OpenRouter 等独立展示，未知类型按编号区分。按用户明确要求取消最低价选择，固定使用该来源最小启用渠道 ID 的价格；实际路由、状态兼容组与计费不变。
+- **验证**: controller/common 全包测试通过，覆盖已知类型来源唯一性、配置覆盖、跨类型同 provider 合并、空值回退、不同来源独立、非最低价稳定选择、筛选、分页与详情价格一致；隔离目录完整 build/vet 通过。
+- **关联计划**: `docs/plans/2026-09-22-model-plaza-sources.md`
+
 ### fix(model-plaza): 区分 Azure 与 OpenAI 模型来源
 - **分支**: `main`
 - **类型**: fix

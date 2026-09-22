@@ -1,28 +1,36 @@
 package common
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // ChannelTypeToProvider 渠道类型 → 供应商名称映射
 var ChannelTypeToProvider = map[int]string{
 	ChannelTypeOpenAI:         "OpenAI",
-	ChannelTypeAPI2D:          "OpenAI",
+	ChannelTypeAPI2D:          "API2D",
 	ChannelTypeAzure:          "Azure",
-	ChannelTypeCloseAI:        "OpenAI",
-	ChannelTypeOpenAISB:       "OpenAI",
-	ChannelTypeOpenAIMax:      "OpenAI",
-	ChannelTypeOhMyGPT:        "OpenAI",
-	ChannelTypeCustom:         "OpenAI",
-	ChannelTypeAILS:           "OpenAI",
-	ChannelTypeAIProxy:        "OpenAI",
-	ChannelTypeAPI2GPT:        "OpenAI",
-	ChannelTypeAIGC2D:         "OpenAI",
-	ChannelTypeAIProxyLibrary: "OpenAI",
-	ChannelTypeFastGPT:        "OpenAI",
-	ChannelTypePaLM:           "Google",
+	ChannelTypeCloseAI:        "CloseAI",
+	ChannelTypeOpenAISB:       "OpenAI-SB",
+	ChannelTypeOpenAIMax:      "OpenAIMax",
+	ChannelTypeOhMyGPT:        "OhMyGPT",
+	ChannelTypeCustom:         "Custom",
+	ChannelTypeAILS:           "AILS",
+	ChannelTypeAIProxy:        "AIProxy",
+	ChannelTypeAPI2GPT:        "API2GPT",
+	ChannelTypeAIGC2D:         "AIGC2D",
+	ChannelTypeAIProxyLibrary: "AIProxyLibrary",
+	ChannelTypeFastGPT:        "FastGPT",
+	ChannelTypePaLM:           "PaLM",
 	ChannelTypeGemini:         "Google",
-	ChannelTypeVertexAI:       "Google",
+	ChannelTypeVertexAI:       "Vertex AI",
 	ChannelTypeAnthropic:      "Anthropic",
-	ChannelTypeAwsClaude:      "Anthropic",
+	ChannelTypeAwsClaude:      "AWS",
+	ChannelTypeOpenRouter:     "OpenRouter",
+	ChannelTypeGroq:           "Groq",
+	ChannelTypeOllama:         "Ollama",
+	ChannelTypeTogetherAi:     "TogetherAI",
+	ChannelTypeNovita:         "Novita",
 	ChannelTypeBaidu:          "Baidu",
 	ChannelTypeZhipu:          "Zhipu",
 	ChannelTypeAli:            "Alibaba",
@@ -111,6 +119,25 @@ func GetProviderByChannelType(channelType int) string {
 		return provider
 	}
 	return "Other"
+}
+
+// GetCatalogProvider 目录来源优先使用配置值，未配置时按渠道类型回退。
+// 已知来源保留标准显示名称，自定义来源归一化，避免大小写或空格造成重复。
+func GetCatalogProvider(channelType int, configured string) string {
+	provider := strings.ToLower(strings.TrimSpace(configured))
+	if provider != "" {
+		for _, name := range ChannelTypeToProvider {
+			if strings.EqualFold(name, provider) {
+				return name
+			}
+		}
+		return provider
+	}
+	if name, ok := ChannelTypeToProvider[channelType]; ok {
+		return name
+	}
+	// 未知类型也必须分别展示，不能全部合并进 Other。
+	return "channel-type-" + strconv.Itoa(channelType)
 }
 
 // GetModelProvider 综合判断模型供应商：聚合渠道用模型名推断，其他用渠道类型

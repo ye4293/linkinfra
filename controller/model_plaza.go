@@ -57,7 +57,7 @@ type ProviderInfo struct {
 // modelChannelInfo 从渠道收集的模型信息
 type modelChannelInfo struct {
 	Discount float64 // 当前渠道折扣
-	Provider string  // 根据渠道类型确定的供应商
+	Provider string  // 配置的 provider，未配置时使用渠道类型来源
 }
 
 type modelChannelKey struct {
@@ -234,7 +234,7 @@ func GetModelPlaza(c *gin.Context) {
 	})
 }
 
-// deduplicateModelCatalog 同一供应商的同名模型选取最低价渠道；同价时按 ID 稳定选择。
+// deduplicateModelCatalog 同一来源的同名模型按最小启用渠道 ID 稳定选择代表价格。
 // 保留渠道标识供详情页读取对应价格，不影响实际请求的渠道路由。
 func deduplicateModelCatalog(channels map[modelChannelKey]*modelChannelInfo) map[modelChannelKey]*modelChannelInfo {
 	type catalogKey struct {
@@ -246,9 +246,7 @@ func deduplicateModelCatalog(channels map[modelChannelKey]*modelChannelInfo) map
 	for key, info := range channels {
 		entry := catalogKey{Provider: info.Provider, ModelName: key.ModelName}
 		if previous, exists := selected[entry]; exists {
-			previousInfo := result[previous]
-			if info.Discount > previousInfo.Discount ||
-				(info.Discount == previousInfo.Discount && key.ChannelID > previous.ChannelID) {
+			if key.ChannelID > previous.ChannelID {
 				continue
 			}
 			delete(result, previous)
@@ -281,6 +279,7 @@ func getModelInfoFromChannels() map[modelChannelKey]*modelChannelInfo {
 		if channel.Models == "" {
 			continue
 		}
+		provider := common.GetCatalogProvider(channel.Type, model.ChannelProvider(channel))
 
 		models := strings.Split(channel.Models, ",")
 		for _, m := range models {
@@ -292,9 +291,6 @@ func getModelInfoFromChannels() map[modelChannelKey]*modelChannelInfo {
 			if shouldSkipModel(modelName) {
 				continue
 			}
-
-			// 综合判断供应商：聚合渠道用模型名推断，其他用渠道类型
-			provider := common.GetModelProvider(modelName, channel.Type)
 
 			result[modelChannelKey{ChannelID: channel.Id, ModelName: modelName}] = &modelChannelInfo{
 				Discount: discount,
