@@ -217,3 +217,63 @@ func TestModelPlazaThreeChannelsProduceOnePrice(t *testing.T) {
 		})
 	}
 }
+
+func TestModelPlazaSeparatesSourcesAndDeduplicatesChannels(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		types     []int
+		providers []string
+	}{
+		{"gpt-6-astra", []int{common.ChannelTypeOpenAI, common.ChannelTypeAzure}, []string{"OpenAI", "Azure"}},
+		{"deepseek-v3.2", []int{common.ChannelTypeBaidu, common.ChannelTypeDeepseek}, []string{"Baidu", "DeepSeek"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupTestDB(t)
+			require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.GroupConfig{}))
+			for source, channelType := range tc.types {
+				for channel := 1; channel <= 3; channel++ {
+					require.NoError(t, db.Create(&model.Channel{
+						Id: source*3 + channel, Type: channelType,
+						Status: common.ChannelStatusEnabled, Models: tc.name,
+					}).Error)
+				}
+			}
+			read := func(query string) ModelPlazaResponse {
+				t.Helper()
+				w := httptest.NewRecorder()
+				ctx, _ := gin.CreateTestContext(w)
+				ctx.Request = httptest.NewRequest(http.MethodGet, "/api/model-plaza?"+query, nil)
+				GetModelPlaza(ctx)
+				require.Equal(t, http.StatusOK, w.Code)
+				var response struct {
+					Success bool               `json:"success"`
+					Data    ModelPlazaResponse `json:"data"`
+				}
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+				require.True(t, response.Success)
+				return response.Data
+			}
+			catalog := read("")
+			require.Equal(t, 2, catalog.Total)
+			require.Len(t, catalog.Models, 2)
+			require.ElementsMatch(t, []ProviderInfo{
+				{Name: tc.providers[0], Count: 1}, {Name: tc.providers[1], Count: 1},
+			}, catalog.Providers)
+			for source, provider := range tc.providers {
+				item := catalog.Models[source]
+				require.Equal(t, provider, item.Provider)
+				require.Equal(t, tc.name, item.ModelName)
+				require.Equal(t, source*3+1, item.ChannelID)
+				require.Equal(t, &item, getModelPricing(tc.name, item.ChannelID))
+				filtered := read("provider=" + provider)
+				require.Equal(t, 1, filtered.Total)
+				require.Equal(t, []ModelPlazaItem{item}, filtered.Models)
+				page := read("pagesize=1&page=" + strconv.Itoa(source+1))
+				require.Equal(t, 2, page.Total)
+				require.Equal(t, []ModelPlazaItem{item}, page.Models)
+			}
+			// 多来源详情必须通过渠道标识明确来源，不能随机展示其他来源的价格。
+			require.Nil(t, getModelPricing(tc.name))
+		})
+	}
+}

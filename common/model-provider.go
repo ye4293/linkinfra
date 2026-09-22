@@ -6,7 +6,7 @@ import "strings"
 var ChannelTypeToProvider = map[int]string{
 	ChannelTypeOpenAI:         "OpenAI",
 	ChannelTypeAPI2D:          "OpenAI",
-	ChannelTypeAzure:          "OpenAI",
+	ChannelTypeAzure:          "Azure",
 	ChannelTypeCloseAI:        "OpenAI",
 	ChannelTypeOpenAISB:       "OpenAI",
 	ChannelTypeOpenAIMax:      "OpenAI",

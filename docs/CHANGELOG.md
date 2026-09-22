@@ -8,6 +8,13 @@
 
 ## 2026-09-22
 
+### fix(model-plaza): 区分 Azure 与 OpenAI 模型来源
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `common/model-provider.go`、`controller/qianfan_test.go`
+- **说明**: Azure 渠道的公开来源独立标为 Azure，不再归入 OpenAI。继续按来源和模型名合并同来源的多个渠道；模型卡片、筛选与详情沿用接口返回的来源标识。
+- **验证**: OpenAI/Azure 和 Baidu/DeepSeek 各三个渠道时分别只返回两条模型记录，来源标识、计数、筛选、分页与详情价格一致；controller/common 测试及隔离目录完整 build/vet 通过。
+
 ### fix(model-plaza): 合并同一厂商下重复的模型价格条目
 - **分支**: `main`
 - **类型**: fix
