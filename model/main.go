@@ -99,8 +99,12 @@ func InitDB(envName string) (db *gorm.DB, err error) {
 		if err != nil {
 			return nil, err
 		}
-		sqlDB.SetMaxIdleConns(env.Int("SQL_MAX_IDLE_CONNS", 100))
-		maxOpenConns := env.Int("SQL_MAX_OPEN_CONNS", 1000)
+		defaultIdle, defaultOpen := 100, 1000
+		if config.ModelMetricsV2Enabled {
+			defaultIdle, defaultOpen = 5, 20
+		}
+		sqlDB.SetMaxIdleConns(env.Int("SQL_MAX_IDLE_CONNS", defaultIdle))
+		maxOpenConns := env.Int("SQL_MAX_OPEN_CONNS", defaultOpen)
 		if common.UsingSQLite && maxOpenConns > 1 {
 			maxOpenConns = 1
 		}

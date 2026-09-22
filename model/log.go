@@ -44,6 +44,10 @@ type Log struct {
 	Other            string  `json:"other"`
 	RankingModelName string  `json:"-" gorm:"type:varchar(180)"`
 	RankingTokens    *int64  `json:"-"`
+	MetricsVersion   int     `json:"-" gorm:"default:0"`
+	MetricsModelName string  `json:"-" gorm:"type:varchar(200)"`
+	MetricsSourceKey string  `json:"-" gorm:"type:varchar(200)"`
+	MetricsAttempts  string  `json:"-" gorm:"type:text"`
 }
 
 // applyLogIdRange 将时间范围转为 id 范围并应用到 logs 查询
@@ -150,14 +154,15 @@ func RecordConsumeLogWithOtherAndRequestID(ctx context.Context, userId int, chan
 		XResponseID:      xResponseID,
 	}
 	applyRankingUsage(ctx, log)
-	err := LOG_DB.Create(log).Error
-	if err != nil {
-		logger.Error(ctx, "failed to record log: "+err.Error())
-	}
+	writeMetricsLog(ctx, log, func(entry *Log) {
+		if err := LOG_DB.Create(entry).Error; err != nil {
+			logger.Error(ctx, "failed to record log: "+err.Error())
+		}
+	})
 
 	// 增量更新直方图（用于 P50/P95/P99 计算，零 DB 查询）
 	// 与日志中的 provider 快照保持一致，避免监控聚合无法匹配直方图。
-	if config.ModelMetricsEnabled {
+	if config.ModelMetricsEnabled && !config.ModelMetricsV2Enabled {
 		RecordMetricsHistogram(dbModelName, log.Provider, channelId, duration, speed)
 	}
 }
@@ -180,10 +185,11 @@ func RecordErrorLogWithRequestID(ctx context.Context, userId int, channelId int,
 		Other:      other,
 		XRequestID: xRequestID,
 	}
-	err := LOG_DB.Create(log).Error
-	if err != nil {
-		logger.Error(ctx, "failed to record error log: "+err.Error())
-	}
+	writeMetricsLog(ctx, log, func(entry *Log) {
+		if err := LOG_DB.Create(entry).Error; err != nil {
+			logger.Error(ctx, "failed to record error log: "+err.Error())
+		}
+	})
 }
 
 func GetCurrentAllLogsAndCount(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, tokenName string, xRequestId string, xResponseId string, page int, pageSize int, channel int) (logs []*Log, total int64, err error) {
@@ -335,6 +341,15 @@ func SumUsedToken(logType int, startTimestamp int64, endTimestamp int64, modelNa
 }
 
 func DeleteOldLog(targetTimestamp int64) (int64, error) {
+	// 先取得监控维护租约，再进入排名清理租约，固定加锁顺序。
+	// 即使 V2 开关关闭，已经创建的统计水位也不能被绕过。
+	if LOG_DB.Migrator().HasTable(&MetricsV2State{}) {
+		return deleteLogsWithMetricsGuard(targetTimestamp)
+	}
+	return deleteLogsWithoutMetricsGuard(targetTimestamp)
+}
+
+func deleteLogsWithoutMetricsGuard(targetTimestamp int64) (int64, error) {
 	if config.RankingsEnabled {
 		return deleteLogsWithRankingGuard(targetTimestamp)
 	}

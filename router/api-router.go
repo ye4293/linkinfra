@@ -25,6 +25,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
 		apiRouter.GET("/rankings", controller.GetRankings)
 		apiRouter.POST("/rankings/rebuild", middleware.RootAuth(), middleware.CriticalRateLimit(), controller.RebuildRankingDay)
+		apiRouter.GET("/model-plaza/metrics/status", middleware.RootAuth(), controller.GetMetricsV2Status)
+		apiRouter.POST("/model-plaza/metrics/rebuild", middleware.RootAuth(), middleware.CriticalRateLimit(), controller.RebuildSourceMetrics)
 		apiRouter.GET("/model-plaza", controller.GetModelPlaza)
 		apiRouter.GET("/model-plaza/metrics/all", controller.GetAllModelMetricsMini)
 		apiRouter.GET("/model-plaza/metrics/detail", middleware.TryUserAuth(), controller.GetModelMetricsDetail)

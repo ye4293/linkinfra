@@ -110,8 +110,9 @@ func RelayTextHelper(c *gin.Context) *model.ErrorWithStatusCode {
 	}
 	requestStartTime := time.Now()
 	// do request
+	c.Set("metrics_upstream_started", true)
 	resp, err := adaptor.DoRequest(c, meta, requestBody)
-	logger.Infof(ctx, "model_name: %s, hand_request_time: %.3f seconds", textRequest.Model, math.Round(time.Since(requestStartTime).Seconds()*1000) / 1000)
+	logger.Infof(ctx, "model_name: %s, hand_request_time: %.3f seconds", textRequest.Model, math.Round(time.Since(requestStartTime).Seconds()*1000)/1000)
 
 	if err != nil {
 		logger.Errorf(ctx, "DoRequest failed: %s", err.Error())
@@ -139,7 +140,7 @@ func RelayTextHelper(c *gin.Context) *model.ErrorWithStatusCode {
 		util.ReturnPreConsumedQuota(ctx, preConsumedQuota, meta.TokenId)
 		return respErr
 	}
-	logger.Infof(ctx, "model_name: %s, hand_response_time: %.3f seconds",  textRequest.Model, math.Round(time.Since(responseStartTime).Seconds()*1000) / 1000)
+	logger.Infof(ctx, "model_name: %s, hand_response_time: %.3f seconds", textRequest.Model, math.Round(time.Since(responseStartTime).Seconds()*1000)/1000)
 
 	rowDuration := time.Since(startTime).Seconds() // 计算总耗时
 	duration := math.Round(rowDuration*1000) / 1000
@@ -170,7 +171,7 @@ func RelayTextHelper(c *gin.Context) *model.ErrorWithStatusCode {
 	handResultStartTime := time.Now()
 	// post-consume quota
 	go postConsumeQuota(ctx, c.Copy(), usage, meta, textRequest, ratio, preConsumedQuota, modelRatio, groupRatio, duration, title, referer, firstWordLatency)
-	
-	logger.Infof(ctx, "model_name: %s, hand_consume_quota_time: %.3f seconds", textRequest.Model, math.Round(time.Since(handResultStartTime).Seconds()*1000) / 1000)
+
+	logger.Infof(ctx, "model_name: %s, hand_consume_quota_time: %.3f seconds", textRequest.Model, math.Round(time.Since(handResultStartTime).Seconds()*1000)/1000)
 	return nil
 }

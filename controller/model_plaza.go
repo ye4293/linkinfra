@@ -5,14 +5,19 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/songquanpeng/one-api/common"
+	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/model"
+	"gorm.io/gorm"
 )
 
 // ModelPlazaItem 模型广场单个模型信息
 type ModelPlazaItem struct {
+	SourceKey                  string       `json:"source_key"`
 	ChannelID                  int          `json:"channel_id"`
 	ModelDiscount              float64      `json:"model_discount"`
 	BaseDurationPricePerMinute *float64     `json:"base_duration_price_per_minute,omitempty"`
@@ -148,6 +153,7 @@ func GetModelPlaza(c *gin.Context) {
 		}
 
 		item := ModelPlazaItem{
+			SourceKey:       model.MetricsSourceKey(info.Provider),
 			ChannelID:       key.ChannelID,
 			ModelName:       modelName,
 			Provider:        info.Provider,
@@ -258,10 +264,32 @@ func deduplicateModelCatalog(channels map[modelChannelKey]*modelChannelInfo) map
 }
 
 // getModelInfoFromChannels 保留各渠道的原始模型信息，兼容已有的渠道详情链接。
+var sourceCatalogCache = struct {
+	sync.Mutex
+	db      *gorm.DB
+	expires time.Time
+	data    map[modelChannelKey]*modelChannelInfo
+}{}
+
 func getModelInfoFromChannels() map[modelChannelKey]*modelChannelInfo {
+	if config.ModelMetricsV2Enabled {
+		sourceCatalogCache.Lock()
+		defer sourceCatalogCache.Unlock()
+		if sourceCatalogCache.db == model.DB && time.Now().Before(sourceCatalogCache.expires) {
+			return sourceCatalogCache.data
+		}
+		data := loadModelInfoFromChannels()
+		sourceCatalogCache.db, sourceCatalogCache.expires, sourceCatalogCache.data = model.DB, time.Now().Add(30*time.Second), data
+		return data
+	}
+	return loadModelInfoFromChannels()
+}
+
+func loadModelInfoFromChannels() map[modelChannelKey]*modelChannelInfo {
 	result := make(map[modelChannelKey]*modelChannelInfo)
 
-	channels, err := model.GetAllChannels(0, 0, "all")
+	var channels []*model.Channel
+	err := model.DB.Select("id, type, status, models, discount, config").Where("status = ?", common.ChannelStatusEnabled).Find(&channels).Error
 	if err != nil {
 		return result
 	}

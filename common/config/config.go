@@ -244,6 +244,9 @@ var RankingsEnabled = env.Bool("RANKINGS_ENABLED", true)
 var RankingBatchPauseMS = env.Int("RANKING_BATCH_PAUSE_MS", 100)
 
 var ModelMetricsEnabled = env.Bool("MODEL_METRICS_ENABLED", true)
+
+// V2 需要先部署迁移并统一所有节点；默认关闭以保护滚动升级。
+var ModelMetricsV2Enabled = env.Bool("MODEL_METRICS_V2_ENABLED", false)
 var ModelMetricsAggregationInterval = env.Int("MODEL_METRICS_AGGREGATION_INTERVAL", 300) // 聚合间隔（秒）
 var ModelMetricsRetentionDays = env.Int("MODEL_METRICS_RETENTION_DAYS", 30)              // 数据保留天数
 var ModelMetricsBackfillDays = env.Int("MODEL_METRICS_BACKFILL_DAYS", 7)                 // 首次回填天数

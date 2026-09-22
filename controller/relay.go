@@ -75,6 +75,9 @@ func relayHelper(c *gin.Context, relayMode int) *model.ErrorWithStatusCode {
 }
 
 func Relay(c *gin.Context) {
+	if mode := relayconstant.Path2RelayMode(c.Request.URL.Path); mode == relayconstant.RelayModeChatCompletions || mode == relayconstant.RelayModeCompletions {
+		defer beginSourceMetrics(c)()
+	}
 	ctx := c.Request.Context()
 	relayMode := relayconstant.Path2RelayMode(c.Request.URL.Path)
 
@@ -110,7 +113,7 @@ func Relay(c *gin.Context) {
 	c.Set("admin_channel_history", firstChannelHistory)
 
 	attemptStartTime := time.Now()
-	bizErr := relayHelper(c, relayMode)
+	bizErr := measureSourceAttempt(c, func() *model.ErrorWithStatusCode { return relayHelper(c, relayMode) })
 
 	if bizErr == nil {
 		// 第一次成功，需要补充设置渠道历史（如果还没有的话）
@@ -245,7 +248,7 @@ func Relay(c *gin.Context) {
 		util.PublishFailedRetryHistory(c, retryAttempts)
 
 		attemptStartTime = time.Now()
-		bizErr = relayHelper(c, relayMode)
+		bizErr = measureSourceAttempt(c, func() *model.ErrorWithStatusCode { return relayHelper(c, relayMode) })
 		if bizErr == nil {
 			// 重试成功，直接返回（无需记录错误日志）
 			// 记录渠道亲和性（使用本次成功的渠道 ID）
@@ -2697,6 +2700,7 @@ func relayGeminiHelper(c *gin.Context, relayMode int) *model.ErrorWithStatusCode
 	return nil
 }
 func RelayGemini(c *gin.Context) {
+	defer beginSourceMetrics(c)()
 	ctx := c.Request.Context()
 
 	// 记录整个请求的开始时间，用于计算总耗时和首字时长
@@ -2728,7 +2732,7 @@ func RelayGemini(c *gin.Context) {
 	c.Set("admin_channel_history", channelHistory)
 
 	attemptStartTime := time.Now()
-	geminiErr := relayGeminiHelper(c, relayMode)
+	geminiErr := measureSourceAttempt(c, func() *model.ErrorWithStatusCode { return relayGeminiHelper(c, relayMode) })
 	if geminiErr == nil {
 		return
 	}
@@ -2810,7 +2814,7 @@ func RelayGemini(c *gin.Context) {
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 		util.PublishFailedRetryHistory(c, retryAttempts)
 		attemptStartTime = time.Now()
-		geminiErr = relayGeminiHelper(c, relayMode)
+		geminiErr = measureSourceAttempt(c, func() *model.ErrorWithStatusCode { return relayGeminiHelper(c, relayMode) })
 		if geminiErr == nil {
 			// 重试成功，直接返回（无需记录错误日志）
 			return
@@ -2861,6 +2865,7 @@ func RelayGemini(c *gin.Context) {
 	}
 }
 func RelayClaude(c *gin.Context) {
+	defer beginSourceMetrics(c)()
 	ctx := c.Request.Context()
 
 	// 记录整个请求的开始时间，用于计算总耗时和首字时长
@@ -2892,7 +2897,7 @@ func RelayClaude(c *gin.Context) {
 	c.Set("admin_channel_history", channelHistory)
 
 	attemptStartTime := time.Now()
-	relayError := controller.RelayClaudeNative(c)
+	relayError := measureSourceAttempt(c, func() *model.ErrorWithStatusCode { return controller.RelayClaudeNative(c) })
 	if relayError == nil {
 		service.MarkAffinityRelaySuccess(c)
 		return
@@ -2974,7 +2979,7 @@ func RelayClaude(c *gin.Context) {
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 		util.PublishFailedRetryHistory(c, retryAttempts)
 		attemptStartTime = time.Now()
-		relayError = controller.RelayClaudeNative(c)
+		relayError = measureSourceAttempt(c, func() *model.ErrorWithStatusCode { return controller.RelayClaudeNative(c) })
 		if relayError == nil {
 			// 重试成功，直接返回（无需记录错误日志）
 			service.MarkAffinityRelaySuccess(c)
@@ -3027,6 +3032,7 @@ func RelayClaude(c *gin.Context) {
 	}
 }
 func RelayResponse(c *gin.Context) {
+	defer beginSourceMetrics(c)()
 	ctx := c.Request.Context()
 
 	// 记录整个请求的开始时间，用于计算总耗时和首字时长
@@ -3058,7 +3064,7 @@ func RelayResponse(c *gin.Context) {
 	c.Set("admin_channel_history", channelHistory)
 
 	attemptStartTime := time.Now()
-	relayError := controller.RelayOpenaiResponseNative(c)
+	relayError := measureSourceAttempt(c, func() *model.ErrorWithStatusCode { return controller.RelayOpenaiResponseNative(c) })
 	if relayError == nil {
 		service.MarkAffinityRelaySuccess(c)
 		return
@@ -3143,7 +3149,7 @@ func RelayResponse(c *gin.Context) {
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 		util.PublishFailedRetryHistory(c, retryAttempts)
 		attemptStartTime = time.Now()
-		relayError = controller.RelayOpenaiResponseNative(c)
+		relayError = measureSourceAttempt(c, func() *model.ErrorWithStatusCode { return controller.RelayOpenaiResponseNative(c) })
 		if relayError == nil {
 			// 重试成功，直接返回（无需记录错误日志）
 			service.MarkAffinityRelaySuccess(c)

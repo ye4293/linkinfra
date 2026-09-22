@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"gorm.io/gorm"
 	"strconv"
 	"strings"
 	"time"
@@ -192,6 +193,11 @@ func UpdateOption(key string, value string) error {
 }
 
 func updateOption(key string, value string) error {
+	if config.ModelMetricsV2Enabled && value == "false" && (key == "LogConsumeEnabled" || key == "ModelMetricsEnabled") {
+		if err := LOG_DB.Model(&MetricsV2State{}).Where("id = 1").Updates(map[string]interface{}{"paused": true, "generation": gorm.Expr("generation + 1"), "lease_until": 0, "owner": ""}).Error; err != nil {
+			return err
+		}
+	}
 	if key == "LogConsumeEnabled" && value == "false" && config.RankingsEnabled {
 		if err := resetRankingCoverage(); err != nil {
 			return err

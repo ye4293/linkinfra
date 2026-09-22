@@ -207,7 +207,9 @@ func main() {
 	go monitorGoroutines()
 
 	// 启动模型指标聚合 Worker
-	if config.ModelMetricsEnabled {
+	if config.ModelMetricsV2Enabled {
+		common.SafeGoroutine(model.StartMetricsV2Worker)
+	} else if config.ModelMetricsEnabled {
 		common.SafeGoroutine(func() {
 			model.StartModelMetricsAggregator()
 		})

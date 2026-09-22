@@ -270,6 +270,7 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool) {
 }
 
 func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, modelName string) {
+	c.Set("metrics_source", common.GetCatalogProvider(channel.Type, model.ChannelProvider(channel)))
 	c.Set("channel", channel.Type)
 	c.Set("channel_id", channel.Id)
 	c.Set("channel_name", channel.Name)

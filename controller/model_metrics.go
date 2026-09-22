@@ -3,6 +3,8 @@ package controller
 import (
 	"net/http"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
@@ -10,11 +12,16 @@ import (
 	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/logger"
 	"github.com/songquanpeng/one-api/model"
+	"gorm.io/gorm"
 )
 
 // GetAllModelMetricsMini GET /api/model-plaza/metrics/all
 // 公开接口：返回所有模型的迷你监控摘要
 func GetAllModelMetricsMini(c *gin.Context) {
+	if config.ModelMetricsV2Enabled {
+		getSourceMetricsMini(c)
+		return
+	}
 	if !config.ModelMetricsEnabled {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -35,6 +42,10 @@ func GetAllModelMetricsMini(c *gin.Context) {
 // GetModelMetricsDetail GET /api/model-plaza/metrics/detail?model_name=xxx
 // 公开接口 + 管理员增强：返回单模型的完整监控数据
 func GetModelMetricsDetail(c *gin.Context) {
+	if config.ModelMetricsV2Enabled {
+		getSourceMetricsDetail(c)
+		return
+	}
 	if !config.ModelMetricsEnabled {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -113,6 +124,10 @@ func GetModelMetricsDetail(c *gin.Context) {
 // GetModelMetricsTimeSeries GET /api/model-plaza/metrics/timeseries?model_name=xxx&period=24h
 // 公开接口：返回单模型的时间序列数据
 func GetModelMetricsTimeSeries(c *gin.Context) {
+	if config.ModelMetricsV2Enabled {
+		getSourceMetricsSeries(c)
+		return
+	}
 	if !config.ModelMetricsEnabled {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -201,7 +216,41 @@ func isRequestFromAdmin(c *gin.Context) bool {
 }
 
 // getModelPricing 获取模型的定价信息（复用现有逻辑）
+type sourcePricingEntry struct {
+	expires time.Time
+	item    *ModelPlazaItem
+}
+
+var sourcePricingCache = struct {
+	sync.Mutex
+	db      *gorm.DB
+	entries map[modelChannelKey]sourcePricingEntry
+}{entries: map[modelChannelKey]sourcePricingEntry{}}
+
 func getModelPricing(modelName string, channelIDs ...int) *ModelPlazaItem {
+	if config.ModelMetricsV2Enabled {
+		id := 0
+		if len(channelIDs) > 0 {
+			id = channelIDs[0]
+		}
+		key := modelChannelKey{ChannelID: id, ModelName: modelName}
+		sourcePricingCache.Lock()
+		defer sourcePricingCache.Unlock()
+		if sourcePricingCache.db != model.DB || len(sourcePricingCache.entries) > 2000 {
+			sourcePricingCache.db = model.DB
+			sourcePricingCache.entries = map[modelChannelKey]sourcePricingEntry{}
+		}
+		if entry, ok := sourcePricingCache.entries[key]; ok && time.Now().Before(entry.expires) {
+			return entry.item
+		}
+		item := computeModelPricing(modelName, channelIDs...)
+		sourcePricingCache.entries[key] = sourcePricingEntry{expires: time.Now().Add(30 * time.Second), item: item}
+		return item
+	}
+	return computeModelPricing(modelName, channelIDs...)
+}
+
+func computeModelPricing(modelName string, channelIDs ...int) *ModelPlazaItem {
 	infoMap := getModelInfoFromChannels()
 	priceMap := buildPriceMap()
 
@@ -273,6 +322,7 @@ func getModelPricing(modelName string, channelIDs ...int) *ModelPlazaItem {
 	}
 
 	item := &ModelPlazaItem{
+		SourceKey:       model.MetricsSourceKey(info.Provider),
 		ChannelID:       channelID,
 		ModelName:       modelName,
 		Provider:        info.Provider,

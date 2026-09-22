@@ -100,6 +100,7 @@ func RelayOpenaiResponseNative(c *gin.Context) *model.ErrorWithStatusCode {
 	//先写死透传
 
 	adaptor.Init(meta)
+	c.Set("metrics_upstream_started", true)
 	resp, err := adaptor.DoRequest(c, meta, bytes.NewBuffer(originRequestBody))
 	if err != nil {
 		return openai.ErrorWrapper(err, "failed_to_send_request", http.StatusBadGateway)
