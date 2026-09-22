@@ -6,6 +6,15 @@
 
 ---
 
+## 2026-09-22
+
+### fix(model-plaza): 合并同一厂商下重复的模型价格条目
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `controller/model_plaza.go`、`controller/model_metrics.go`、`controller/qianfan_test.go`
+- **说明**: 模型广场在统计与分页前按厂商和模型名去重，同组选择折扣后最低价渠道，同价按渠道 ID 稳定选择；不同厂商分类独立保留。无渠道参数的详情复用去重规则，已有渠道详情链接保持兼容，实际调用路由与计费不变。
+- **验证**: 三渠道同模型、折扣与同价选择、厂商计数、分页、详情兼容回归及 controller 全包测试通过；隔离检出目录完整 `go build ./...`、`go vet ./...` 通过。
+
 ## 2026-09-21
 
 ### perf(rankings): 发布前审查与 PostgreSQL 覆盖索引

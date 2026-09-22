@@ -85,8 +85,8 @@ func GetModelPlaza(c *gin.Context) {
 		pageSize = 200
 	}
 
-	// 1. 每个启用渠道独立提供模型条目及折扣。
-	modelInfoMap := getModelInfoFromChannels()
+	// 1. 同一供应商的同名模型合并展示，在计数和分页前完成去重。
+	modelInfoMap := deduplicateModelCatalog(getModelInfoFromChannels())
 
 	// 2. 获取所有模型基础价格
 	priceMap := buildPriceMap()
@@ -234,7 +234,32 @@ func GetModelPlaza(c *gin.Context) {
 	})
 }
 
-// getModelInfoFromChannels 仅在同一渠道内去重，不合并跨渠道的同名模型。
+// deduplicateModelCatalog 同一供应商的同名模型选取最低价渠道；同价时按 ID 稳定选择。
+// 保留渠道标识供详情页读取对应价格，不影响实际请求的渠道路由。
+func deduplicateModelCatalog(channels map[modelChannelKey]*modelChannelInfo) map[modelChannelKey]*modelChannelInfo {
+	type catalogKey struct {
+		Provider  string
+		ModelName string
+	}
+	selected := make(map[catalogKey]modelChannelKey)
+	result := make(map[modelChannelKey]*modelChannelInfo)
+	for key, info := range channels {
+		entry := catalogKey{Provider: info.Provider, ModelName: key.ModelName}
+		if previous, exists := selected[entry]; exists {
+			previousInfo := result[previous]
+			if info.Discount > previousInfo.Discount ||
+				(info.Discount == previousInfo.Discount && key.ChannelID > previous.ChannelID) {
+				continue
+			}
+			delete(result, previous)
+		}
+		selected[entry] = key
+		result[key] = info
+	}
+	return result
+}
+
+// getModelInfoFromChannels 保留各渠道的原始模型信息，兼容已有的渠道详情链接。
 func getModelInfoFromChannels() map[modelChannelKey]*modelChannelInfo {
 	result := make(map[modelChannelKey]*modelChannelInfo)
 

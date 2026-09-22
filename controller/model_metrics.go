@@ -213,8 +213,8 @@ func getModelPricing(modelName string, channelIDs ...int) *ModelPlazaItem {
 	if channelID > 0 {
 		info = infoMap[modelChannelKey{ChannelID: channelID, ModelName: modelName}]
 	} else {
-		// 兼容只有一个渠道的旧链接；多渠道时不能任意选择或合并价格。
-		for key, candidate := range infoMap {
+		// 同一供应商使用目录选中的渠道；跨供应商仍需明确渠道，避免价格歧义。
+		for key, candidate := range deduplicateModelCatalog(infoMap) {
 			if key.ModelName == modelName {
 				if info != nil {
 					return nil
