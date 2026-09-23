@@ -79,6 +79,8 @@ Moonshot、MiniMax 等内嵌 OpenAI 适配器必须显式实现 DoRequest 并传
 
 Claude Code 兼容性验收必须覆盖默认工具定义与至少一次工具调用回传，关闭工具的 OK 请求不能代表正常编码会话。xAI Messages 对省略/为 null 的工具根 input_schema.required 均报 400，需显式 []；不要递归改动 schema 默认数据或已有必填约束。
 
+Messages 渠道统一分派回归位于 relay/helper/messages_audit_test.go，必须通过生产工厂和真实 HTTP 请求验证；支持 SDK base 时避免重复前缀并保留查询参数，Anthropic 的 OpenAI 转换入口仍需固定发送 /v1/messages。
+
 ## 变更记录与计划文档（强制）
 
 ### 更新记录

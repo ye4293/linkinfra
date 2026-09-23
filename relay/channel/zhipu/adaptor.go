@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/relay/channel"
 	"github.com/songquanpeng/one-api/relay/channel/openai"
 	"github.com/songquanpeng/one-api/relay/constant"
@@ -40,7 +41,17 @@ func (a *Adaptor) SetVersionByModeName(modelName string) {
 func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
 	// Claude 原生请求 → 智谱 anthropic 兼容端点
 	if meta.Mode == constant.RelayModeClaude {
-		return fmt.Sprintf("%s/api/anthropic/v1/messages", strings.TrimRight(meta.BaseURL, "/")), nil
+		base := strings.TrimRight(meta.BaseURL, "/")
+		if base == "" {
+			base = common.ChannelBaseURLs[common.ChannelTypeZhipu]
+		}
+		base = strings.TrimSuffix(base, "/v1")
+		base = strings.TrimSuffix(base, "/api/anthropic")
+		path := meta.RequestURLPath
+		if path == "" {
+			path = "/v1/messages"
+		}
+		return base + "/api/anthropic" + path, nil
 	}
 	a.SetVersionByModeName(meta.ActualModelName)
 	if a.APIVersion == "v4" {
@@ -57,7 +68,11 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Request, meta *ut
 	channel.SetupCommonRequestHeader(c, req, meta)
 	// Claude 原生请求 → 智谱 anthropic 兼容端点：Bearer 认证 + anthropic-version/beta 透传
 	if meta.Mode == constant.RelayModeClaude {
-		req.Header.Set("Authorization", "Bearer "+meta.ActualAPIKey)
+		key := meta.ActualAPIKey
+		if key == "" {
+			key = meta.APIKey
+		}
+		req.Header.Set("Authorization", "Bearer "+key)
 		anthropicVersion := c.Request.Header.Get("anthropic-version")
 		if anthropicVersion == "" {
 			anthropicVersion = "2023-06-01"

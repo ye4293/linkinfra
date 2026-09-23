@@ -8,6 +8,14 @@
 
 ## 2026-09-23
 
+### fix(messages): 统一检查渠道并修复 SDK 基址与查询参数
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `relay/channel/zhipu/adaptor.go`、`relay/channel/ali/adaptor.go`、`relay/channel/anthropic/adaptor.go`、`relay/helper/messages_audit_test.go`、`AGENT.md`
+- **说明**: GLM、阿里 Messages 基址去除重复协议前缀并保留查询参数；GLM 增加备用密钥回退；Anthropic 规范化末尾斜杠和 /v1，原生 Messages 保留查询而 OpenAI 转换仍发 Messages。DeepSeek、千帆、MiMo 和已修复的 Moonshot/MiniMax/xAI 无需额外修改，AWS/Vertex 独立链路复核通过。
+- **验证**: 9 个 HTTP 渠道 124 组实际分派测试及 Anthropic OpenAI 转换回归通过，全量 test/build/vet 通过。没有逐供应商在线调用，不据此宣称全部模型功能兼容。
+- **关联计划**: `docs/plans/2026-09-23-messages-channel-audit.md`
+
 ### fix(minimax): 修复 Claude 请求绕过外层适配器
 - **分支**: `main`
 - **类型**: fix
