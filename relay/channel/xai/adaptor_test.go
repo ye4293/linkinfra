@@ -236,3 +236,76 @@ func TestSystemMessagesWithoutTopLevelSystem(t *testing.T) {
 		t.Fatal("invalid system content silently accepted")
 	}
 }
+
+// 同时覆盖无参数/可选参数工具、已有约束、元数据与嵌套数据的保留。
+func TestClaudeToolRequiredCompatibility(t *testing.T) {
+	old := util.HTTPClient
+	util.HTTPClient = &http.Client{}
+	t.Cleanup(func() { util.HTTPClient = old })
+	for _, mode := range []int{constant.RelayModeClaude, constant.RelayModeChatCompletions, constant.RelayModeOpenaiResponse} {
+		t.Run(fmt.Sprint(mode), func(t *testing.T) {
+			body := `{"model":"grok-4.7","messages":[{"role":"user","content":"hello"}],"tools":[{"name":"empty","description":"empty","input_schema":{"type":"object","properties":{}}},{"name":"optional","input_schema":{"type":"object","properties":{"required":{"type":"string"},"settings":{"type":"object","properties":{},"default":{"required":null}}},"required":null,"additionalProperties":false},"cache_control":{"type":"ephemeral"},"defer_loading":true},{"name":"valid","input_schema":{"type":"object","properties":{"file":{"type":"string"}},"required":["file"]}},{"type":"future-tool"}],"extra":9007199254740993}`
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got, _ := io.ReadAll(r.Body)
+				if mode != constant.RelayModeClaude {
+					if string(got) != body {
+						t.Error("other protocol changed")
+					}
+					return
+				}
+				var p map[string]json.RawMessage
+				if err := json.Unmarshal(got, &p); err != nil {
+					t.Error(err)
+					return
+				}
+				var tools []map[string]json.RawMessage
+				if err := json.Unmarshal(p["tools"], &tools); err != nil {
+					t.Error(err)
+					return
+				}
+				for i, tool := range tools[:3] {
+					var schema map[string]json.RawMessage
+					json.Unmarshal(tool["input_schema"], &schema)
+					want := "[]"
+					if i == 2 {
+						want = `["file"]`
+					}
+					if string(schema["required"]) != want {
+						t.Errorf("tool %d required=%s", i, schema["required"])
+					}
+					if i == 1 {
+						if string(schema["additionalProperties"]) != "false" || !strings.Contains(string(schema["properties"]), `"default":{"required":null}`) || string(tool["defer_loading"]) != "true" || tool["cache_control"] == nil {
+							t.Error("schema/metadata modified")
+						}
+					}
+				}
+				if string(p["extra"]) != "9007199254740993" || string(tools[3]["type"]) != `"future-tool"` {
+					t.Error("unknown fields changed")
+				}
+			}))
+			defer server.Close()
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+			resp, err := (&Adaptor{}).DoRequest(c, &util.RelayMeta{Mode: mode, BaseURL: server.URL, APIKey: "test-key"}, strings.NewReader(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+		})
+	}
+}
+
+func TestToolRequiredNoop(t *testing.T) {
+	for _, body := range []string{
+		`{"messages":[]}`, `{"tools":null}`, `{"tools":[]}`,
+		`{"tools":[{"input_schema":{"type":"object","required":[]}}]}`,
+		`{"tools":[{"input_schema":{"required":["x"]}}]}`,
+		`{"tools":[{"input_schema":{"required":"invalid"}}]}`,
+		`{"tools":[{"type":"future-tool"},{"input_schema":null}]}`,
+	} {
+		got, err := normalizeToolRequired([]byte(body))
+		if err != nil || string(got) != body {
+			t.Errorf("changed %s -> %s, err=%v", body, got, err)
+		}
+	}
+}

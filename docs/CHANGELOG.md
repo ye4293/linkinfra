@@ -8,6 +8,14 @@
 
 ## 2026-09-23
 
+### fix(xai): 兼容 Claude Code 无必填参数工具的 Schema
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `relay/channel/xai/adaptor.go`、`relay/channel/xai/adaptor_test.go`、`AGENT.md`
+- **说明**: xAI Messages 实测将工具根 input_schema.required 缺失/null 均拒绝为 Schema 校验 400。仅在该渠道 Claude 协议补空数组，保留有效约束、嵌套 Schema、工具元数据和未知字段，不影响 OpenAI Chat/Responses 或其他渠道。
+- **验证**: 最小请求缺失/null 各复现 400，补 [] 返回 200；完整 Claude Code 默认工具定义请求返回 200；真实 Claude Code 默认工具集 OK 请求、Read 工具调用和结果回传均成功。全量 test/build/vet 通过。之前关闭工具的验证未覆盖此故障，已补充验收规范。
+- **关联计划**: `docs/plans/2026-09-23-kimi-grok-claude-fix.md`
+
 ### fix(relay): 修复 Kimi Claude 路径与 Grok system 角色兼容
 - **分支**: `main`
 - **类型**: fix
