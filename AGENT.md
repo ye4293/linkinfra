@@ -75,6 +75,8 @@ Responses 流式错误测试若不验证 token 计费，使用不含文本的状
 
 数据库性能测试应插入代表性数据并 ANALYZE 后再断言索引选择，空表计划不能代表实际查询。SQLite 测试的批量大小按“行数 × 字段数”计算参数上限；PG 的 VACUUM 独立执行，复制显式 ID 后需校准测试表自己的 identity 序列。
 
+Moonshot 等内嵌 OpenAI 适配器必须显式实现 DoRequest 并传入外层接收者；仅测 GetRequestURL 无法发现生产发送绕过覆盖的问题。xAI Claude 协议不支持 messages 内 system 角色，兼容处理限定在 xAI 适配器，并保留原始内容块与未知字段。
+
 ## 变更记录与计划文档（强制）
 
 ### 更新记录

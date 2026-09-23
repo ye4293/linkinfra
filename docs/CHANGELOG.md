@@ -6,6 +6,16 @@
 
 ---
 
+## 2026-09-23
+
+### fix(relay): 修复 Kimi Claude 路径与 Grok system 角色兼容
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `relay/channel/moonshot/adaptor.go`、`relay/channel/moonshot/adaptor_test.go`、`relay/channel/xai/adaptor.go`、`relay/channel/xai/adaptor_test.go`、`AGENT.md`
+- **说明**: Moonshot DoRequest 显式使用外层适配器，避免实际请求绕过 Anthropic 路径及请求头，并规范化基址、保留查询参数。xAI Claude 请求将消息列表中的 system 合并到顶层 system，修复新版 Claude Code 的 Invalid message role；其他协议及无 system 消息请求保持不变。中途系统指令提升后作用于完整推理，这是上游协议限制下的语义差异。
+- **验证**: Moonshot/xAI、relay/controller、OpenAI 适配器测试通过，完整 build/vet 通过。CC Switch 网关复现 404/400；官方直连修正请求均返回 200；实际 Claude Code 经本地修复适配器调用 kimi-k3 和 grok-4.7 均退出 0 并返回 OK。未部署线上。
+- **关联计划**: `docs/plans/2026-09-23-kimi-grok-claude-fix.md`
+
 ## 2026-09-22
 
 ### fix(model-plaza): 按配置 provider 或渠道类型合并模型来源

@@ -1,11 +1,12 @@
 package moonshot
 
 import (
-	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/relay/channel"
 	"github.com/songquanpeng/one-api/relay/channel/openai"
 	"github.com/songquanpeng/one-api/relay/constant"
@@ -18,15 +19,29 @@ type Adaptor struct {
 	openai.Adaptor
 }
 
-// GetRequestURL：Claude 原生请求走 moonshot anthropic 兼容端点
-// （渠道 base 填 https://api.moonshot.cn，拼 /anthropic/v1/messages；
-// OpenAI 端点同域 api.moonshot.cn/v1/chat/completions，一 base 兼顾）；
-// 否则复用 openai adaptor 的 URL 逻辑。
+// GetRequestURL 兼容 SDK 基址，Claude 请求使用 Anthropic 前缀。
 func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
-	if meta.Mode == constant.RelayModeClaude {
-		return fmt.Sprintf("%s/anthropic/v1/messages", strings.TrimRight(meta.BaseURL, "/")), nil
+	base := strings.TrimRight(meta.BaseURL, "/")
+	if base == "" {
+		base = common.ChannelBaseURLs[common.ChannelTypeMoonshot]
 	}
-	return a.Adaptor.GetRequestURL(meta)
+	base = strings.TrimSuffix(base, "/v1")
+	base = strings.TrimSuffix(base, "/anthropic")
+	normalized := *meta
+	normalized.BaseURL = base
+	if meta.Mode == constant.RelayModeClaude {
+		path := meta.RequestURLPath
+		if path == "" {
+			path = "/v1/messages"
+		}
+		return util.GetFullRequestURL(base+"/anthropic", path, meta.ChannelType), nil
+	}
+	return a.Adaptor.GetRequestURL(&normalized)
+}
+
+// 显式使用外层接收者，否则内嵌 OpenAI.DoRequest 会绕过 URL 和请求头覆盖。
+func (a *Adaptor) DoRequest(c *gin.Context, meta *util.RelayMeta, body io.Reader) (*http.Response, error) {
+	return channel.DoRequestHelper(a, c, meta, body)
 }
 
 // SetupRequestHeader：Claude 分支用 Bearer 渠道 key + anthropic-version/beta 透传
@@ -34,7 +49,11 @@ func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Request, meta *util.RelayMeta) error {
 	if meta.Mode == constant.RelayModeClaude {
 		channel.SetupCommonRequestHeader(c, req, meta)
-		req.Header.Set("Authorization", "Bearer "+meta.ActualAPIKey)
+		key := meta.ActualAPIKey
+		if key == "" {
+			key = meta.APIKey
+		}
+		req.Header.Set("Authorization", "Bearer "+key)
 		anthropicVersion := c.Request.Header.Get("anthropic-version")
 		if anthropicVersion == "" {
 			anthropicVersion = "2023-06-01"

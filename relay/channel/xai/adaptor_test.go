@@ -1,6 +1,7 @@
 package xai
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -160,5 +161,78 @@ func TestDoRequestProtocolDispatch(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestClaudeSystemMessageCompatibility(t *testing.T) {
+	old := util.HTTPClient
+	util.HTTPClient = &http.Client{}
+	t.Cleanup(func() { util.HTTPClient = old })
+	for _, mode := range []int{constant.RelayModeClaude, constant.RelayModeChatCompletions} {
+		for _, system := range []string{`"base"`, `[{"type":"text","text":"base","cache_control":{"type":"ephemeral"}}]`} {
+			t.Run(fmt.Sprintf("%d/%s", mode, system), func(t *testing.T) {
+				body := `{"model":"grok-4.7","system":` + system + `,"messages":[{"role":"user","content":"hello"},{"role":"system","content":"environment"},{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"test","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"OK"}]},{"role":"system","content":[{"type":"text","text":"update","cache_control":{"type":"ephemeral"}}]}],"thinking":{"type":"adaptive"},"output_config":{"effort":"max"},"unknown":{"preserve":true}}`
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					got, _ := io.ReadAll(r.Body)
+					if mode != constant.RelayModeClaude {
+						if string(got) != body {
+							t.Error("changed OpenAI request")
+						}
+						return
+					}
+					var p struct {
+						System       []map[string]any
+						Messages     []map[string]any
+						Thinking     map[string]any
+						OutputConfig map[string]any `json:"output_config"`
+						Unknown      map[string]any
+					}
+					if err := json.Unmarshal(got, &p); err != nil {
+						t.Fatal(err)
+					}
+					if len(p.System) != 3 || p.System[0]["text"] != "base" || p.System[1]["text"] != "environment" || p.System[2]["text"] != "update" || p.System[2]["cache_control"] == nil {
+						t.Errorf("system lost: %s", got)
+					}
+					if len(p.Messages) != 3 || p.Messages[1]["role"] != "assistant" || p.Messages[2]["content"] == nil {
+						t.Errorf("messages lost: %s", got)
+					}
+					if p.Thinking["type"] != "adaptive" || p.OutputConfig["effort"] != "max" || p.Unknown["preserve"] != true {
+						t.Error("unknown fields lost")
+					}
+				}))
+				defer server.Close()
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+				resp, err := (&Adaptor{}).DoRequest(c, &util.RelayMeta{Mode: mode, BaseURL: server.URL, APIKey: "test-key"}, strings.NewReader(body))
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp.Body.Close()
+			})
+		}
+	}
+	original := []byte(`{"messages":[{"role":"user","content":"OK"}],"unknown":true}`)
+	got, err := normalizeSystemMessages(original)
+	if err != nil || string(got) != string(original) {
+		t.Fatal("ordinary request changed")
+	}
+}
+
+func TestSystemMessagesWithoutTopLevelSystem(t *testing.T) {
+	for _, top := range []string{"", `,"system":null`} {
+		got, err := normalizeSystemMessages([]byte(`{"messages":[{"role":"user","content":"hello"},{"role":"system","content":"environment"}]` + top + `}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var p struct {
+			System   []map[string]any
+			Messages []map[string]any
+		}
+		if err = json.Unmarshal(got, &p); err != nil || len(p.System) != 1 || len(p.Messages) != 1 {
+			t.Fatalf("got %s, err %v", got, err)
+		}
+	}
+	if _, err := normalizeSystemMessages([]byte(`{"messages":[{"role":"system","content":42}]}`)); err == nil {
+		t.Fatal("invalid system content silently accepted")
 	}
 }
