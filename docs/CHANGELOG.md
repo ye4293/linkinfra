@@ -8,6 +8,13 @@
 
 ## 2026-09-23
 
+### fix(minimax): 修复 Claude 请求绕过外层适配器
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `relay/channel/minimax/adaptor.go`、`relay/channel/minimax/adaptor_test.go`、`AGENT.md`
+- **说明**: 与 Moonshot 相同，MiniMax 内嵌 OpenAI.DoRequest 导致真实发送绕过 Anthropic 路径和请求头。显式实现外层 DoRequest，规范化 root、/v1、/anthropic 基址、保留查询参数并添加渠道密钥回退。未修改消息体、公共转发逻辑或独立视频适配器。
+- **验证**: 新增真实 HTTP 请求回归测试在修复前复现错误路径、错误凭据及协议头缺失，修复后通过；覆盖流式/非流式分派及三种协议路径。全量 go test ./...、go build ./...、go vet ./... 通过。未执行 MiniMax 官方接口在线调用。
+
 ### fix(xai): 兼容 Claude Code 无必填参数工具的 Schema
 - **分支**: `main`
 - **类型**: fix
