@@ -20,3 +20,5 @@
 
 ## 验证结果
 Moonshot/xAI/relay controller/OpenAI 定向测试、完整 build/vet 通过。真实 Claude Code 经本地编译的修复适配器调用官方端点，两个模型均退出 0、is_error=false、返回 OK。未部署线上，CC Switch 地址和密钥未改动。
+
+发布前复核：全量 `go test ./...`、`go build ./...`、`go vet ./...` 通过，发布版本 `v0.1.36`。
