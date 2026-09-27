@@ -18,6 +18,7 @@ const (
 	RelayModeClaude
 	RelayModeOpenaiResponse
 	RelayModeFlux
+	RelayModeSystemOne
 )
 
 func Path2RelayMode(path string) int {
@@ -29,6 +30,8 @@ func Path2RelayMode(path string) int {
 		} else if strings.Contains(path, ":streamGenerateContent") {
 			relayMode = RelayModeGeminiStreamGenerateContent
 		}
+	} else if path == "/v1/systemone" {
+		relayMode = RelayModeSystemOne
 	} else if strings.HasPrefix(path, "/v1/chat/completions") {
 		relayMode = RelayModeChatCompletions
 	} else if strings.HasPrefix(path, "/v1/completions") {

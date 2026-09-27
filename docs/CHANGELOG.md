@@ -6,6 +6,17 @@
 
 ---
 
+## 2026-09-27
+
+### feat(typesafe): 接入 System One 原生请求、计费和日志
+- **分支**: `main`
+- **类型**: feat
+- **涉及文件**: `router/relay-router.go`、`router/systemone_test.go`、`relay/constant/relay_mode.go`、`relay/controller/systemone*.go`、`controller/relay.go`、`controller/channel-test.go`、`controller/channel-test-systemone.go`、`controller/channel_systemone_test.go`、`common/model-ratio.go`、`docs/typesafe-systemone.md`。
+- **说明**: 新增 `/v1/systemone`，使用自定义渠道配置 TypeSafe，保留原生结构化请求和响应，复用鉴权、路由、重试、来源监控及结算日志。默认 Jev 输入价格 $0.042/百万 tokens，输出免费；实际 usage 结算，失败退款，后台渠道测试使用原生协议。
+- **验证**: 上游密钥最小实测 HTTP 200；common、relay/controller、router、controller、middleware 相关包回归通过，覆盖失败退款、令牌限额、529 重试单次结算和 422 错误日志；隔离源码目录完整 build/vet 通过。
+- **关联计划**: `docs/plans/2026-09-27-typesafe-systemone.md`
+- **上线说明**: `docs/typesafe-systemone.md`；无 schema 迁移，需部署后端并配置启用渠道。
+
 ## 2026-09-22
 
 ### feat(metrics): 重写按来源统计的多实例模型监控

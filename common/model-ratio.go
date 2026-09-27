@@ -20,6 +20,10 @@ const (
 // 1 === $0.002 / 1K tokens
 // 1 === ￥0.014 / 1k tokens
 var ModelRatio = map[string]float64{
+	// https://docs.typesafe.ai/models：输入 $0.042 / 百万 tokens。
+	"jev-latest":  0.021,
+	"jev-preview": 0.021,
+	"jev-1.13.0":  0.021,
 	// https://openai.com/pricing
 	"gpt-4":                   15,
 	"gpt-4-0314":              15,
@@ -164,6 +168,10 @@ var ModelRatio = map[string]float64{
 }
 
 var CompletionRatio = map[string]float64{
+	// TypeSafe 的输出 tokens 免费，仍保留用量统计。
+	"jev-latest":  0,
+	"jev-preview": 0,
+	"jev-1.13.0":  0,
 	// 图片模型的输出token比率：输出token价格 / 输入token价格
 	"gpt-image-1": 8, // 输出token价格是输入token的8倍 (40/5)
 	// Gemini 专用画图模型的输出token比率：30/0.3 = 100

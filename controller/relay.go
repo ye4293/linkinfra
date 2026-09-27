@@ -39,6 +39,8 @@ func relayHelper(c *gin.Context, relayMode int) *model.ErrorWithStatusCode {
 	logger.Infof(ctx, "relayHelper: relayMode=%d, path=%s", relayMode, c.Request.URL.Path)
 
 	switch relayMode {
+	case relayconstant.RelayModeSystemOne:
+		err = controller.RelaySystemOneHelper(c)
 	case relayconstant.RelayModeImagesGenerations:
 		logger.Infof(ctx, "relayHelper: calling RelayImageHelper for images/generations")
 
@@ -75,7 +77,7 @@ func relayHelper(c *gin.Context, relayMode int) *model.ErrorWithStatusCode {
 }
 
 func Relay(c *gin.Context) {
-	if mode := relayconstant.Path2RelayMode(c.Request.URL.Path); mode == relayconstant.RelayModeChatCompletions || mode == relayconstant.RelayModeCompletions {
+	if mode := relayconstant.Path2RelayMode(c.Request.URL.Path); mode == relayconstant.RelayModeChatCompletions || mode == relayconstant.RelayModeCompletions || mode == relayconstant.RelayModeSystemOne {
 		defer beginSourceMetrics(c)()
 	}
 	ctx := c.Request.Context()
