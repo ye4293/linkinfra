@@ -134,7 +134,9 @@ func ValidateUserToken(key string) (token *Token, err error) {
 		if !common.RedisEnabled {
 			// in this case, we can make sure the token is exhausted
 			token.Status = common.TokenStatusExhausted
-			err := token.SelectUpdate()
+			// 读取后可能已有退款或管理员禁用，不能用旧快照覆盖最新状态。
+			err := DB.Model(&Token{}).Where("id = ? AND status = ? AND remain_quota <= 0 AND unlimited_quota = ?", token.Id, common.TokenStatusEnabled, false).
+				Update("status", common.TokenStatusExhausted).Error
 			if err != nil {
 				logger.SysError("failed to update token status" + err.Error())
 			}

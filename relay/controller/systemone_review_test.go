@@ -145,6 +145,7 @@ func TestSystemOneReviewNonJSONError(t *testing.T) {
 		want   int
 	}{
 		{502, "<html>bad gateway</html>", 502}, {204, "", 502}, {201, `{"detail":"unexpected response"}`, 502}, {429, `{"detail":""}`, 429},
+		{304, "", 502}, {302, `{"detail":"unexpected redirect"}`, 502},
 	} {
 		err := systemOneError(&http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader(tc.body))})
 		require.NotEmpty(t, err.Error.Message)

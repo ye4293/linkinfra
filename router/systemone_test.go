@@ -55,7 +55,12 @@ func TestSystemOneRouteAuthRetryAndLogs(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			calls[index].Add(1)
 			assert.Equal(t, "/v1/systemone", r.URL.Path)
-			assert.Equal(t, "Bearer upstream-test", r.Header.Get("Authorization"))
+			if index == 0 {
+				assert.Equal(t, "Bearer first-channel-override", r.Header.Get("Authorization"))
+			} else {
+				assert.Equal(t, "Bearer upstream-test", r.Header.Get("Authorization"))
+				assert.Empty(t, r.Header.Get("X-First-Only"))
+			}
 			var body struct {
 				Model string `json:"model"`
 				State string `json:"state"`
@@ -90,6 +95,10 @@ func TestSystemOneRouteAuthRetryAndLogs(t *testing.T) {
 		util.HTTPClient = server.Client()
 		priority := int64(2 - index)
 		ch := model.Channel{Type: common.ChannelTypeCustom, Key: "upstream-test", Name: "TypeSafe", Models: "jev-latest", Group: user.Group, BaseURL: &server.URL, Priority: &priority, Config: `{"provider":"typesafe"}`}
+		if index == 0 {
+			override := `{"Authorization":"Bearer first-channel-override","X-First-Only":"first"}`
+			ch.HeaderOverride = &override
+		}
 		require.NoError(t, ch.Insert())
 	}
 	r := gin.New()

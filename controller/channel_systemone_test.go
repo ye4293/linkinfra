@@ -52,3 +52,16 @@ func TestChannelSystemOnePreservesValidationError(t *testing.T) {
 	require.NotNil(t, apiErr)
 	require.Contains(t, apiErr.Message, "invalid question criteria")
 }
+
+func TestChannelSystemOneRejectsNullAnswer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"model":"jev-1.13.0","answers":{"greeting":null},"usage":{"input_tokens":278,"output_tokens":20}}`)
+	}))
+	defer server.Close()
+	oldClient := util.HTTPClient
+	util.HTTPClient = server.Client()
+	t.Cleanup(func() { util.HTTPClient = oldClient })
+	ch := &model.Channel{Type: common.ChannelTypeCustom, Key: "test", BaseURL: &server.URL, Models: "jev-latest"}
+	err, _, _, _ := testChannel(ch, "jev-latest", false)
+	require.Error(t, err)
+}

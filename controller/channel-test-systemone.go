@@ -58,6 +58,9 @@ func testChannelViaSystemOne(ch *model.Channel, meta *util.RelayMeta, modelName 
 	if err != nil {
 		return err, nil
 	}
+	if err := relaycontroller.ValidateSystemOneAnswers(body, responseBody); err != nil {
+		return err, nil
+	}
 	if recordLog {
 		recordChannelTestConsumeLog(ch, modelName, usage.PromptTokens, usage.CompletionTokens, 0, time.Since(start).Seconds())
 	}

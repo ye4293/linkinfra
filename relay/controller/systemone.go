@@ -194,7 +194,7 @@ func RelaySystemOneHelper(c *gin.Context) *model.ErrorWithStatusCode {
 	if err != nil {
 		return openai.ErrorWrapper(err, "invalid_systemone_response", http.StatusBadGateway)
 	}
-	if err := validateSystemOneAnswers(body, responseBody); err != nil {
+	if err := ValidateSystemOneAnswers(body, responseBody); err != nil {
 		return openai.ErrorWrapper(err, "invalid_systemone_response", http.StatusBadGateway)
 	}
 	quota, err := tariff.quota(usage.PromptTokens, usage.CompletionTokens)
@@ -220,7 +220,7 @@ func systemOneError(resp *http.Response) *model.ErrorWithStatusCode { return Sys
 func SystemOneError(resp *http.Response) *model.ErrorWithStatusCode {
 	defer resp.Body.Close()
 	status := resp.StatusCode
-	if status >= 200 && status < 300 {
+	if status >= 200 && status < 400 {
 		status = http.StatusBadGateway
 	}
 	body, err := io.ReadAll(resp.Body)
@@ -249,7 +249,8 @@ func SystemOneError(resp *http.Response) *model.ErrorWithStatusCode {
 	return apiErr
 }
 
-func validateSystemOneAnswers(requestBody, responseBody []byte) error {
+// ValidateSystemOneAnswers 让渠道测试和实际转发使用相同的答案完整性检查。
+func ValidateSystemOneAnswers(requestBody, responseBody []byte) error {
 	var request struct {
 		Questions map[string]struct {
 			Type string `json:"type"`

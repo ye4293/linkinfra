@@ -8,6 +8,14 @@
 
 ## 2026-09-27
 
+### fix(typesafe): 清理重试鉴权头并恢复退款令牌状态
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `middleware/distributor*.go`、`model/relay-quota*.go`、`model/token.go`、`controller/channel-test-systemone.go`、`controller/channel_systemone_test.go`、`relay/controller/systemone*.go`、`router/systemone_test.go`。
+- **说明**: 推送前复审修复上一渠道鉴权头残留、退款后令牌仍标为耗尽及旧鉴权快照覆盖退款状态。后台测试复用答案校验，异常 3xx 返回 502。
+- **验证**: 最终源码全量 `go test ./...`、五个相关包针对性 race、完整 build/vet 全部通过；详见 `docs/typesafe-review-2026-09-27.md`。
+- **关联计划**: `docs/plans/2026-09-27-typesafe-review.md`
+
 ### fix(typesafe): 修复事务计费、响应校验及错误重试边界
 - **分支**: `main`
 - **类型**: fix

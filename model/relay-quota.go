@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/songquanpeng/one-api/common"
 	"gorm.io/gorm"
 )
 
@@ -53,6 +54,14 @@ func adjustRelayQuota(tx *gorm.DB, userID, tokenID int, delta int64, reserve boo
 	}
 	if result.RowsAffected != 1 {
 		return ErrInsufficientRelayQuota
+	}
+	if delta < 0 {
+		// 预扣期间并发鉴权可能将令牌标为耗尽；退款后只恢复这一状态。
+		// 分开 UPDATE 避免 MySQL 同一语句赋值顺序影响余额条件。
+		if err := tx.Model(&Token{}).Where("id = ? AND user_id = ? AND status = ? AND remain_quota > 0", tokenID, userID, common.TokenStatusExhausted).
+			Update("status", common.TokenStatusEnabled).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }
