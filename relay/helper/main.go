@@ -21,6 +21,7 @@ import (
 	"github.com/songquanpeng/one-api/relay/channel/pixverse"
 	"github.com/songquanpeng/one-api/relay/channel/runway"
 	"github.com/songquanpeng/one-api/relay/channel/tencent"
+	"github.com/songquanpeng/one-api/relay/channel/typesafe"
 	"github.com/songquanpeng/one-api/relay/channel/vertexai"
 	"github.com/songquanpeng/one-api/relay/channel/xai"
 	"github.com/songquanpeng/one-api/relay/channel/xunfei"
@@ -99,6 +100,8 @@ func GetVideoAdaptorByProvider(provider string) channel.VideoAdaptor {
 
 func GetAdaptor(apiType int) channel.Adaptor {
 	switch apiType {
+	case constant.APITypeTypesafe:
+		return &typesafe.Adaptor{}
 	case constant.APITypeAli:
 		return &ali.Adaptor{}
 	case constant.APITypeAnthropic:

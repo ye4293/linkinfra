@@ -1570,6 +1570,9 @@ func ClearChannelQuota(c *gin.Context) {
 
 // OpenAIModelsResponse OpenAI /v1/models 接口返回结构
 type OpenAIModelsResponse struct {
+	Models []struct {
+		Name string `json:"name"`
+	} `json:"models"`
 	Data []struct {
 		ID      string `json:"id"`
 		Object  string `json:"object"`
@@ -1589,6 +1592,11 @@ func buildModelsURL(channelType int, baseURL string) string {
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
 	switch channelType {
+	case common.ChannelTypeTypesafe:
+		baseURL = strings.TrimRight(baseURL, "/")
+		baseURL = strings.TrimSuffix(baseURL, "/v1/systemone")
+		baseURL = strings.TrimSuffix(baseURL, "/v1")
+		return baseURL + "/v1/models"
 	case common.ChannelTypeBaidu:
 		return baidu.NormalizeBaseURL(baseURL) + "/v2/models"
 	case common.ChannelTypeGemini:
@@ -1795,6 +1803,13 @@ func fetchModelsFromURL(url string, headers http.Header) ([]string, error) {
 		if id != "" && !modelSet[id] {
 			modelSet[id] = true
 			models = append(models, id)
+		}
+	}
+	// TypeSafe 原生模型列表使用 models[].name。
+	for _, m := range result.Models {
+		if m.Name != "" && !modelSet[m.Name] {
+			modelSet[m.Name] = true
+			models = append(models, m.Name)
 		}
 	}
 

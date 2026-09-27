@@ -8,17 +8,19 @@ LinkInfra 提供 `POST https://api.linkinfra.ai/v1/systemone`，请求与成功�
 
 | 配置项 | 值 |
 | --- | --- |
-| 类型 | 自定义渠道（`type: 8`） |
+| 类型 | TypeSafe（`type: 50`） |
 | 名称 | TypeSafe |
-| 上游地址 | `https://api.typesafe.ai` |
+| 上游地址 | `https://api.typesafe.ai`（自动填入，留空也使用此默认值） |
 | 密钥 | TypeSafe 提供的 `apikey_...` |
 | 模型 | `jev-latest,jev-preview,jev-1.13.0` |
 | 分组 | 实际调用用户所在分组 |
-| provider | `typesafe`（渠道 config JSON 为 `{"provider":"typesafe"}`） |
+| provider | 可留空，按 TypeSafe 类型自动识别；需要覆盖时填写 `typesafe` |
 | 测试模型 | `jev-latest` |
 | 状态 | 启用 |
 
 上游地址也支持以 `/v1` 或 `/v1/systemone` 结尾。渠道支持模型映射、多密钥、优先级、折扣和请求头覆盖。模型名为 `jev-*` 或 provider 为 `typesafe` 时，后台渠道测试自动使用 System One 原生请求。
+
+后台选择 TypeSafe 时自动填入默认地址、三个 Jev 模型和测试模型；“获取上游模型”支持原生 `models[].name`。已有自定义渠道（type 8，手动配置官方地址和 provider）仍可继续使用。独立 TypeSafe 渠道的后台测试始终使用 System One，即使渠道配置了自定义模型别名。
 
 上游密钥不应传给 LinkInfra 客户端，也不应写入源码、示例或日志。
 

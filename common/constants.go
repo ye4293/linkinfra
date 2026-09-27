@@ -89,6 +89,7 @@ const (
 	ChannelTypeXAI
 	ChannelTypeVertexAI
 	ChannelTypeMimo
+	ChannelTypeTypesafe
 	ChannelTypeDummy
 )
 
@@ -143,7 +144,8 @@ var ChannelBaseURLs = []string{
 	"https://api.x.ai",                          // 47 ChannelTypeXAI
 	"",                                          // 48 ChannelTypeVertexAI
 	"https://api.xiaomimimo.com",                // 49 ChannelTypeMimo
-	"",                                          // 50 ChannelTypeDummy
+	"https://api.typesafe.ai",                   // 50 ChannelTypeTypesafe
+	"",                                          // 51 ChannelTypeDummy
 }
 
 const (

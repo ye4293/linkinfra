@@ -234,3 +234,17 @@ func TestSystemOneReviewDecimalBilling(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 1512, quota)
 }
+
+func TestSystemOneNativeChannelDefaults(t *testing.T) {
+	db, c := systemOneReviewFixture(t)
+	c.Set("channel", common.ChannelTypeTypesafe)
+	c.Set("base_url", "")
+	util.HTTPClient = &http.Client{Transport: systemOneTransport(func(r *http.Request) (*http.Response, error) {
+		require.Equal(t, "https://api.typesafe.ai/v1/systemone", r.URL.String())
+		return systemOneReviewResponse(systemOneTestResponse), nil
+	})}
+	require.Nil(t, RelaySystemOneHelper(c))
+	var user model.User
+	require.NoError(t, db.First(&user, 1).Error)
+	require.EqualValues(t, 99979, user.Quota)
+}

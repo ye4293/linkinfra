@@ -96,6 +96,7 @@ func TestSystemOneRouteAuthRetryAndLogs(t *testing.T) {
 		priority := int64(2 - index)
 		ch := model.Channel{Type: common.ChannelTypeCustom, Key: "upstream-test", Name: "TypeSafe", Models: "jev-latest", Group: user.Group, BaseURL: &server.URL, Priority: &priority, Config: `{"provider":"typesafe"}`}
 		if index == 0 {
+			ch.Type = common.ChannelTypeTypesafe
 			override := `{"Authorization":"Bearer first-channel-override","X-First-Only":"first"}`
 			ch.HeaderOverride = &override
 		}

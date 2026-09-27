@@ -8,6 +8,14 @@
 
 ## 2026-09-27
 
+### feat(typesafe): 补齐独立渠道类型和默认地址
+- **分支**: `main`
+- **类型**: feat
+- **涉及文件**: 渠道常量、provider、API 类型/适配器注册、类型与模型目录、上游模型发现、渠道测试、相关测试和接入文档；关联前端 `linkinfra-web` 渠道表单和类型常量。
+- **说明**: 新增 TypeSafe 类型 50，默认地址 `https://api.typesafe.ai`，登记三个 Jev 模型。后台自动填入默认配置，原生模型发现解析 `models[].name`，已有自定义渠道继续兼容。
+- **验证**: 后端全量 `go test ./...`、完整 build/vet 通过；前端 TypeScript 检查和隔离最终源码 Next.js 生产构建通过。
+- **关联计划**: `docs/plans/2026-09-27-typesafe-channel.md`
+
 ### fix(typesafe): 清理重试鉴权头并恢复退款令牌状态
 - **分支**: `main`
 - **类型**: fix

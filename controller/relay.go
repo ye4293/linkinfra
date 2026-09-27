@@ -35,6 +35,9 @@ import (
 func relayHelper(c *gin.Context, relayMode int) *model.ErrorWithStatusCode {
 	ctx := c.Request.Context()
 	var err *model.ErrorWithStatusCode
+	if c.GetInt("channel") == common.ChannelTypeTypesafe && relayMode != relayconstant.RelayModeSystemOne {
+		return &model.ErrorWithStatusCode{StatusCode: http.StatusBadRequest, Error: model.Error{Message: "TypeSafe requires POST /v1/systemone", Type: "invalid_request_error", Code: "unsupported_protocol"}}
+	}
 
 	logger.Infof(ctx, "relayHelper: relayMode=%d, path=%s", relayMode, c.Request.URL.Path)
 

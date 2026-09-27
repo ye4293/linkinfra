@@ -164,10 +164,11 @@ func RetrieveModel(c *gin.Context) {
 }
 
 type ChannelOption struct {
-	Key   int    `json:"key"`
-	Text  string `json:"text"`
-	Value int    `json:"value"`
-	Color string `json:"color"`
+	Key     int    `json:"key"`
+	Text    string `json:"text"`
+	Value   int    `json:"value"`
+	Color   string `json:"color"`
+	BaseURL string `json:"base_url,omitempty"`
 }
 
 // 创建返回数据
@@ -197,6 +198,7 @@ var channelOptions = []ChannelOption{
 	{Key: 26, Text: "百川大模型", Value: 26, Color: "orange"},
 	{Key: 27, Text: "MiniMax", Value: 27, Color: "red"},
 	{Key: common.ChannelTypeMimo, Text: "Xiaomi MiMo", Value: common.ChannelTypeMimo, Color: "orange"},
+	{Key: common.ChannelTypeTypesafe, Text: "TypeSafe", Value: common.ChannelTypeTypesafe, Color: "purple", BaseURL: common.ChannelBaseURLs[common.ChannelTypeTypesafe]},
 	{Key: 8, Text: "Custom Channel", Value: 8, Color: "pink"},
 	{Key: 41, Text: "可灵", Value: 41, Color: "purple"},
 	{Key: 42, Text: "Runway", Value: 42, Color: "purple"},

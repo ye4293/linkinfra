@@ -311,7 +311,7 @@ func testChannel(channel *model.Channel, specifiedModel string, auto_enable bool
 	}
 	// 非聊天类模型（embedding/rerank/tts/whisper/图像/视频等）跳过，避免误判
 	mappedModel, _ := util.GetMappedModelName(modelName, meta.ModelMapping)
-	if strings.HasPrefix(mappedModel, "jev-") || strings.EqualFold(meta.Config.Provider, "typesafe") {
+	if channel.Type == common.ChannelTypeTypesafe || strings.HasPrefix(mappedModel, "jev-") || strings.EqualFold(meta.Config.Provider, "typesafe") {
 		err, openaiErr = testChannelViaSystemOne(channel, meta, mappedModel, auto_enable)
 		return err, openaiErr, modelName, keyIndex
 	}
