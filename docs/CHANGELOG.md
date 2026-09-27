@@ -40,6 +40,38 @@
 - **验证**: 上游密钥最小实测 HTTP 200；common、relay/controller、router、controller、middleware 相关包回归通过，覆盖失败退款、令牌限额、529 重试单次结算和 422 错误日志；隔离源码目录完整 build/vet 通过。
 - **关联计划**: `docs/plans/2026-09-27-typesafe-systemone.md`
 - **上线说明**: `docs/typesafe-systemone.md`；无 schema 迁移，需部署后端并配置启用渠道。
+## 2026-09-23
+
+### fix(messages): 统一检查渠道并修复 SDK 基址与查询参数
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `relay/channel/zhipu/adaptor.go`、`relay/channel/ali/adaptor.go`、`relay/channel/anthropic/adaptor.go`、`relay/helper/messages_audit_test.go`、`AGENT.md`
+- **说明**: GLM、阿里 Messages 基址去除重复协议前缀并保留查询参数；GLM 增加备用密钥回退；Anthropic 规范化末尾斜杠和 /v1，原生 Messages 保留查询而 OpenAI 转换仍发 Messages。DeepSeek、千帆、MiMo 和已修复的 Moonshot/MiniMax/xAI 无需额外修改，AWS/Vertex 独立链路复核通过。
+- **验证**: 9 个 HTTP 渠道 124 组实际分派测试及 Anthropic OpenAI 转换回归通过，全量 test/build/vet 通过。没有逐供应商在线调用，不据此宣称全部模型功能兼容。
+- **关联计划**: `docs/plans/2026-09-23-messages-channel-audit.md`
+
+### fix(minimax): 修复 Claude 请求绕过外层适配器
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `relay/channel/minimax/adaptor.go`、`relay/channel/minimax/adaptor_test.go`、`AGENT.md`
+- **说明**: 与 Moonshot 相同，MiniMax 内嵌 OpenAI.DoRequest 导致真实发送绕过 Anthropic 路径和请求头。显式实现外层 DoRequest，规范化 root、/v1、/anthropic 基址、保留查询参数并添加渠道密钥回退。未修改消息体、公共转发逻辑或独立视频适配器。
+- **验证**: 新增真实 HTTP 请求回归测试在修复前复现错误路径、错误凭据及协议头缺失，修复后通过；覆盖流式/非流式分派及三种协议路径。全量 go test ./...、go build ./...、go vet ./... 通过。未执行 MiniMax 官方接口在线调用。
+
+### fix(xai): 兼容 Claude Code 无必填参数工具的 Schema
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `relay/channel/xai/adaptor.go`、`relay/channel/xai/adaptor_test.go`、`AGENT.md`
+- **说明**: xAI Messages 实测将工具根 input_schema.required 缺失/null 均拒绝为 Schema 校验 400。仅在该渠道 Claude 协议补空数组，保留有效约束、嵌套 Schema、工具元数据和未知字段，不影响 OpenAI Chat/Responses 或其他渠道。
+- **验证**: 最小请求缺失/null 各复现 400，补 [] 返回 200；完整 Claude Code 默认工具定义请求返回 200；真实 Claude Code 默认工具集 OK 请求、Read 工具调用和结果回传均成功。全量 test/build/vet 通过。之前关闭工具的验证未覆盖此故障，已补充验收规范。
+- **关联计划**: `docs/plans/2026-09-23-kimi-grok-claude-fix.md`
+
+### fix(relay): 修复 Kimi Claude 路径与 Grok system 角色兼容
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `relay/channel/moonshot/adaptor.go`、`relay/channel/moonshot/adaptor_test.go`、`relay/channel/xai/adaptor.go`、`relay/channel/xai/adaptor_test.go`、`AGENT.md`
+- **说明**: Moonshot DoRequest 显式使用外层适配器，避免实际请求绕过 Anthropic 路径及请求头，并规范化基址、保留查询参数。xAI Claude 请求将消息列表中的 system 合并到顶层 system，修复新版 Claude Code 的 Invalid message role；其他协议及无 system 消息请求保持不变。中途系统指令提升后作用于完整推理，这是上游协议限制下的语义差异。
+- **验证**: 全量 `go test ./...`、`go build ./...`、`go vet ./...` 通过。CC Switch 网关复现 404/400；官方直连修正请求均返回 200；实际 Claude Code 经本地修复适配器调用 kimi-k3 和 grok-4.7 均退出 0 并返回 OK。未部署线上。
+- **关联计划**: `docs/plans/2026-09-23-kimi-grok-claude-fix.md`
 
 ## 2026-09-22
 

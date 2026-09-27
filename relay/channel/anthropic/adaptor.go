@@ -3,7 +3,6 @@ package anthropic
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/relay/channel"
+	"github.com/songquanpeng/one-api/relay/constant"
 	"github.com/songquanpeng/one-api/relay/model"
 	"github.com/songquanpeng/one-api/relay/util"
 )
@@ -28,7 +28,14 @@ func (a *Adaptor) Init(meta *util.RelayMeta) {
 }
 
 func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
-	return fmt.Sprintf("%s/v1/messages", meta.BaseURL), nil
+	base := strings.TrimRight(meta.BaseURL, "/")
+	base = strings.TrimSuffix(base, "/v1")
+	// OpenAI 转 Claude 仍使用固定 Messages 路径，只有原生 Messages 保留原路径及查询。
+	path := "/v1/messages"
+	if meta.Mode == constant.RelayModeClaude && meta.RequestURLPath != "" {
+		path = meta.RequestURLPath
+	}
+	return base + path, nil
 }
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Request, meta *util.RelayMeta) error {

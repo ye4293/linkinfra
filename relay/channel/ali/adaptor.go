@@ -47,7 +47,14 @@ func (a *Adaptor) GetRequestURL(meta *util.RelayMeta) (string, error) {
 	}
 	switch meta.Mode {
 	case constant.RelayModeClaude:
-		return base + "/apps/anthropic/v1/messages", nil
+		// 兼容官方 SDK base，并保留客户端查询参数。
+		base = strings.TrimSuffix(base, "/v1")
+		base = strings.TrimSuffix(base, "/apps/anthropic")
+		path := meta.RequestURLPath
+		if path == "" {
+			path = "/v1/messages"
+		}
+		return base + "/apps/anthropic" + path, nil
 	case constant.RelayModeOpenaiResponse:
 		return base + "/compatible-mode/v1/responses", nil
 	case constant.RelayModeEmbeddings:

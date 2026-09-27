@@ -1,6 +1,7 @@
 package xai
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -118,7 +119,147 @@ func (a *Adaptor) ConvertImageRequest(request *model.ImageRequest) (any, error) 
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, meta *util.RelayMeta, requestBody io.Reader) (*http.Response, error) {
+	if meta.Mode == constant.RelayModeClaude {
+		body, err := io.ReadAll(requestBody)
+		if err != nil {
+			return nil, fmt.Errorf("read xai messages request: %w", err)
+		}
+		body, err = normalizeSystemMessages(body)
+		if err != nil {
+			return nil, err
+		}
+		body, err = normalizeToolRequired(body)
+		if err != nil {
+			return nil, err
+		}
+		requestBody = bytes.NewReader(body)
+	}
 	return channel.DoRequestHelper(a, c, meta, requestBody)
+}
+
+// xAI 会把省略的工具根 required 转成 null 并拒绝；显式空数组表示无必填字段。
+// 仅修正工具 input_schema 根字段，不递归修改嵌套 schema 或默认数据。
+func normalizeToolRequired(body []byte) ([]byte, error) {
+	var request map[string]json.RawMessage
+	if err := json.Unmarshal(body, &request); err != nil {
+		return nil, err
+	}
+	rawTools, ok := request["tools"]
+	if !ok || bytes.Equal(bytes.TrimSpace(rawTools), []byte("null")) {
+		return body, nil
+	}
+	var tools []json.RawMessage
+	if err := json.Unmarshal(rawTools, &tools); err != nil {
+		return nil, err
+	}
+	changed := false
+	for i, rawTool := range tools {
+		var tool map[string]json.RawMessage
+		if err := json.Unmarshal(rawTool, &tool); err != nil {
+			return nil, err
+		}
+		rawSchema, ok := tool["input_schema"]
+		if !ok || bytes.Equal(bytes.TrimSpace(rawSchema), []byte("null")) {
+			continue
+		}
+		var schema map[string]json.RawMessage
+		if err := json.Unmarshal(rawSchema, &schema); err != nil {
+			return nil, err
+		}
+		required, ok := schema["required"]
+		if ok && !bytes.Equal(bytes.TrimSpace(required), []byte("null")) {
+			continue
+		}
+		schema["required"] = json.RawMessage("[]")
+		var err error
+		tool["input_schema"], err = json.Marshal(schema)
+		if err != nil {
+			return nil, err
+		}
+		tools[i], err = json.Marshal(tool)
+		if err != nil {
+			return nil, err
+		}
+		changed = true
+	}
+	if !changed {
+		return body, nil
+	}
+	var err error
+	request["tools"], err = json.Marshal(tools)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(request)
+}
+
+// xAI Messages API 不接受消息列表中的 system 角色；合并到顶层以保留指令优先级。
+// 中途系统指令因上游协议限制会作用于整次推理，而非保留原始位置语义。
+func normalizeSystemMessages(body []byte) ([]byte, error) {
+	var request map[string]json.RawMessage
+	if err := json.Unmarshal(body, &request); err != nil {
+		return nil, err
+	}
+	var messages []json.RawMessage
+	if err := json.Unmarshal(request["messages"], &messages); err != nil {
+		return nil, err
+	}
+	var kept []json.RawMessage
+	var added []json.RawMessage
+	for _, message := range messages {
+		var fields struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		}
+		if err := json.Unmarshal(message, &fields); err != nil {
+			return nil, err
+		}
+		if fields.Role != "system" {
+			kept = append(kept, message)
+			continue
+		}
+		blocks, err := systemContentBlocks(fields.Content)
+		if err != nil {
+			return nil, fmt.Errorf("xai system message: %w", err)
+		}
+		added = append(added, blocks...)
+	}
+	if len(kept) == len(messages) {
+		return body, nil
+	}
+	blocks, err := systemContentBlocks(request["system"])
+	if err != nil {
+		return nil, fmt.Errorf("xai top-level system: %w", err)
+	}
+	blocks = append(blocks, added...)
+	if kept == nil {
+		kept = []json.RawMessage{}
+	}
+	request["messages"], err = json.Marshal(kept)
+	if err != nil {
+		return nil, err
+	}
+	request["system"], err = json.Marshal(blocks)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(request)
+}
+
+func systemContentBlocks(raw json.RawMessage) ([]json.RawMessage, error) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, nil
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		block, err := json.Marshal(map[string]string{"type": "text", "text": text})
+		return []json.RawMessage{block}, err
+	}
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return nil, err
+	}
+	return blocks, nil
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *util.RelayMeta) (usage *model.Usage, err *model.ErrorWithStatusCode) {
