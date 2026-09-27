@@ -6,6 +6,17 @@
 
 ---
 
+## 2026-09-28
+
+### fix(release): TypeSafe 全链路验收与 v0.1.39 发布
+- **分支**: `release/typesafe-v0.1.39`
+- **类型**: fix / test / ci
+- **涉及文件**: `controller/relay.go`、`router/systemone_lifecycle_test.go`、两个 Docker 发布工作流、版本及发布文档。
+- **说明**: 合并 origin/main 的 Messages 修复，补充从真实管理 API 创建渠道到客户端调用的完整验收；修复 System One 错误处理越过请求生命周期、仅由一个工作流发布多架构镜像。
+- **验证**: 全量 test/build/vet 和相关五包 race 通过；真实 TypeSafe 全链路返回 278/20 tokens，6 quota，对账一致；前端生产构建通过。
+- **关联计划**: `docs/plans/2026-09-28-typesafe-release.md`
+- **发布记录**: `docs/releases/v0.1.39-typesafe.md`
+
 ## 2026-09-27
 
 ### feat(typesafe): 补齐独立渠道类型和默认地址

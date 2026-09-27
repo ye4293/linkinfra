@@ -106,6 +106,16 @@ func Relay(c *gin.Context) {
 
 	channelId := c.GetInt("channel_id")
 	userId := c.GetInt("id")
+	reportChannelError := func(channelID int, channelName string, keyIndex int, err *model.ErrorWithStatusCode, modelName string) {
+		if relayMode == relayconstant.RelayModeSystemOne {
+			// 本地额度/配置失败不应改变上游健康状态；原生非流式请求在返回前完成错误状态处理。
+			if c.GetBool("metrics_upstream_started") {
+				processChannelRelayError(ctx, userId, channelID, channelName, keyIndex, err, modelName)
+			}
+			return
+		}
+		go processChannelRelayError(ctx, userId, channelID, channelName, keyIndex, err, modelName)
+	}
 
 	logger.Infof(ctx, "Relay START: path=%s, relayMode=%d, channelId=%d, userId=%d",
 		c.Request.URL.Path, relayMode, channelId, userId)
@@ -187,7 +197,7 @@ func Relay(c *gin.Context) {
 	// 普通失败不再每次写 DB，统一在所有重试结束后由 recordFinalErrorLog 写一条
 
 	// 处理首次失败的渠道错误（包括自动禁用逻辑）
-	go processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, bizErr, originalModel)
+	reportChannelError(channelId, channelName, keyIndex, bizErr, originalModel)
 
 	// 获取客户端传递的 X-Response-ID（用于 Claude 缓存）
 	lastChannel := getLastRetryFallbackChannel(channelId)
@@ -296,7 +306,7 @@ func Relay(c *gin.Context) {
 		if relayMode != relayconstant.RelayModeSystemOne && isXAIContentViolation(bizErr.StatusCode, bizErr.Error.Message) {
 			// xAI内容违规：记录扣费日志并立即停止重试
 			recordXAIContentViolationCharge(ctx, c, channelHistory, retryAttempts)
-			go processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, bizErr, originalModel)
+			reportChannelError(channelId, channelName, keyIndex, bizErr, originalModel)
 			// 跳出重试循环，直接返回错误
 			break
 		}
@@ -304,11 +314,11 @@ func Relay(c *gin.Context) {
 
 		if !shouldRetry(c, bizErr.StatusCode, bizErr.Error.Message) {
 			logger.Warnf(ctx, "Retry stopped: status %d is not retryable, stopping further retries", bizErr.StatusCode)
-			go processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, bizErr, originalModel)
+			reportChannelError(channelId, channelName, keyIndex, bizErr, originalModel)
 			break
 		}
 
-		go processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, bizErr, originalModel)
+		reportChannelError(channelId, channelName, keyIndex, bizErr, originalModel)
 	}
 
 	// 如果所有尝试都失败
