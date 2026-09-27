@@ -47,7 +47,7 @@ func testChannelViaSystemOne(ch *model.Channel, meta *util.RelayMeta, modelName 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		apiErr := util.RelayErrorHandler(resp)
+		apiErr := relaycontroller.SystemOneError(resp)
 		return fmt.Errorf("TypeSafe channel test returned HTTP %d: %s", resp.StatusCode, apiErr.Error.Message), &apiErr.Error
 	}
 	responseBody, err := io.ReadAll(resp.Body)

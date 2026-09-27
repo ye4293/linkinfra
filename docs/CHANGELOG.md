@@ -8,6 +8,14 @@
 
 ## 2026-09-27
 
+### fix(typesafe): 修复事务计费、响应校验及错误重试边界
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `model/audio-quota.go`、`model/relay-quota*.go`、`relay/controller/systemone*.go`、`controller/relay.go`、`controller/channel-test-systemone.go`、相关测试与接入文档。
+- **说明**: 故障注入复现并修复部分预扣、结算失败仍返回成功、请求期间价格漂移、不完整答案和空错误消息；计费使用即时事务与十进制价格快照，零用量也写日志。保留 Retry-After，修复亲和跳过重试返回空 200，并避免 TypeSafe 错误触发 xAI 特殊扣费。
+- **关联计划**: `docs/plans/2026-09-27-typesafe-review.md`
+- **验证**: 六个相关包回归、额度与 System One 针对性 race、隔离源码完整 build/vet 通过。故障复现、修复及生产验证边界见 `docs/typesafe-review-2026-09-27.md`。
+
 ### feat(typesafe): 接入 System One 原生请求、计费和日志
 - **分支**: `main`
 - **类型**: feat

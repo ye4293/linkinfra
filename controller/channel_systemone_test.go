@@ -36,3 +36,19 @@ func TestChannelSystemOneUsesNativeEndpointAndMapping(t *testing.T) {
 	require.Nil(t, apiErr)
 	assert.Equal(t, "test-alias", actualModel)
 }
+
+func TestChannelSystemOnePreservesValidationError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(422)
+		_, _ = io.WriteString(w, `{"detail":"invalid question criteria"}`)
+	}))
+	defer server.Close()
+	oldClient := util.HTTPClient
+	util.HTTPClient = server.Client()
+	t.Cleanup(func() { util.HTTPClient = oldClient })
+	ch := &model.Channel{Type: common.ChannelTypeCustom, Key: "test", BaseURL: &server.URL, Models: "jev-latest"}
+	err, apiErr, _, _ := testChannel(ch, "jev-latest", false)
+	require.Error(t, err)
+	require.NotNil(t, apiErr)
+	require.Contains(t, apiErr.Message, "invalid question criteria")
+}

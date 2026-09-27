@@ -95,6 +95,9 @@ func Relay(c *gin.Context) {
 		requestID = common.GenerateRequestID()
 	}
 	c.Set("X-Request-ID", requestID)
+	if relayMode == relayconstant.RelayModeSystemOne {
+		c.Header("X-Request-ID", requestID)
+	}
 	// 同时设置到 Header 中，确保后续处理可以通过 GetHeader 获取
 	c.Request.Header.Set("X-Request-ID", requestID)
 
@@ -174,7 +177,7 @@ func Relay(c *gin.Context) {
 	util.PublishFailedRetryHistory(c, retryAttempts)
 
 	// 检查是否是xAI内容违规错误，如果是则记录扣费日志而不是普通失败日志
-	if isXAIContentViolation(bizErr.StatusCode, bizErr.Error.Message) {
+	if relayMode != relayconstant.RelayModeSystemOne && isXAIContentViolation(bizErr.StatusCode, bizErr.Error.Message) {
 		// xAI内容违规：直接记录扣费日志，不记录普通失败日志
 		recordXAIContentViolationCharge(ctx, c, channelHistory, retryAttempts)
 	}
@@ -192,8 +195,11 @@ func Relay(c *gin.Context) {
 		// 清除亲和 context，防止 distributor post-Next 把失败渠道 ID 写入缓存
 		service.ClearChannelAffinityContext(c)
 		// xAI 内容违规已在上面单独记录扣费日志，避免再写一条 LogTypeError 造成同请求两条记录
-		if !isXAIContentViolation(bizErr.StatusCode, bizErr.Error.Message) {
+		if relayMode == relayconstant.RelayModeSystemOne || !isXAIContentViolation(bizErr.StatusCode, bizErr.Error.Message) {
 			recordFinalErrorLog(ctx, c, bizErr, retryAttempts, channelHistory, service.GetAffinityLogTag(c))
+		}
+		if relayMode == relayconstant.RelayModeSystemOne {
+			c.JSON(bizErr.StatusCode, gin.H{"error": bizErr.Error})
 		}
 		return
 	}
@@ -284,7 +290,7 @@ func Relay(c *gin.Context) {
 		util.PublishFailedRetryHistory(c, retryAttempts)
 
 		// 检查是否是xAI内容违规错误
-		if isXAIContentViolation(bizErr.StatusCode, bizErr.Error.Message) {
+		if relayMode != relayconstant.RelayModeSystemOne && isXAIContentViolation(bizErr.StatusCode, bizErr.Error.Message) {
 			// xAI内容违规：记录扣费日志并立即停止重试
 			recordXAIContentViolationCharge(ctx, c, channelHistory, retryAttempts)
 			go processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, bizErr, originalModel)
@@ -308,7 +314,7 @@ func Relay(c *gin.Context) {
 		c.Set("admin_channel_history", channelHistory)
 
 		// 把 429 友好化文案应用到 retryAttempts 的最终条目和 bizErr，保持一致
-		if bizErr.StatusCode == http.StatusTooManyRequests {
+		if relayMode != relayconstant.RelayModeSystemOne && bizErr.StatusCode == http.StatusTooManyRequests {
 			bizErr.Error.Message = "The current group upstream load is saturated, please try again later."
 			if n := len(retryAttempts); n > 0 {
 				retryAttempts[n-1].Error = bizErr.Error.Message
@@ -316,7 +322,7 @@ func Relay(c *gin.Context) {
 		}
 
 		// xAI 内容违规已在循环内单独记录扣费日志，跳过最终错误日志
-		if !isXAIContentViolation(bizErr.StatusCode, bizErr.Error.Message) {
+		if relayMode == relayconstant.RelayModeSystemOne || !isXAIContentViolation(bizErr.StatusCode, bizErr.Error.Message) {
 			recordFinalErrorLog(ctx, c, bizErr, retryAttempts, channelHistory, service.GetAffinityLogTag(c))
 		}
 
@@ -506,6 +512,9 @@ func getRetryKeywords() []string {
 }
 
 func shouldRetry(c *gin.Context, statusCode int, message string) bool {
+	if c.GetBool("systemone_no_retry") {
+		return false
+	}
 	// 如果指定了特定渠道，不允许重试
 	if _, ok := c.Get("specific_channel_id"); ok {
 		return false

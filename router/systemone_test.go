@@ -62,12 +62,24 @@ func TestSystemOneRouteAuthRetryAndLogs(t *testing.T) {
 			}
 			assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 			assert.Equal(t, "jev-latest", body.Model)
+			if body.State == "rate" {
+				w.Header().Set("Retry-After", "7")
+				w.WriteHeader(429)
+				_, _ = io.WriteString(w, `{"detail":"TypeSafe rate limit reached"}`)
+				return
+			}
+			if body.State == "forbidden" {
+				w.WriteHeader(403)
+				_, _ = io.WriteString(w, `{"detail":"content violates usage guidelines"}`)
+				return
+			}
 			if body.State == "invalid" {
 				w.WriteHeader(422)
 				_, _ = io.WriteString(w, `{"detail":"invalid question"}`)
 				return
 			}
 			if body.State == "retry" && index == 0 {
+				w.Header().Set("Retry-After", "7")
 				w.WriteHeader(529)
 				_, _ = io.WriteString(w, `{"detail":"overloaded"}`)
 				return
@@ -81,6 +93,12 @@ func TestSystemOneRouteAuthRetryAndLogs(t *testing.T) {
 		require.NoError(t, ch.Insert())
 	}
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		if c.GetHeader("X-Test-Skip-Retry") == "true" {
+			c.Set("affinity_skip_retry", true)
+		}
+		c.Next()
+	})
 	SetRelayRouter(r)
 	for _, auth := range []string{"", "Bearer invalid", "Bearer sk-systemoneroute"} {
 		req := httptest.NewRequest("POST", "/v1/systemone", strings.NewReader(`{"model":"jev-latest","state":"hello","questions":{"check":{"type":"noul","instructions":"Greeting?"}}}`))
@@ -95,6 +113,7 @@ func TestSystemOneRouteAuthRetryAndLogs(t *testing.T) {
 		} else {
 			require.Equal(t, 200, w.Code, w.Body.String())
 			assert.Equal(t, response, w.Body.String())
+			assert.Empty(t, w.Header().Get("Retry-After"))
 		}
 	}
 	for _, state := range []string{"invalid", "retry"} {
@@ -141,4 +160,46 @@ func TestSystemOneRouteAuthRetryAndLogs(t *testing.T) {
 	assert.Equal(t, "success", attempts[1].Outcome)
 	assert.EqualValues(t, 1000, attempts[1].Prompt)
 	assert.EqualValues(t, 200, attempts[1].Completion)
+	for _, tc := range []struct {
+		name, state string
+		skip        bool
+		status      int
+		message     string
+		calls       int32
+	}{
+		{"rate", "rate", false, 429, "TypeSafe rate limit reached", 2},
+		{"forbidden", "forbidden", false, 403, "content violates usage guidelines", 1},
+		{"skip", "rate", true, 429, "TypeSafe rate limit reached", 1},
+		{"quota", "hello", false, 403, "insufficient", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := calls[0].Load() + calls[1].Load()
+			if tc.name == "quota" {
+				require.NoError(t, db.Model(&model.Token{}).Where("id = ?", token.Id).Update("remain_quota", 1).Error)
+			}
+			req := httptest.NewRequest("POST", "/v1/systemone", strings.NewReader(`{"model":"jev-latest","state":"`+tc.state+`","questions":{"check":{"type":"noul","instructions":"Greeting?"}}}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer sk-systemoneroute")
+			req.Header.Set("X-Request-ID", "review-"+tc.name)
+			if tc.skip {
+				req.Header.Set("X-Test-Skip-Retry", "true")
+			}
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			require.Equal(t, tc.status, w.Code, w.Body.String())
+			require.Contains(t, w.Body.String(), tc.message)
+			require.Equal(t, "review-"+tc.name, w.Header().Get("X-Request-ID"))
+			if tc.state == "rate" {
+				require.Equal(t, "7", w.Header().Get("Retry-After"))
+			}
+			require.Equal(t, tc.calls, calls[0].Load()+calls[1].Load()-before)
+			require.NoError(t, db.First(&user, user.Id).Error)
+			require.EqualValues(t, 99958, user.Quota)
+			var entries []model.Log
+			require.NoError(t, db.Where("x_request_id = ?", "review-"+tc.name).Find(&entries).Error)
+			require.Len(t, entries, 1)
+			require.Equal(t, model.LogTypeError, entries[0].Type)
+			require.Zero(t, entries[0].Quota)
+		})
+	}
 }

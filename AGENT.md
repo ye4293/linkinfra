@@ -81,6 +81,8 @@ Responses 流式错误测试若不验证 token 计费，使用不含文本的状
 
 模型映射的消费日志沿用既有约定：`model_name` 保存调用方原模型名，`other` 包含 `origin_model_name` 和 `is_model_mapped`；测试应断言这些字段及实际扣费，不假定 `other` 一定包含映射后的名称。
 
+新协议的计费回归需覆盖批量更新、更新中途失败、请求期间改价和十进制取整边界；不能仅验证正常余额。System One 使用即时事务及请求价格快照，避免部分扣费和浮点向上取整多扣。Windows PowerShell 管道向 Python 传中文脚本可能丢字符，含中文文件编辑优先使用 apply_patch。
+
 ### 更新记录
 每次通过 Claude Code 完成代码变更并 commit 后，**必须**同步更新 `docs/CHANGELOG.md`。
 

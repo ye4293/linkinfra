@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -101,6 +101,7 @@ func ParseSystemOneUsage(body []byte) (*model.Usage, error) {
 
 // RelaySystemOneHelper 使用原生协议请求上游，复用通用结算和消费日志。
 func RelaySystemOneHelper(c *gin.Context) *model.ErrorWithStatusCode {
+	c.Writer.Header().Del("Retry-After")
 	start := time.Now()
 	ctx := context.WithoutCancel(c.Request.Context())
 	body, err := common.GetRequestBody(c)
@@ -130,28 +131,37 @@ func RelaySystemOneHelper(c *gin.Context) *model.ErrorWithStatusCode {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	channel.ApplyHeadersOverride(req, meta)
-	modelRatio, groupRatio := common.GetModelRatio(meta.BillingModelName()), meta.CombinedGroupRatio()
-	ratio := modelRatio * groupRatio
-	billingRequest := &model.GeneralOpenAIRequest{Model: actual}
+	tariff, err := newSystemOneTariff(meta)
+	if err != nil {
+		c.Set("systemone_no_retry", true)
+		return openai.ErrorWrapper(err, "invalid_systemone_price", http.StatusInternalServerError)
+	}
 	// 字节数只用于预估额度；最终只采用 TypeSafe 返回的实际 token 用量。
-	estimate := (float64(config.PreConsumedQuota) + float64(len(body))) * ratio
-	if price := common.GetModelPrice(meta.BillingModelName(), false); price != -1 {
-		estimate = price * 500000 * groupRatio
+	if config.PreConsumedQuota < 0 || config.PreConsumedQuota > int64(int(^uint(0)>>1)-len(body)) {
+		c.Set("systemone_no_retry", true)
+		return openai.ErrorWrapper(fmt.Errorf("invalid reservation configuration"), "invalid_systemone_price", http.StatusInternalServerError)
 	}
-	if math.IsNaN(estimate) || math.IsInf(estimate, 0) || estimate < 0 || estimate >= float64(math.MaxInt64) {
-		return openai.ErrorWrapper(fmt.Errorf("invalid systemone price"), "invalid_systemone_price", http.StatusInternalServerError)
+	reserved, err := tariff.quota(len(body)+int(config.PreConsumedQuota), 0)
+	if err != nil {
+		c.Set("systemone_no_retry", true)
+		return openai.ErrorWrapper(err, "invalid_systemone_price", http.StatusInternalServerError)
 	}
-	reserved := int64(math.Ceil(estimate))
 	// 始终检查令牌和用户两种额度，避免用户余额充足时绕过令牌额度。
-	if err := dbmodel.PreConsumeTokenQuota(meta.TokenId, reserved); err != nil {
-		return openai.ErrorWrapper(err, "insufficient_systemone_quota", http.StatusForbidden)
+	if err := dbmodel.AdjustRelayQuota(meta.UserId, meta.TokenId, reserved, true); err != nil {
+		c.Set("systemone_no_retry", true)
+		if errors.Is(err, dbmodel.ErrInsufficientRelayQuota) {
+			return openai.ErrorWrapper(err, "insufficient_systemone_quota", http.StatusForbidden)
+		}
+		logger.Error(ctx, "systemone reservation failed: "+err.Error())
+		return openai.ErrorWrapper(fmt.Errorf("systemone quota reservation failed"), "systemone_billing_failed", http.StatusInternalServerError)
 	}
 	_ = dbmodel.CacheUpdateUserQuota2(meta.UserId)
 	settled := false
 	defer func() {
 		if !settled {
 			if reserved != 0 {
-				if err := dbmodel.PostConsumeTokenQuota(meta.TokenId, -reserved); err != nil {
+				if err := dbmodel.AdjustRelayQuota(meta.UserId, meta.TokenId, -reserved, false); err != nil {
+					c.Set("systemone_no_retry", true)
 					logger.Error(ctx, "systemone quota refund failed: "+err.Error())
 				}
 			}
@@ -171,6 +181,9 @@ func RelaySystemOneHelper(c *gin.Context) *model.ErrorWithStatusCode {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+			c.Header("Retry-After", retryAfter)
+		}
 		return systemOneError(resp)
 	}
 	responseBody, err := io.ReadAll(resp.Body)
@@ -181,19 +194,38 @@ func RelaySystemOneHelper(c *gin.Context) *model.ErrorWithStatusCode {
 	if err != nil {
 		return openai.ErrorWrapper(err, "invalid_systemone_response", http.StatusBadGateway)
 	}
-	// 成功返回前执行结算；数据库是否批量更新仍遵循全局配置。
-	postConsumeQuota(ctx, c, usage, meta, billingRequest, ratio, reserved, modelRatio, groupRatio,
-		time.Since(start).Seconds(), c.GetHeader("X-Title"), c.GetHeader("HTTP-Referer"), 0)
+	if err := validateSystemOneAnswers(body, responseBody); err != nil {
+		return openai.ErrorWrapper(err, "invalid_systemone_response", http.StatusBadGateway)
+	}
+	quota, err := tariff.quota(usage.PromptTokens, usage.CompletionTokens)
+	if err != nil {
+		c.Set("systemone_no_retry", true)
+		return openai.ErrorWrapper(err, "invalid_systemone_quota", http.StatusInternalServerError)
+	}
+	if err := dbmodel.SettleRelayQuota(meta.UserId, meta.TokenId, meta.ChannelId, reserved, quota); err != nil {
+		c.Set("systemone_no_retry", true)
+		logger.Error(ctx, "systemone settlement failed: "+err.Error())
+		return openai.ErrorWrapper(fmt.Errorf("systemone quota settlement failed"), "systemone_billing_failed", http.StatusInternalServerError)
+	}
 	settled = true
+	recordSystemOneConsumption(ctx, c, meta, usage, tariff, quota, time.Since(start).Seconds())
 	c.Header("X-Request-ID", c.GetString("X-Request-ID"))
 	c.Data(http.StatusOK, "application/json", responseBody)
 	return nil
 }
 
-func systemOneError(resp *http.Response) *model.ErrorWithStatusCode {
+func systemOneError(resp *http.Response) *model.ErrorWithStatusCode { return SystemOneError(resp) }
+
+// SystemOneError 同时供业务 relay 和后台渠道测试解析原生错误。
+func SystemOneError(resp *http.Response) *model.ErrorWithStatusCode {
+	defer resp.Body.Close()
+	status := resp.StatusCode
+	if status >= 200 && status < 300 {
+		status = http.StatusBadGateway
+	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return openai.ErrorWrapper(fmt.Errorf("TypeSafe upstream returned HTTP %d", resp.StatusCode), "upstream_error", resp.StatusCode)
+		return openai.ErrorWrapper(fmt.Errorf("TypeSafe upstream returned HTTP %d", resp.StatusCode), "upstream_error", status)
 	}
 	// TypeSafe 的参数校验错误使用 detail（字符串或数组）。
 	var details struct {
@@ -202,9 +234,59 @@ func systemOneError(resp *http.Response) *model.ErrorWithStatusCode {
 	if json.Unmarshal(body, &details) == nil && len(details.Detail) > 0 && string(details.Detail) != "null" {
 		message := string(details.Detail)
 		_ = json.Unmarshal(details.Detail, &message)
-		return openai.ErrorWrapper(fmt.Errorf("%s", message), "upstream_error", resp.StatusCode)
+		if strings.TrimSpace(message) != "" {
+			return openai.ErrorWrapper(fmt.Errorf("%s", message), "upstream_error", status)
+		}
 	}
 	copyResponse := *resp
 	copyResponse.Body = io.NopCloser(bytes.NewReader(body))
-	return util.RelayErrorHandler(&copyResponse)
+	apiErr := util.RelayErrorHandler(&copyResponse)
+	if apiErr.Error.Message == "" {
+		apiErr.Error.Message = fmt.Sprintf("TypeSafe upstream returned HTTP %d", resp.StatusCode)
+	}
+	// 204/其他非协议成功响应应当是网关错误，不能返回一个带 error 的 2xx。
+	apiErr.StatusCode = status
+	return apiErr
+}
+
+func validateSystemOneAnswers(requestBody, responseBody []byte) error {
+	var request struct {
+		Questions map[string]struct {
+			Type string `json:"type"`
+		} `json:"questions"`
+	}
+	var response struct {
+		Answers map[string]struct {
+			Type   string   `json:"type"`
+			Noul   *float64 `json:"noul"`
+			Choice *string  `json:"choice"`
+			Score  *float64 `json:"score"`
+		} `json:"answers"`
+	}
+	if json.Unmarshal(requestBody, &request) != nil || json.Unmarshal(responseBody, &response) != nil {
+		return fmt.Errorf("invalid systemone answers")
+	}
+	for id, q := range request.Questions {
+		a, ok := response.Answers[id]
+		if !ok || a.Type != q.Type {
+			return fmt.Errorf("systemone answer missing or has incorrect type")
+		}
+		switch q.Type {
+		case "noul":
+			if a.Noul == nil || *a.Noul < 0 || *a.Noul > 1 {
+				return fmt.Errorf("invalid systemone noul answer")
+			}
+		case "choice":
+			if a.Choice == nil {
+				return fmt.Errorf("invalid systemone choice answer")
+			}
+		case "score":
+			if a.Score == nil {
+				return fmt.Errorf("invalid systemone score answer")
+			}
+		default:
+			return fmt.Errorf("invalid systemone answer type")
+		}
+	}
+	return nil
 }
