@@ -71,6 +71,10 @@ git worktree remove /tmp/dev-test    # 用完清理
 
 Responses 流式错误测试若不验证 token 计费，使用不含文本的状态事件模拟流已开始；文本 delta 会触发 tokenizer，测试需先初始化 tokenizer 才能使用。
 
+Responses 失败事件兼容必须解析实际下游 SSE，覆盖上游已有 `response.failed` 的数字错误码、空错误对象及 ping 后 EOF；不能只测事件构造函数。完整路由验收应提供备用渠道，并断言实际请求次数、额度和错误日志。渠道错误处理应在请求生命周期内完成，避免测试清理或运行时配置变化与后台任务竞争。
+
+本地 Codex 联调需为回环地址设置 NO_PROXY，并隔离继承的会话/daemon 环境；使用显式的临时 provider 配置，不修改用户配置。只有实际经过网关和上游的请求才算联调成功，CLI 启动失败或超时不算兼容证据。
+
 日统计测试可以注入业务日期，但数据库租约必须使用独立的实时钟，避免历史日期让租约一创建就过期。MySQL 续租同时递增 heartbeat，避免同秒更新相同 lease_until 时 RowsAffected=0 被误判为失锁。
 
 数据库性能测试应插入代表性数据并 ANALYZE 后再断言索引选择，空表计划不能代表实际查询。SQLite 测试的批量大小按“行数 × 字段数”计算参数上限；PG 的 VACUUM 独立执行，复制显式 ID 后需校准测试表自己的 identity 序列。

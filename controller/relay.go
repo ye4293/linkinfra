@@ -3110,9 +3110,9 @@ func RelayResponse(c *gin.Context) {
 	util.PublishFailedRetryHistory(c, retryAttempts)
 	// 普通失败不再每次写 DB，统一在所有重试结束后由 recordFinalErrorLog 写一条
 
-	// 处理首次失败的渠道错误（包括自动禁用逻辑）
+	// 在当前请求内完成渠道错误处理，避免返回后继续读取配置或错过重试前的状态更新。
 	if !c.GetBool("responses_state_record_failed") {
-		go processChannelRelayError(ctx, userId, originalChannelId, originalChannelName, originalKeyIndex, relayError, originalModel)
+		processChannelRelayError(ctx, userId, originalChannelId, originalChannelName, originalKeyIndex, relayError, originalModel)
 	}
 
 	// 记录所有已失败的渠道ID，用于重试时排除
@@ -3205,13 +3205,13 @@ func RelayResponse(c *gin.Context) {
 		if c.Writer.Written() || c.GetBool("responses_state_record_failed") || !shouldRetry(c, relayError.StatusCode, relayError.Error.Message) {
 			logger.Warnf(ctx, "Retry stopped: status %d is not retryable, stopping further retries", relayError.StatusCode)
 			if !c.GetBool("responses_state_record_failed") {
-				go processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
+				processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
 			}
 			break
 		}
 
 		if !c.GetBool("responses_state_record_failed") {
-			go processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
+			processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
 		}
 	}
 

@@ -427,6 +427,15 @@ func doNativeOpenaiResponse(c *gin.Context, resp *http.Response, meta *util.Rela
 	return openaiResponse.Usage, nil
 }
 
+// writeResponsesFailureEvent 在流已经开始输出后写入规范的 response.failed 终止事件。
+// 必须带 event 行和嵌套的 response.error，否则 Codex 等官方客户端会忽略事件，
+// 只报 "stream closed before response.completed" 并不断重试。
+func writeResponsesFailureEvent(c *gin.Context, responseID string, failure *model.ErrorWithStatusCode) {
+	payload := responsesFailureEvent(responseID, failure)
+	c.Writer.Write([]byte(fmt.Sprintf("event: response.failed\ndata: %s\n\n", payload)))
+	_ = helper.FlushWriter(c)
+}
+
 // doNativeOpenaiResponseStream 处理 openai response 流式响应
 // claude 流式响应格式为 SSE，每行以 "data: " 开头，后跟 JSON 对象
 func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *util.RelayMeta) (usageMetadata *openai.ResponseUsage, err *model.ErrorWithStatusCode) {
@@ -456,6 +465,7 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 	var openaiErr *model.ErrorWithStatusCode
 	terminal := false
 	errorForwarded := false
+	streamResponseID := ""
 	var fullText strings.Builder // 累积完整文本
 	webSearchToolCallCount := 0
 	helper.StreamScannerHandler(c, resp, meta, func(data string) bool {
@@ -465,12 +475,22 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 			openaiErr = openai.ErrorWrapper(err, "unmarshal_response_failed", http.StatusInternalServerError)
 			return false
 		}
+		if streamResponse.Response != nil && streamResponse.Response.ID != "" {
+			streamResponseID = streamResponse.Response.ID
+		}
 		if payloadErr := responsesPayloadError([]byte(data)); payloadErr != nil {
 			openaiErr = payloadErr
 			logger.Warnf(c.Request.Context(), "Responses stream failed: channel=%d keyIndex=%d event=%s code=%v status=%d upstream_request_id=%s",
 				c.GetInt("channel_id"), c.GetInt("key_index"), streamResponse.Type, payloadErr.Error.Code, payloadErr.StatusCode, resp.Header.Get("X-Request-ID"))
 			if c.Writer.Written() {
+				// 已有 failed 事件先规范化再发送，避免客户端在畸形终止事件处停止。
+				if streamResponse.Type == "response.failed" && !responsesTerminalFailure([]byte(data)) {
+					data = normalizeResponsesFailureEvent([]byte(data), streamResponseID, payloadErr)
+				}
 				helper.OpenaiResponseChunkData(c, streamResponse, data)
+				if streamResponse.Type != "response.failed" {
+					writeResponsesFailureEvent(c, streamResponseID, payloadErr)
+				}
 				errorForwarded = true
 			}
 			return false
@@ -480,8 +500,9 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 			openaiErr = openai.ErrorWrapper(stateErr, "responses_state_cache_unavailable", http.StatusServiceUnavailable)
 			// 流已经开始时发送明确错误，不能重放请求或伪造 completed。
 			if c.Writer.Written() {
-				payload, _ := json.Marshal(gin.H{"type": "error", "error": gin.H{"code": "responses_state_cache_unavailable", "message": stateErr.Error()}})
-				helper.StringData(c, string(payload))
+				// 状态未记录成功时不能把 response id 透给客户端，否则它会拿去当
+				// previous_response_id，而我们没有对应的 provider 绑定。
+				writeResponsesFailureEvent(c, "", openaiErr)
 				errorForwarded = true
 			}
 			return false
@@ -545,8 +566,7 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 
 	if openaiErr != nil {
 		if c.Writer.Written() && !errorForwarded {
-			payload, _ := json.Marshal(gin.H{"type": "error", "code": openaiErr.Error.Code, "message": openaiErr.Error.Message})
-			helper.StringData(c, string(payload))
+			writeResponsesFailureEvent(c, streamResponseID, openaiErr)
 		}
 		if !c.Writer.Written() {
 			// 首个事件前失败时仍由外层返回 JSON，不能残留 SSE 响应头。

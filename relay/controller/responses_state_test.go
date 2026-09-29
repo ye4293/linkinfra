@@ -16,6 +16,7 @@ import (
 	"github.com/songquanpeng/one-api/relay/util"
 	"github.com/songquanpeng/one-api/service"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestResponsesModelMappingPreservesHistoryAndExplicitValues(t *testing.T) {
@@ -100,7 +101,12 @@ func TestResponsesStreamCacheFailureBeforeAndAfterFirstEvent(t *testing.T) {
 		require.True(t, c.GetBool("responses_state_record_failed"))
 		require.NotContains(t, w.Body.String(), "resp_failure")
 		if started {
-			require.Contains(t, w.Body.String(), "responses_state_cache_unavailable")
+			// 流已开始时必须以客户端能识别的 response.failed 收尾，且该事件同样不带 response id。
+			body := w.Body.String()
+			require.Equal(t, 1, strings.Count(body, "event: response.failed"))
+			failed := body[strings.LastIndex(body, "data: ")+len("data: "):]
+			require.Equal(t, "responses_state_cache_unavailable", gjson.Get(failed, "response.error.code").String())
+			require.False(t, gjson.Get(failed, "response.id").Exists())
 			require.Equal(t, "text/event-stream", w.Header().Get("Content-Type"))
 		} else {
 			require.False(t, c.Writer.Written())

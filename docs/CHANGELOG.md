@@ -6,6 +6,31 @@
 
 ---
 
+## 2026-09-30
+
+### release: v0.1.40 Responses 兼容修复
+- **分支**: `main`
+- **类型**: release / docs
+- **涉及文件**: `VERSION`、`docs/releases/v0.1.40-responses-compat.md`、本次 Responses 修复及验收文档。
+- **说明**: 远端最新版本 v0.1.39，用户授权发布下一补丁版本 v0.1.40；tag 推送触发现有单一工作流构建 amd64/arm64 镜像至 Docker Hub 和 GHCR。详细修改、验证证据和后续工作入口见发布文档。
+
+### fix(responses): 补齐上游失败事件规范化与 ping 后错误验收
+- **分支**: `main`
+- **类型**: fix / test
+- **涉及文件**: `controller/relay.go`、`relay/controller/responses_error.go`、`relay/controller/opeai_response.go`、Responses 回归测试、`router/responses_lifecycle_test.go`、验收文档、`AGENT.md`
+- **说明**: 上游 `response.failed` 的数字错误码、空/null/缺失错误和空白字段先规范化再发送，保证单个终止事件，保留序号、响应元数据、大整数和扩展字段；合法事件保持原样。Responses 渠道错误处理在请求返回前完成，修复生命周期测试复现的后台配置读取竞态。
+- **验证**: 最终源码隔离副本全量 `go test ./... -count=1`（27 包）、`go build ./...`、`go vet ./...` 及六包相关 race 通过。10 个 SSE 边界用例、五个完整路由场景通过；备用渠道存在时流开始后仍不重放，首个输出前 HTTP 429 保留原 Provider 重试。真实 Codex CLI 0.159.0 经本地生产路由调用官方无余额 key：正常读取 1.92s、先发 ping 2.42s，均直接报 `Quota exceeded`，每轮只调用上游一次，零扣费、无消费日志。未执行真实 Azure 密文联调或生产部署。
+- **关联计划**: `docs/plans/2026-09-30-responses-failure-compat.md`
+- **最终审查**: `docs/responses-compat-release-2026-09-30.md`
+
+### fix(responses): 流中止改发规范的 response.failed 终止事件
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `relay/controller/responses_error.go`、`relay/controller/opeai_response.go`、`relay/controller/responses_error_test.go`、`relay/controller/responses_state_test.go`
+- **说明**: 此前流已开始输出后中止时写的是裸 `{"type":"error",...}`（或直接转发上游同形状的事件）。Codex 的 `process_responses_event` 对 `type == "error"` 只处理 flex 不可用，其余静默丢弃，于是客户端只看到流提前结束，报 `stream disconnected before completion: stream closed before response.completed` 并反复重试，真实错误（限流、上下文超限等）永远透不出来。现在统一补一个带嵌套 `response.error{code,type,message}` 的 `response.failed` 事件（含 `event:` 行，code 强制转字符串），上游已给出合规 `response.failed` 时不重复追加；状态缓存失败路径仍不透出 response id。
+- **验证**: `go build ./...`、`go vet ./...`（`output/` 草稿目录的既有报错无关）、`go test ./relay/controller/ -run TestResponses` 全部通过；新增回归覆盖裸 error 事件、缺终止事件、上游合规 failed 三种中止路径。真实联调：用无余额的 OpenAI key 打 `gpt-5.1` 流式 `/v1/responses`，上游返回 200 且事件序列为 `response.created` → `response.in_progress` → `error(credit_balance_exhausted)` → `response.failed`；旧二进制在 `error` 事件就停掉 scanner，输出以 `event: error` 结束、无终止事件（Codex 侧即报 stream closed before response.completed），新二进制补出带嵌套 `response.error` 的 `response.failed`，内部状态 429、只写错误日志、不写消费日志、配额未扣。
+- **Codex 实测**: 本地 Codex CLI 0.159.0（`wire_api=responses`）对同一 key、同一渠道对照：修复前依次报 `Reconnecting... 1/5`～`5/5`，最终 `stream disconnected before completion: stream closed before response.completed`，linkinfra 共收到 6 次请求、耗时 13s；修复后首轮即报 `Quota exceeded. Check your plan and billing details.`，只有 1 次请求、耗时 2s，不再重试。补充测试：状态缓存失败路径断言以 `response.failed` 收尾且不带 response id（该断言在修复前代码上失败）；`TestResponsesFailureEventCodeIsString` 固定非字符串 code 转字符串与空错误兜底。
+
 ## 2026-09-28
 
 ### fix(release): TypeSafe 全链路验收与 v0.1.39 发布

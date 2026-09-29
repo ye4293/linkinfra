@@ -29,4 +29,12 @@
 
 审查补充：具体错误码优先于通用错误类型，避免 `rate_limit_exceeded` 或 `invalid_api_key` 与 `invalid_request_error` 同时出现时错误地映射为 400；显式 HTTP 错误状态仍优先。
 
+2026-09-30 补充：流已开始输出后的中止事件改为规范的 `response.failed`（带嵌套 `response.error`），不再用裸 `{"type":"error"}`。Codex 只把 `response.failed` 当致命错误，`error` 事件除 flex 不可用外会被丢弃，导致客户端只报 `stream closed before response.completed` 并反复重试。已用本地 Codex CLI 0.159.0 与无余额 OpenAI key 实测对照：修复前重试 5 次后仍报 `stream closed before response.completed`；修复后首轮即报 `Quota exceeded`，不再重试。
+
 官方协议参考：[Responses streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events)。本次未执行真实 Azure 联调或生产部署。
+
+2026-09-30 二次验收：补齐上游已有 `response.failed` 的数字错误码及空错误对象兼容。畸形失败事件在发送前规范化，不先透出错误事件再追加第二个终止事件；合法事件保持原样。具体结果见 [修复与发布前验收](responses-compat-release-2026-09-30.md)。
+
+ping 默认关闭，可由后台选项启用。Responses 等待上游 HTTP 头期间禁用 ping，因此首个输出前 HTTP 429 仍能按原策略重试并返回真实状态。收到上游 200 后可发送 ping；之后失败时 HTTP 已固定为 200，通过 `response.failed` 传递错误并记录内部业务状态。真实 Codex CLI 已验证先发 ping 后收到官方无余额错误仍可立即结束，无重连和扣费。
+
+`Upstream Responses stream ended without a completed or incomplete response event` 表示未收到正常终止事件，内部错误码为 `responses_stream_incomplete`，状态 502。上游断流、超时、空流或仅 `[DONE]` 均可能触发；它不是限流的证据，也不代表 ping 一定造成了断流。修复保证异常被明确报告，不会将真实不完整响应伪造成成功。
