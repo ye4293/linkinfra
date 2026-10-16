@@ -3,6 +3,9 @@ package controller
 import (
 	"context"
 
+	"github.com/gin-gonic/gin"
+	relaymodel "github.com/songquanpeng/one-api/relay/model"
+
 	dbmodel "github.com/songquanpeng/one-api/model"
 )
 
@@ -50,4 +53,21 @@ func getLastRetryFallbackChannel(channelID int) *dbmodel.Channel {
 		return channel
 	}
 	return nil
+}
+
+// responsesRetryStopReason 区分协议边界与普通上游错误，便于解释单次失败日志。
+func responsesRetryStopReason(c *gin.Context, relayError *relaymodel.ErrorWithStatusCode) string {
+	if c.Writer.Written() {
+		return "response_already_started"
+	}
+	if c.GetBool("responses_state_record_failed") {
+		return "response_state_record_failed"
+	}
+	if _, forced := c.Get("specific_channel_id"); forced {
+		return "specific_channel_requested"
+	}
+	if !shouldRetry(c, relayError.StatusCode, relayError.Error.Message) {
+		return "non_retryable_error"
+	}
+	return ""
 }

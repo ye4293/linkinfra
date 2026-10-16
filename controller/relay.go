@@ -3119,36 +3119,33 @@ func RelayResponse(c *gin.Context) {
 	failedChannelIds := []int{channelId}
 
 	group := c.GetString("group")
-	lastResponseChannel := getLastRetryFallbackChannel(originalChannelId)
 	retryTimes := config.RetryTimes
-	if c.Writer.Written() || c.GetBool("responses_state_record_failed") || !shouldRetry(c, relayError.StatusCode, relayError.Error.Message) {
-		logger.Errorf(ctx, "claude relay error happen, status code is %d, won't retry in this case", relayError.StatusCode)
+	stopReason := responsesRetryStopReason(c, relayError)
+	if stopReason != "" {
+		logger.Infof(ctx, "Responses retry stopped: %s", stopReason)
 		retryTimes = 0
 	}
 	for i := retryTimes; i > 0; i-- {
 		currentAttempt := retryTimes - i + 1
 		channel, err := selectRetryChannel(ctx, group, originalModel, &failedChannelIds)
 		if err != nil {
-			if lastResponseChannel == nil || dbmodel.HasRetryBoundary(ctx) {
-				logger.Errorf(ctx, "No channels available after cycling: %v", err)
-				break
+			stopReason = "no_available_channel"
+			if dbmodel.ResponseStateChannel(ctx) > 0 {
+				stopReason = "response_state_channel_exhausted"
+			} else if dbmodel.RetryProvider(ctx) != "" {
+				stopReason = "provider_channels_exhausted"
 			}
-			logger.Infof(ctx, "No channel found after cycling, retrying with last channel #%d (%d/%d)", lastResponseChannel.Id, currentAttempt, retryTimes)
-			channel = lastResponseChannel
+			logger.Infof(ctx, "Responses retry stopped: %s: %v", stopReason, err)
+			break
 		}
-		lastResponseChannel = channel
 
 		// 获取重试原因 - 直接使用原始错误消息
 		retryReason := relayError.Error.Message
 
-		// 获取新渠道的key信息
-		newKeyIndex := 0
-		isMultiKey := false
-		if channel.MultiKeyInfo.IsMultiKey {
-			isMultiKey = true
-			// 获取下一个可用key的索引
-			_, newKeyIndex, _ = channel.GetNextAvailableKey()
-		}
+		// 先完成选 key，再记录实际使用的索引，避免日志预取导致多轮转一次。
+		middleware.SetupContextForSelectedChannel(c, channel, originalModel)
+		newKeyIndex := c.GetInt("key_index")
+		isMultiKey := channel.MultiKeyInfo.IsMultiKey
 
 		// 生成详细的重试日志
 		retryLog := formatRetryLog(ctx, originalChannelId, originalChannelName, originalKeyIndex,
@@ -3166,9 +3163,8 @@ func RelayResponse(c *gin.Context) {
 			}
 		}
 
-		logger.Infof(ctx, "Using channel #%d to retry Claude request (remain times %d)", channel.Id, i)
+		logger.Infof(ctx, "Using channel #%d to retry Responses request (remain times %d)", channel.Id, i)
 
-		middleware.SetupContextForSelectedChannel(c, channel, originalModel)
 		requestBody, _ := common.GetRequestBody(c)
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 		util.PublishFailedRetryHistory(c, retryAttempts)
@@ -3195,15 +3191,15 @@ func RelayResponse(c *gin.Context) {
 			Attempt:     currentAttempt + 1,
 			ChannelId:   channel.Id,
 			ChannelName: channel.Name,
-			KeyIndex:    newKeyIndex,
+			KeyIndex:    keyIndex,
 			Duration:    channelDuration,
 			Error:       relayError.Error.Message,
 			Status:      relayError.StatusCode,
 		})
 		util.PublishFailedRetryHistory(c, retryAttempts)
 
-		if c.Writer.Written() || c.GetBool("responses_state_record_failed") || !shouldRetry(c, relayError.StatusCode, relayError.Error.Message) {
-			logger.Warnf(ctx, "Retry stopped: status %d is not retryable, stopping further retries", relayError.StatusCode)
+		if stopReason = responsesRetryStopReason(c, relayError); stopReason != "" {
+			logger.Infof(ctx, "Responses retry stopped: %s (status=%d)", stopReason, relayError.StatusCode)
 			if !c.GetBool("responses_state_record_failed") {
 				processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
 			}
@@ -3216,7 +3212,12 @@ func RelayResponse(c *gin.Context) {
 	}
 
 	if relayError != nil {
-		// 记录渠道历史到上下文中
+		// 保留真实尝试的聚合明细，同时记录为何没有继续重试。
+		if stopReason == "" {
+			stopReason = "retry_limit_reached"
+		}
+		retryAttempts[len(retryAttempts)-1].StopReason = stopReason
+		util.PublishFailedRetryHistory(c, retryAttempts)
 		c.Set("admin_channel_history", channelHistory)
 		recordFinalErrorLog(ctx, c, relayError, retryAttempts, channelHistory, service.GetAffinityLogTag(c))
 		if c.Writer.Written() {

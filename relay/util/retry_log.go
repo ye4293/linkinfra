@@ -17,6 +17,7 @@ type RetryAttempt struct {
 	Duration    float64 `json:"duration"`
 	Error       string  `json:"error,omitempty"`
 	Status      int     `json:"status"`
+	StopReason  string  `json:"stop_reason,omitempty"`
 }
 
 // PublishFailedRetryHistory 在 ctx 里写入"目前为止失败的所有尝试"的 JSON，

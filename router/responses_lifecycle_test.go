@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,7 +30,7 @@ import (
 
 // 通过完整鉴权、选渠和 RelayResponse 验证失败时不扣费、不重放。
 func TestResponsesFailureLifecycle(t *testing.T) {
-	for _, mode := range []string{"numeric", "empty", "ping_error", "ping_eof", "http429"} {
+	for _, mode := range []string{"numeric", "empty", "ping_error", "ping_eof", "http429", "first_event429"} {
 		t.Run(mode, func(t *testing.T) {
 			pingSeen := make(chan struct{})
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +44,10 @@ func TestResponsesFailureLifecycle(t *testing.T) {
 				w.Header().Set("Content-Type", "text/event-stream")
 				w.WriteHeader(200)
 				w.(http.Flusher).Flush()
+				if mode == "first_event429" {
+					_, _ = io.WriteString(w, "data: {\"type\":\"error\",\"code\":429,\"message\":\"Requests have exceeded the throughput limit\"}\n\n")
+					return
+				}
 				if strings.HasPrefix(mode, "ping_") {
 					select {
 					case <-pingSeen:
@@ -77,7 +82,7 @@ func TestResponsesFailureLifecycle(t *testing.T) {
 			body, err := io.ReadAll(res.Body)
 			res.Body.Close()
 			require.NoError(t, err)
-			if mode == "http429" {
+			if mode == "http429" || mode == "first_event429" {
 				require.Equal(t, 429, res.StatusCode, string(body))
 				require.NotContains(t, string(body), "event: ping")
 				fixture.assertFailure(t, 2)
@@ -216,6 +221,21 @@ func (f *responsesLifecycle) assertFailure(t *testing.T, expectedCalls int) {
 	require.Len(t, logs, 1)
 	require.Equal(t, model.LogTypeError, logs[0].Type)
 	require.Zero(t, logs[0].Quota)
+	parts := strings.SplitN(logs[0].Other, "retryHistory:", 2)
+	require.Len(t, parts, 2)
+	var attempts []util.RetryAttempt
+	require.NoError(t, json.NewDecoder(strings.NewReader(parts[1])).Decode(&attempts))
+	require.Len(t, attempts, expectedCalls)
+	for i, attempt := range attempts {
+		require.Equal(t, i+1, attempt.Attempt)
+		require.NotEmpty(t, attempt.Error)
+		require.GreaterOrEqual(t, attempt.Status, 400)
+		if i > 0 {
+			require.NotEqual(t, attempts[i-1].ChannelId, attempt.ChannelId)
+		}
+	}
+	require.NotEmpty(t, attempts[len(attempts)-1].StopReason)
+
 	t.Logf("upstream_requests=%d user_quota=%d token_quota=%d error_logs=%d consume_logs=0", f.calls.Load(), user.Quota, token.RemainQuota, len(logs))
 }
 
@@ -277,4 +297,36 @@ func runResponsesCodexLiveQuotaFailure(t *testing.T, key, codexBin string, withP
 			t.Log(scanner.Text())
 		}
 	}
+}
+
+// 模拟请求期间管理员禁用全部渠道，内存仍保留启用对象。
+func TestResponsesDoesNotFallbackToDisabledChannel(t *testing.T) {
+	var fixture *responsesLifecycle
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := fixture.db.Model(&model.Channel{}).Where("id > ?", 0).Update("status", common.ChannelStatusManuallyDisabled).Error; err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(429)
+		_, _ = io.WriteString(w, `{"error":{"message":"Requests have exceeded the throughput limit"}}`)
+	}))
+	t.Cleanup(upstream.Close)
+	fixture = newResponsesLifecycle(t, upstream.URL, "test-key", make(chan struct{}))
+	// 未配置 provider 时正常选择器允许循环，仍不能绕过数据库复用旧对象。
+	require.NoError(t, fixture.db.Model(&model.Channel{}).Where("id > ?", 0).Update("config", "{}").Error)
+	config.MemoryCacheEnabled = true
+	model.InitChannelCache()
+	req, err := http.NewRequest("POST", fixture.gateway.URL+"/v1/responses", strings.NewReader(`{"model":"gpt-5.1","input":"hello","stream":true}`))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer sk-responseslifecycle")
+	req.Header.Set("Content-Type", "application/json")
+	res, err := fixture.gateway.Client().Do(req)
+	require.NoError(t, err)
+	_, err = io.ReadAll(res.Body)
+	res.Body.Close()
+	require.NoError(t, err)
+	require.Equal(t, 429, res.StatusCode)
+	fixture.assertFailure(t, 1)
+	var log model.Log
+	require.NoError(t, fixture.db.First(&log).Error)
+	require.Contains(t, log.Other, `"stop_reason":"no_available_channel"`)
 }

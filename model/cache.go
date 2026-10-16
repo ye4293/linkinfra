@@ -409,8 +409,8 @@ func CacheGetRandomSatisfiedChannel(ctx context.Context, group string, model str
 				if isExcludedChannel(channelID, excludeIds) {
 					logger.Info(ctx, fmt.Sprintf("[Claude Cache] Cached channel %d is excluded, will select new channel", channelID))
 				} else {
-					// 尝试获取该 channel
-					channel, getErr := CacheGetChannel(channelID)
+					// 缓存只提供偏好，渠道状态和配置以数据库为准，避免禁用后仍被旧缓存选中。
+					channel, getErr := GetChannelById(channelID, true)
 					if getErr == nil && channel != nil {
 						// 验证该 channel 是否满足条件（group、model、状态）
 						if channel.Status == common.ChannelStatusEnabled {

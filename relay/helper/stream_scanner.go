@@ -42,12 +42,13 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *util.RelayM
 	}
 
 	var (
-		stopChan   = make(chan bool, 3) // 增加缓冲区避免阻塞
-		scanner    = bufio.NewScanner(resp.Body)
-		ticker     = time.NewTicker(streamingTimeout)
-		pingTicker *time.Ticker
-		writeMutex sync.Mutex     // Mutex to protect concurrent writes
-		wg         sync.WaitGroup // 用于等待所有 goroutine 退出
+		stopChan    = make(chan bool, 3)  // 增加缓冲区避免阻塞
+		scannerDone = make(chan struct{}) // 独立广播完成，不能让 ping 消费掉主请求的退出通知
+		scanner     = bufio.NewScanner(resp.Body)
+		ticker      = time.NewTicker(streamingTimeout)
+		pingTicker  *time.Ticker
+		writeMutex  sync.Mutex     // Mutex to protect concurrent writes
+		wg          sync.WaitGroup // 用于等待所有 goroutine 退出
 	)
 
 	pingEnabled := config.PingIntervalEnabled && !info.DisablePing
@@ -172,10 +173,11 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *util.RelayM
 	}
 
 	// Scanner goroutine with improved error handling
+	wg.Add(1)
 	common.RelayCtxGo(ctx, func() {
-		wg.Add(1)
 		defer func() {
-			wg.Done()
+			defer wg.Done()
+			defer close(scannerDone)
 			if r := recover(); r != nil {
 				logger.Error(c, fmt.Sprintf("scanner goroutine panic: %v", r))
 			}
@@ -252,6 +254,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *util.RelayM
 
 	// 主循环等待完成或超时
 	select {
+	case <-scannerDone:
+		logger.Info(c, "streaming finished")
 	case <-ticker.C:
 		// 超时处理逻辑
 		logger.Error(c, "streaming timeout")

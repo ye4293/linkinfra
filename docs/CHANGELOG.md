@@ -6,6 +6,15 @@
 
 ---
 
+## 2026-10-16
+
+### fix(responses): 禁用渠道路由校验及重试停止诊断
+- **分支**: `main`
+- **类型**: fix / test
+- **涉及文件**: `model/cache.go`、`middleware/distributor.go`、`controller/relay.go`、`controller/retry_policy.go`、`relay/util/retry_log.go`、`relay/helper/stream_scanner.go`、`controller/responses_disabled_cache_test.go`、`router/responses_lifecycle_test.go`
+- **说明**: response ID 与亲和命中后读取数据库中的最新渠道状态；Responses 选渠失败不再复用旧渠道对象。保留聚合重试明细，追加停止原因并记录实际 key 索引；修复 ping 消费扫描完成信号导致日志延迟落库的问题，覆盖 HTTP/SSE 首事件 429 及禁用渠道回归。
+- **关联计划**: `docs/plans/2026-10-16-responses-retry-disabled-channel.md`
+
 ## 2026-09-30
 
 ### release: v0.1.40 Responses 兼容修复

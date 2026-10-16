@@ -71,6 +71,8 @@ git worktree remove /tmp/dev-test    # 用完清理
 
 Responses 流式错误测试若不验证 token 计费，使用不含文本的状态事件模拟流已开始；文本 delta 会触发 tokenizer，测试需先初始化 tokenizer 才能使用。
 
+流扫描完成通知必须使用独立关闭的 channel 广播，不能与 ping 协程共用可消费的 stop 信号，否则主请求可能等待到超时才落日志。WaitGroup.Add 必须先于启动协程。
+
 Responses 失败事件兼容必须解析实际下游 SSE，覆盖上游已有 `response.failed` 的数字错误码、空错误对象及 ping 后 EOF；不能只测事件构造函数。完整路由验收应提供备用渠道，并断言实际请求次数、额度和错误日志。渠道错误处理应在请求生命周期内完成，避免测试清理或运行时配置变化与后台任务竞争。
 
 本地 Codex 联调需为回环地址设置 NO_PROXY，并隔离继承的会话/daemon 环境；使用显式的临时 provider 配置，不修改用户配置。只有实际经过网关和上游的请求才算联调成功，CLI 启动失败或超时不算兼容证据。
