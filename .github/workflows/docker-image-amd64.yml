@@ -123,12 +123,23 @@ jobs:
 
           echo "找到 ${#ALL_TAGS[@]} 个需要处理的 tag"
 
+          # Docker Hub 的 ordering 参数不能作为版本保留依据；显式按版本倒序。
+          if [[ ${#ALL_TAGS[@]} -gt 0 ]]; then
+            mapfile -t ALL_TAGS < <(printf '%s\n' "${ALL_TAGS[@]}" | sort -Vr)
+          fi
+
           echo "第二步: 保留最新 ${KEEP} 个，删除其余的..."
           KEPT=0
           DELETED=0
           FAILED=0
 
           for TAG in "${ALL_TAGS[@]}"; do
+            # 当前发布版本必须保留，即使 API 排序变化或并发发布。
+            if [[ "$TAG" == "${{ steps.version.outputs.version }}" ]]; then
+              echo "保留当前发布: ${NAMESPACE}/${REPO}:${TAG}"
+              KEPT=$((KEPT + 1))
+              continue
+            fi
             if [[ "${KEPT}" -lt "${KEEP}" ]]; then
               echo "保留: ${NAMESPACE}/${REPO}:${TAG}"
               KEPT=$((KEPT + 1))

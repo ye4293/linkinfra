@@ -8,6 +8,12 @@
 
 ## 2026-10-16
 
+### fix(ci): 保护当前镜像版本并恢复被误删的发布 tag
+- **分支**: `main`
+- **类型**: fix / ci
+- **涉及文件**: `.github/workflows/docker-image-amd64.yml`、`.github/workflows/restore-image-tag.yml`、发布计划文档
+- **说明**: v0.1.41 发布核验发现清理步骤依赖 API 排序，保留旧版本却删除了当前版本。改为版本倒序并强制保留当前 tag，支持从已有不可变 manifest 恢复 Docker Hub tag；应用发布提交与 Git tag 保持不变。
+
 ### release: v0.1.41 Responses 路由与重试诊断修复
 - **分支**: `main`
 - **类型**: release / fix / test
