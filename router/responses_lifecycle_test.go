@@ -330,3 +330,75 @@ func TestResponsesDoesNotFallbackToDisabledChannel(t *testing.T) {
 	require.NoError(t, fixture.db.First(&log).Error)
 	require.Contains(t, log.Other, `"stop_reason":"no_available_channel"`)
 }
+
+// 大正文在 429 后完整重放，最终只计费一次，成功日志包含先前失败渠道。
+func TestResponsesLargeInputRetrySuccess(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream_%t", stream), func(t *testing.T) {
+			input := strings.Repeat("The release ledger contains a verified routing record.\n", 6000) + "FINAL_MARKER_6141"
+			requestBody, err := json.Marshal(map[string]any{"model": "gpt-5.1", "input": input, "stream": stream})
+			require.NoError(t, err)
+			var calls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got, readErr := io.ReadAll(r.Body)
+				if readErr != nil || !bytes.Equal(requestBody, got) {
+					t.Error("retry did not preserve the complete large request body")
+					w.WriteHeader(400)
+					return
+				}
+				if calls.Add(1) == 1 {
+					w.WriteHeader(429)
+					_, _ = io.WriteString(w, `{"error":{"message":"Requests have exceeded the throughput limit"}}`)
+					return
+				}
+				response := `{"id":"resp_large_retry_success","object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"FINAL_MARKER_6141"}]}],"usage":{"input_tokens":48000,"output_tokens":12,"total_tokens":48012}}`
+				if stream {
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":%s}\n\n", response)
+				} else {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, response)
+				}
+			}))
+			t.Cleanup(upstream.Close)
+			fixture := newResponsesLifecycle(t, upstream.URL, "test-key", make(chan struct{}))
+			req, err := http.NewRequest("POST", fixture.gateway.URL+"/v1/responses", bytes.NewReader(requestBody))
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer sk-responseslifecycle")
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Request-ID", fmt.Sprintf("large-retry-%t", stream))
+			res, err := fixture.gateway.Client().Do(req)
+			require.NoError(t, err)
+			body, err := io.ReadAll(res.Body)
+			res.Body.Close()
+			require.NoError(t, err)
+			require.Equal(t, 200, res.StatusCode, string(body))
+			require.Contains(t, string(body), "FINAL_MARKER_6141")
+			require.EqualValues(t, 2, fixture.calls.Load())
+			var logs []model.Log
+			require.Eventually(t, func() bool {
+				return fixture.db.Find(&logs).Error == nil && len(logs) == 1
+			}, 3*time.Second, 10*time.Millisecond)
+			require.Equal(t, model.LogTypeConsume, logs[0].Type)
+			require.Positive(t, logs[0].Quota)
+			require.Equal(t, 48000, logs[0].PromptTokens)
+			require.Equal(t, 12, logs[0].CompletionTokens)
+			require.Equal(t, fmt.Sprintf("large-retry-%t", stream), logs[0].XRequestID)
+			parts := strings.SplitN(logs[0].Other, "retryHistory:", 2)
+			require.Len(t, parts, 2)
+			var attempts []util.RetryAttempt
+			require.NoError(t, json.NewDecoder(strings.NewReader(parts[1])).Decode(&attempts))
+			require.Len(t, attempts, 2)
+			require.Equal(t, 429, attempts[0].Status)
+			require.Equal(t, 200, attempts[1].Status)
+			require.NotEqual(t, attempts[0].ChannelId, attempts[1].ChannelId)
+			var user model.User
+			var token model.Token
+			require.NoError(t, fixture.db.First(&user, 1).Error)
+			require.NoError(t, fixture.db.First(&token).Error)
+			require.EqualValues(t, 1000000-logs[0].Quota, user.Quota)
+			require.EqualValues(t, 1000000-logs[0].Quota, token.RemainQuota)
+			require.EqualValues(t, logs[0].Quota, user.UsedQuota)
+		})
+	}
+}

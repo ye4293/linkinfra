@@ -8,6 +8,13 @@
 
 ## 2026-10-16
 
+### release: v0.1.41 Responses 路由与重试诊断修复
+- **分支**: `main`
+- **类型**: release / fix / test
+- **涉及文件**: `VERSION`、`service/channel_affinity.go`、`service/channel_affinity_invalidation_test.go`、`relay/helper/stream_scanner.go`、`router/responses_lifecycle_test.go`、`docs/releases/v0.1.41-responses-retry.md`
+- **说明**: 发布复审补齐失效亲和的 key/重试标记清理，确保 ping 协程完成清理后才释放 WaitGroup；增加大正文在 429 后切换成功、完整重放及单次扣费回归。用户授权 GitHub tag 触发多架构镜像发布，线上更新后再执行真实大文本验收。
+- **关联计划**: `docs/plans/2026-10-16-responses-retry-disabled-channel.md`
+
 ### fix(responses): 禁用渠道路由校验及重试停止诊断
 - **分支**: `main`
 - **类型**: fix / test

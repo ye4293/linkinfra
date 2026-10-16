@@ -114,7 +114,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *util.RelayM
 		wg.Add(1)
 		gopool.Go(func() {
 			defer func() {
-				wg.Done()
+				defer wg.Done()
 				if r := recover(); r != nil {
 					logger.Error(c, fmt.Sprintf("ping goroutine panic: %v", r))
 					common.SafeSendBool(stopChan, true)

@@ -127,6 +127,9 @@ func InvalidateChannelAffinity(c *gin.Context, reason string) {
 	if c == nil {
 		return
 	}
+	// 失效渠道的 key 索引和禁止重试标记不能带入随后选中的新渠道。
+	c.Set("cached_key_index", -1)
+	c.Set(ginKeyAffinitySkipRetry, false)
 	keyAny, ok := c.Get(ginKeyAffinityCacheKey)
 	if !ok {
 		return
