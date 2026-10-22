@@ -74,6 +74,12 @@ func BindResponsesState(c *gin.Context) error {
 }
 
 func bindResponsesState(c *gin.Context, store responsesStateStore) error {
+	return bindResponsesStateWithChannelLookup(c, store, func(id int) (*model.Channel, error) {
+		return model.GetChannelById(id, true)
+	})
+}
+
+func bindResponsesStateWithChannelLookup(c *gin.Context, store responsesStateStore, getChannel func(int) (*model.Channel, error)) error {
 	if !IsResponsesStatePath(c.Request.URL.Path) {
 		return nil
 	}
@@ -100,6 +106,18 @@ func bindResponsesState(c *gin.Context, store responsesStateStore) error {
 	if err != nil {
 		return err
 	}
+	// 先收集已知的非空 provider，避免空值补填的兼容处理依赖历史顺序。
+	// 非空 provider 之间的变更仍然是冲突，不能借空来源绕过隔离。
+	targetProvider := explicit
+	for _, ref := range refs {
+		if origin, found := origins[ref.key]; found && origin.Provider != "" {
+			if targetProvider != "" && targetProvider != origin.Provider {
+				return errors.New("Responses history contains incompatible providers; refusing to discard thinking or compaction")
+			}
+			targetProvider = origin.Provider
+		}
+	}
+	channels := make(map[int]*model.Channel)
 	provider, haveProvider := explicit, explicit != ""
 	channelID, keyIndex := 0, -1
 	keyFingerprint := ""
@@ -111,10 +129,34 @@ func bindResponsesState(c *gin.Context, store responsesStateStore) error {
 			}
 			return errors.New("Responses history origin is unknown or expired; resume with its original X-Linkinfra-Provider, resend complete portable history, or start a new conversation")
 		}
-		if haveProvider && provider != origin.Provider {
+		effectiveProvider := origin.Provider
+		if effectiveProvider == "" && targetProvider != "" {
+			// 只兼容原渠道补填 provider。必须能核对原 key，且稍后仍固定
+			// 原渠道/key；不修改索引，也不把空 provider 当作通配符。
+			if origin.KeyFingerprint == "" {
+				return errors.New("Responses history contains incompatible providers; refusing to discard thinking or compaction")
+			}
+			channel, loaded := channels[origin.ChannelID]
+			if !loaded {
+				channel, err = getChannel(origin.ChannelID)
+				if err != nil || channel == nil {
+					return errors.New("The original Responses state channel is unavailable")
+				}
+				channels[origin.ChannelID] = channel
+			}
+			if channel.Id != origin.ChannelID || model.ChannelProvider(channel) != targetProvider {
+				return errors.New("Responses history contains incompatible providers; refusing to discard thinking or compaction")
+			}
+			key, err := channel.GetKeyByIndex(origin.KeyIndex)
+			if err != nil || key == "" || responsesKeyFingerprint(key) != origin.KeyFingerprint {
+				return errors.New("The original Responses state key has changed")
+			}
+			effectiveProvider = targetProvider
+		}
+		if haveProvider && provider != effectiveProvider {
 			return errors.New("Responses history contains incompatible providers; refusing to discard thinking or compaction")
 		}
-		provider, haveProvider = origin.Provider, true
+		provider, haveProvider = effectiveProvider, true
 		if ref.resourceBound || origin.Provider == "" {
 			if channelID != 0 && (channelID != origin.ChannelID || keyIndex != origin.KeyIndex || keyFingerprint != origin.KeyFingerprint) {
 				return errors.New("Responses history references incompatible upstream resources")

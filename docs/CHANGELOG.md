@@ -8,6 +8,15 @@
 
 ## 2026-10-23
 
+### fix(responses): 兼容原渠道补填 Provider 后的连续会话
+- **分支**: `main`
+- **类型**: fix / test / review
+- **涉及文件**: `service/responses_state.go`、`service/responses_state_test.go`、`controller/responses_state_routing_test.go`、`docs/channel-provider.md`、`docs/plans/2026-10-23-responses-provider-backfill.md`
+- **说明**: 修复渠道从空 Provider 补填为 azure 等值后，旧状态与新状态混合导致 409 的问题。仅在原渠道当前 Provider、原 key 索引及指纹匹配时兼容空来源，仍固定原渠道/key，保留原始正文及共享索引；非空 Provider 冲突继续拒绝。
+- **审查**: 未发现阻碍发布的问题。确认来源顺序不影响结果、请求头不能绕过非空 Provider 冲突、不同原渠道/key 不合并，以及禁用渠道和更换 key 不能继续使用。现有索引无法证明同一 key 背后的上游地址未改变，该限制已写入使用文档。
+- **验证**: 使用 Go overlay 将生产实现替换为修复前版本，新增连续会话用例重现第二轮 409；当前实现通过，覆盖服务端引用、缓存开启、禁用渠道、更换 key 和指定其他渠道。`go test ./... -count=1 -timeout 5m`、`go test -race ./service ./controller ./relay/controller ./router -run 'TestResponses|TestThinking|TestProviderBackfill|TestRetryStays' -count=1 -timeout 5m`、`go build ./...`、`go vet ./...`、`git diff --check` 全部通过。未调用真实 Azure 上游。
+- **关联计划**: `docs/plans/2026-10-23-responses-provider-backfill.md`
+
 ### fix(responses): 历史绑定渠道限流重试与客户端取消归因
 - **分支**: `main`
 - **类型**: fix

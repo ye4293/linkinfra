@@ -19,7 +19,9 @@
 
 多 key 渠道内的密钥也应属于同一个 Provider。资源是否互通由管理员确认，Provider 名称本身不构成平台互通保证。
 
-这里的 Provider 是“状态兼容组”，不能仅按厂商品牌分组。两个不同 Azure 资源即使都提供同一个模型，也不能仅凭同属 Azure 就假定 reasoning 密文互通。尚未验证兼容性时，使用不同的值，例如 `azure-resource-a`、`azure-resource-b`；同一渠道的多 key 若来自不同资源，应拆分渠道。更改 Provider 后，已有状态索引仍保留原 Provider，建议从新会话验证，不要清空共享索引或删除 reasoning 来绕过冲突。
+这里的 Provider 是“状态兼容组”，不能仅按厂商品牌分组。两个不同 Azure 资源即使都提供同一个模型，也不能仅凭同属 Azure 就假定 reasoning 密文互通。尚未验证兼容性时，使用不同的值，例如 `azure-resource-a`、`azure-resource-b`；同一渠道的多 key 若来自不同资源，应拆分渠道。
+
+已有状态索引始终保留原 Provider。渠道从空值补填 Provider 后，若请求混有新旧状态，或显式指定了 Provider，后端会核对原渠道当前的 Provider 和原 key 指纹；匹配时允许续接，但仍固定原渠道/key，不扩展到同 Provider 的其他渠道，也不改写共享索引。缺少 key 指纹、key 已更换、原渠道不可用或 Provider 不匹配时拒绝兼容。该检查无法证明同一 key 背后的上游地址或资源未发生变化；更换实际上游资源应新建渠道。非空 Provider 之间的更名不自动兼容，应从新会话验证，不要清空共享索引或删除 reasoning 来绕过冲突。
 
 ## 携带 thinking 的连续对话
 

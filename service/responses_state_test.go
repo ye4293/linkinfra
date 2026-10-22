@@ -122,6 +122,81 @@ func TestResponsesUnknownAndConflictingOrigins(t *testing.T) {
 	require.Error(t, bindResponsesState(reference, store), "a provider header cannot locate an unknown server-side reference")
 }
 
+func TestResponsesProviderBackfill(t *testing.T) {
+	for _, tc := range []struct {
+		name, currentProvider, currentKey, explicit string
+		oldProvider, oldKey, newProvider            string
+		newChannel, newIndex                        int
+		missing, lookupError, onlyOld, reverse      bool
+		wantError                                   string
+	}{
+		{name: "mixed_history", currentProvider: "azure", currentKey: "key", oldKey: "key", newProvider: "azure"},
+		{name: "reverse_history", currentProvider: "azure", currentKey: "key", oldKey: "key", newProvider: "azure", reverse: true},
+		{name: "explicit_provider", currentProvider: " AZURE ", currentKey: "key", oldKey: "key", explicit: "azure", onlyOld: true},
+		{name: "changed_key", currentProvider: "azure", currentKey: "rotated", oldKey: "key", newProvider: "azure", wantError: "key has changed"},
+		{name: "missing_fingerprint", currentProvider: "azure", currentKey: "key", newProvider: "azure", wantError: "incompatible providers"},
+		{name: "provider_still_empty", currentKey: "key", oldKey: "key", newProvider: "azure", wantError: "incompatible providers"},
+		{name: "different_current_provider", currentProvider: "openai", currentKey: "key", oldKey: "key", newProvider: "azure", wantError: "incompatible providers"},
+		{name: "nonempty_rename", currentProvider: "azure", currentKey: "key", oldProvider: "openai", oldKey: "key", newProvider: "azure", wantError: "incompatible providers"},
+		{name: "conflicting_header", currentProvider: "azure", currentKey: "key", oldKey: "key", newProvider: "azure", explicit: "openai", wantError: "incompatible providers"},
+		{name: "missing_channel", oldKey: "key", newProvider: "azure", missing: true, wantError: "channel is unavailable"},
+		{name: "lookup_error", oldKey: "key", newProvider: "azure", lookupError: true, wantError: "channel is unavailable"},
+		{name: "two_unconfigured_channels", currentProvider: "azure", currentKey: "key", oldKey: "key", newChannel: 11, explicit: "azure", wantError: "incompatible upstream resources"},
+		{name: "two_unconfigured_keys", currentProvider: "azure", currentKey: "key\nkey", oldKey: "key", newIndex: 1, explicit: "azure", wantError: "incompatible upstream resources"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newMemoryResponsesStateStore(100)
+			old := stateOutputContext(1, 10, tc.oldProvider)
+			old.Set("actual_key", tc.oldKey)
+			require.NoError(t, rememberResponsesState(old, []byte(`{"output":[{"type":"reasoning","encrypted_content":"old"}]}`), false, store))
+			newChannel := tc.newChannel
+			if newChannel == 0 {
+				newChannel = 10
+			}
+			fresh := stateOutputContext(1, newChannel, tc.newProvider)
+			fresh.Set("actual_key", "key")
+			fresh.Set("key_index", tc.newIndex)
+			require.NoError(t, rememberResponsesState(fresh, []byte(`{"output":[{"type":"compaction","encrypted_content":"new"}]}`), false, store))
+			items := []string{`{"type":"reasoning","encrypted_content":"old"}`, `{"type":"compaction","encrypted_content":"new"}`}
+			if tc.onlyOld {
+				items = items[:1]
+			} else if tc.reverse {
+				items[0], items[1] = items[1], items[0]
+			}
+			body := `{"input":[` + strings.Join(items, ",") + `]}`
+			next := stateContext(1, body)
+			next.Request.Header.Set("X-Linkinfra-Provider", tc.explicit)
+			lookups := 0
+			err := bindResponsesStateWithChannelLookup(next, store, func(id int) (*model.Channel, error) {
+				lookups++
+				if tc.lookupError {
+					return nil, errors.New("database unavailable")
+				}
+				if tc.missing {
+					return nil, nil
+				}
+				channel := &model.Channel{Id: id, Key: tc.currentKey, Config: `{"provider":"` + tc.currentProvider + `"}`}
+				channel.MultiKeyInfo.IsMultiKey = strings.Contains(tc.currentKey, "\n")
+				return channel, nil
+			})
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, 1, lookups)
+			require.Equal(t, "azure", model.RetryProvider(next.Request.Context()))
+			require.Equal(t, 10, model.ResponseStateChannel(next.Request.Context()))
+			require.Equal(t, responsesKeyFingerprint("key"), next.GetString(responsesStateKeyFingerprint))
+			require.False(t, model.RetryProviderAllows(next.Request.Context(), &model.Channel{Id: 11, Config: `{"provider":"azure"}`}))
+			raw, err := common.GetRequestBody(next)
+			require.NoError(t, err)
+			require.Equal(t, body, string(raw))
+			require.Empty(t, store.entries[responsesStateKey(1, "encrypted", "old")].origin.Provider, "backfill must not rewrite shared state")
+		})
+	}
+}
+
 type failingResponsesStateStore struct{}
 
 func (failingResponsesStateStore) Lookup(context.Context, []string) (map[string]responsesStateOrigin, error) {
