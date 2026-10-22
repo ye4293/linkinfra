@@ -6,6 +6,16 @@
 
 ---
 
+## 2026-10-22
+
+### fix(responses): v0.1.42 增加临时 429 重试诊断
+- **分支**: `main`
+- **类型**: fix / test / release
+- **涉及文件**: `controller/relay.go`、`controller/retry_policy.go`、`model/cache.go`、`relay/controller/opeai_response.go`、`relay/helper/common.go`、`router/responses_lifecycle_test.go`、`VERSION`、`AGENT.md`
+- **说明**: INFO 日志以 `responses_retry_diag` 标记 HTTP/SSE 错误、首次写入来源、剩余重试次数、provider/状态渠道约束、候选过滤数量和最终停止原因。候选样本最多 20 个，不记录正文或密钥，不增加数据库查询，不改变重试及流转发行为。确认线上根因后移除这些临时日志。
+- **关联计划**: `docs/plans/2026-10-22-responses-retry-diagnostics.md`
+- **验证**: `go test ./... -count=1`、`go build ./...`、`go vet ./...`、`git diff --check` 均通过。
+
 ## 2026-10-16
 
 ### fix(ci): 保护当前镜像版本并恢复被误删的发布 tag

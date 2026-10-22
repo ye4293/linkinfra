@@ -30,6 +30,8 @@ import (
 func RelayOpenaiResponseNative(c *gin.Context) *model.ErrorWithStatusCode {
 	ctx := c.Request.Context()
 	startTime := time.Now()
+	c.Set("responses_diag_http_status", 0)
+	c.Set("responses_diag_last_event", "")
 
 	// 获取基本信息
 	tokenId := c.GetInt("token_id")
@@ -104,6 +106,11 @@ func RelayOpenaiResponseNative(c *gin.Context) *model.ErrorWithStatusCode {
 	resp, err := adaptor.DoRequest(c, meta, bytes.NewBuffer(originRequestBody))
 	if err != nil {
 		return openai.ErrorWrapper(err, "failed_to_send_request", http.StatusBadGateway)
+	}
+	if resp != nil {
+		c.Set("responses_diag_http_status", resp.StatusCode)
+		logger.Infof(ctx, "responses_retry_diag event=upstream_headers channel=%d status=%d stream=%t content_type=%q elapsed_ms=%d response_written=%t",
+			channelId, resp.StatusCode, meta.IsStream, resp.Header.Get("Content-Type"), time.Since(startTime).Milliseconds(), c.Writer.Written())
 	}
 	meta.DisablePing = false
 
@@ -478,8 +485,12 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 		if streamResponse.Response != nil && streamResponse.Response.ID != "" {
 			streamResponseID = streamResponse.Response.ID
 		}
+		c.Set("responses_diag_last_event", streamResponse.Type[:min(len(streamResponse.Type), 128)])
 		if payloadErr := responsesPayloadError([]byte(data)); payloadErr != nil {
 			openaiErr = payloadErr
+			logger.Infof(c.Request.Context(), "responses_retry_diag event=upstream_sse_error channel=%d upstream_http_status=%d error_status=%d event_type=%q response_written=%t first_write=%q non_prelude_events=%d text_deltas=%d",
+				c.GetInt("channel_id"), resp.StatusCode, payloadErr.StatusCode, c.GetString("responses_diag_last_event"), c.Writer.Written(),
+				c.GetString("responses_diag_first_write"), c.GetInt("responses_diag_non_prelude_events"), c.GetInt("responses_diag_text_deltas"))
 			logger.Warnf(c.Request.Context(), "Responses stream failed: channel=%d keyIndex=%d event=%s code=%v status=%d upstream_request_id=%s",
 				c.GetInt("channel_id"), c.GetInt("key_index"), streamResponse.Type, payloadErr.Error.Code, payloadErr.StatusCode, resp.Header.Get("X-Request-ID"))
 			if c.Writer.Written() {

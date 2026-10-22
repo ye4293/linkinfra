@@ -3057,7 +3057,9 @@ func RelayClaude(c *gin.Context) {
 }
 func RelayResponse(c *gin.Context) {
 	defer beginSourceMetrics(c)()
-	ctx := c.Request.Context()
+	ctx := dbmodel.WithResponsesRetryDiagnostics(c.Request.Context())
+	c.Request = c.Request.WithContext(ctx)
+	c.Set("responses_retry_diagnostics", true)
 
 	// 记录整个请求的开始时间，用于计算总耗时和首字时长
 	totalStartTime := time.Now()
@@ -3086,10 +3088,14 @@ func RelayResponse(c *gin.Context) {
 	// 在调用前就初始化并设置，确保成功时也能记录
 	channelHistory := []int{originalChannelId}
 	c.Set("admin_channel_history", channelHistory)
+	logger.Infof(ctx, "responses_retry_diag event=request_started request_id=%q model=%q group=%q channel=%d provider=%q state_channel=%d configured_retries=%d ping_enabled=%t ping_interval_seconds=%d version=%q",
+		requestID, originalModel, c.GetString("group"), originalChannelId, dbmodel.RetryProvider(ctx), dbmodel.ResponseStateChannel(ctx), config.RetryTimes,
+		config.PingIntervalEnabled, config.PingIntervalSeconds, common.Version)
 
 	attemptStartTime := time.Now()
 	relayError := measureSourceAttempt(c, func() *model.ErrorWithStatusCode { return controller.RelayOpenaiResponseNative(c) })
 	if relayError == nil {
+		logger.Infof(ctx, "responses_retry_diag event=request_succeeded attempts=1 channel=%d duration_ms=%d", originalChannelId, time.Since(totalStartTime).Milliseconds())
 		service.MarkAffinityRelaySuccess(c)
 		return
 	}
@@ -3120,13 +3126,15 @@ func RelayResponse(c *gin.Context) {
 
 	group := c.GetString("group")
 	retryTimes := config.RetryTimes
-	stopReason := responsesRetryStopReason(c, relayError)
+	stopReason := responsesRetryStopReason(c, relayError, retryTimes)
 	if stopReason != "" {
 		logger.Infof(ctx, "Responses retry stopped: %s", stopReason)
 		retryTimes = 0
 	}
 	for i := retryTimes; i > 0; i-- {
 		currentAttempt := retryTimes - i + 1
+		logger.Infof(ctx, "responses_retry_diag event=selection_started next_attempt=%d retries_remaining=%d group=%q model=%q provider=%q state_channel=%d excluded_channels=%v",
+			currentAttempt+1, i, group, originalModel, dbmodel.RetryProvider(ctx), dbmodel.ResponseStateChannel(ctx), failedChannelIds)
 		channel, err := selectRetryChannel(ctx, group, originalModel, &failedChannelIds)
 		if err != nil {
 			stopReason = "no_available_channel"
@@ -3136,6 +3144,8 @@ func RelayResponse(c *gin.Context) {
 				stopReason = "provider_channels_exhausted"
 			}
 			logger.Infof(ctx, "Responses retry stopped: %s: %v", stopReason, err)
+			logger.Infof(ctx, "responses_retry_diag event=selection_failed next_attempt=%d retries_remaining=%d provider=%q state_channel=%d excluded_channels=%v reason=%s",
+				currentAttempt+1, i, dbmodel.RetryProvider(ctx), dbmodel.ResponseStateChannel(ctx), failedChannelIds, stopReason)
 			break
 		}
 
@@ -3146,6 +3156,8 @@ func RelayResponse(c *gin.Context) {
 		middleware.SetupContextForSelectedChannel(c, channel, originalModel)
 		newKeyIndex := c.GetInt("key_index")
 		isMultiKey := channel.MultiKeyInfo.IsMultiKey
+		logger.Infof(ctx, "responses_retry_diag event=channel_selected attempt=%d channel=%d provider=%q key_index=%d",
+			currentAttempt+1, channel.Id, dbmodel.ChannelProvider(channel), newKeyIndex)
 
 		// 生成详细的重试日志
 		retryLog := formatRetryLog(ctx, originalChannelId, originalChannelName, originalKeyIndex,
@@ -3172,6 +3184,7 @@ func RelayResponse(c *gin.Context) {
 		relayError = measureSourceAttempt(c, func() *model.ErrorWithStatusCode { return controller.RelayOpenaiResponseNative(c) })
 		if relayError == nil {
 			// 重试成功，直接返回（无需记录错误日志）
+			logger.Infof(ctx, "responses_retry_diag event=request_succeeded attempts=%d channels=%v duration_ms=%d", currentAttempt+1, channelHistory, time.Since(totalStartTime).Milliseconds())
 			service.MarkAffinityRelaySuccess(c)
 			return
 		}
@@ -3198,7 +3211,7 @@ func RelayResponse(c *gin.Context) {
 		})
 		util.PublishFailedRetryHistory(c, retryAttempts)
 
-		if stopReason = responsesRetryStopReason(c, relayError); stopReason != "" {
+		if stopReason = responsesRetryStopReason(c, relayError, i-1); stopReason != "" {
 			logger.Infof(ctx, "Responses retry stopped: %s (status=%d)", stopReason, relayError.StatusCode)
 			if !c.GetBool("responses_state_record_failed") {
 				processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
@@ -3217,6 +3230,8 @@ func RelayResponse(c *gin.Context) {
 			stopReason = "retry_limit_reached"
 		}
 		retryAttempts[len(retryAttempts)-1].StopReason = stopReason
+		logger.Infof(ctx, "responses_retry_diag event=request_failed attempts=%d channels=%v status=%d reason=%s duration_ms=%d",
+			len(retryAttempts), channelHistory, relayError.StatusCode, stopReason, time.Since(totalStartTime).Milliseconds())
 		util.PublishFailedRetryHistory(c, retryAttempts)
 		c.Set("admin_channel_history", channelHistory)
 		recordFinalErrorLog(ctx, c, relayError, retryAttempts, channelHistory, service.GetAffinityLogTag(c))

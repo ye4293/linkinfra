@@ -27,6 +27,31 @@ var (
 	UserId2ChannelRatiosCacheSeconds = config.SyncFrequency
 )
 
+type responsesRetryDiagnosticKey struct{}
+
+// WithResponsesRetryDiagnostics 仅对当前 Responses 请求开启临时选渠诊断。
+func WithResponsesRetryDiagnostics(ctx context.Context) context.Context {
+	return context.WithValue(ctx, responsesRetryDiagnosticKey{}, true)
+}
+
+func logResponsesRetryCandidates(ctx context.Context, priority int, candidates, eligible []Channel) {
+	if enabled, _ := ctx.Value(responsesRetryDiagnosticKey{}).(bool); !enabled {
+		return
+	}
+	provider, stateChannel := RetryProvider(ctx), ResponseStateChannel(ctx)
+	var summary strings.Builder
+	for i, candidate := range candidates {
+		if i >= 20 {
+			break
+		}
+		candidateProvider := ChannelProvider(&candidate)
+		fmt.Fprintf(&summary, "{id:%d provider:%q provider_match:%t state_match:%t} ", candidate.Id,
+			candidateProvider[:min(len(candidateProvider), 128)], provider == "" || provider == candidateProvider, stateChannel == 0 || stateChannel == candidate.Id)
+	}
+	logger.Infof(ctx, "responses_retry_diag event=candidates priority=%d provider=%q state_channel=%d before_boundary=%d after_boundary=%d sample_limit=20 candidates=[%s]",
+		priority, provider, stateChannel, len(candidates), len(eligible), summary.String())
+}
+
 func CacheGetTokenByKey(key string) (*Token, error) {
 	keyCol := "`key`"
 	if common.UsingPostgreSQL {
@@ -496,7 +521,9 @@ func CacheGetRandomSatisfiedChannel(ctx context.Context, group string, model str
 	if err != nil {
 		return nil, -1, fmt.Errorf("failed to fetch channels: %w", err)
 	}
-	channels = filterRetryProviderChannels(ctx, channels)
+	eligible := filterRetryProviderChannels(ctx, channels)
+	logResponsesRetryCandidates(ctx, priorityToUse, channels, eligible)
+	channels = eligible
 
 	if len(channels) == 0 {
 		logger.Error(ctx, fmt.Sprintf("No channels found for group=%s, model=%s, priority=%d, skipPriorityLevels=%d, excludeIds=%v", group, model, priorityToUse, skipPriorityLevels, excludeIds))
@@ -519,7 +546,9 @@ func CacheGetRandomSatisfiedChannel(ctx context.Context, group string, model str
 			if err != nil {
 				return nil, -1, fmt.Errorf("failed to fetch channels in fallback: %w", err)
 			}
-			channels = filterRetryProviderChannels(ctx, channels)
+			eligible = filterRetryProviderChannels(ctx, channels)
+			logResponsesRetryCandidates(ctx, priorityToUse, channels, eligible)
+			channels = eligible
 
 			if len(channels) > 0 {
 				logger.Info(ctx, fmt.Sprintf("Fallback successful: found %d channels with priority %d", len(channels), priorityToUse))

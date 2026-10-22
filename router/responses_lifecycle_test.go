@@ -30,11 +30,11 @@ import (
 
 // 通过完整鉴权、选渠和 RelayResponse 验证失败时不扣费、不重放。
 func TestResponsesFailureLifecycle(t *testing.T) {
-	for _, mode := range []string{"numeric", "empty", "ping_error", "ping_eof", "http429", "first_event429"} {
+	for _, mode := range []string{"numeric", "created429", "empty", "ping_error", "ping_eof", "http429", "first_event429", "provider_filtered"} {
 		t.Run(mode, func(t *testing.T) {
 			pingSeen := make(chan struct{})
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if mode == "http429" {
+				if mode == "http429" || mode == "provider_filtered" {
 					// 即使开启 ping，等待 HTTP 头阶段也必须保留 HTTP 错误状态。
 					time.Sleep(1200 * time.Millisecond)
 					w.WriteHeader(429)
@@ -54,11 +54,13 @@ func TestResponsesFailureLifecycle(t *testing.T) {
 					case <-time.After(5 * time.Second):
 						return
 					}
+				} else if mode == "created429" {
+					_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{}}\n\n")
 				} else {
 					_, _ = io.WriteString(w, "data: {\"type\":\"response.in_progress\",\"response\":{}}\n\n")
 				}
 				switch mode {
-				case "numeric":
+				case "numeric", "created429":
 					_, _ = io.WriteString(w, "data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":429,\"message\":\"Too many requests\"}}}\n\n")
 				case "empty":
 					_, _ = io.WriteString(w, "data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{}}}\n\n")
@@ -68,6 +70,9 @@ func TestResponsesFailureLifecycle(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 			fixture := newResponsesLifecycle(t, upstream.URL, "upstream-test-key", pingSeen)
+			if mode == "provider_filtered" {
+				require.NoError(t, fixture.db.Model(&model.Channel{}).Where("id = ?", 2).Update("config", `{"provider":"another-provider"}`).Error)
+			}
 			res, err := fixture.gateway.Client().Post(fixture.gateway.URL+"/v1/responses", "application/json", nil)
 			require.NoError(t, err)
 			res.Body.Close()
@@ -82,10 +87,14 @@ func TestResponsesFailureLifecycle(t *testing.T) {
 			body, err := io.ReadAll(res.Body)
 			res.Body.Close()
 			require.NoError(t, err)
-			if mode == "http429" || mode == "first_event429" {
+			if mode == "http429" || mode == "first_event429" || mode == "provider_filtered" {
 				require.Equal(t, 429, res.StatusCode, string(body))
 				require.NotContains(t, string(body), "event: ping")
-				fixture.assertFailure(t, 2)
+				expectedAttempts := 2
+				if mode == "provider_filtered" {
+					expectedAttempts = 1
+				}
+				fixture.assertFailure(t, expectedAttempts)
 			} else {
 				require.Equal(t, 200, res.StatusCode)
 				require.Equal(t, 1, strings.Count(string(body), "event: response.failed"), string(body))
@@ -94,6 +103,39 @@ func TestResponsesFailureLifecycle(t *testing.T) {
 					require.Less(t, strings.Index(string(body), "event: ping"), strings.Index(string(body), "event: response.failed"))
 				}
 				fixture.assertFailure(t, 1)
+			}
+			diagnostics := fixture.diagnostics.String()
+			require.Contains(t, diagnostics, "event=request_started")
+			require.Contains(t, diagnostics, "event=request_failed")
+			require.Contains(t, diagnostics, "event=decision")
+			require.Contains(t, diagnostics, "text_deltas=0")
+			if mode == "provider_filtered" {
+				require.Contains(t, diagnostics, "action=retry")
+				require.Contains(t, diagnostics, "before_boundary=1 after_boundary=0")
+				require.Contains(t, diagnostics, "provider_match:false state_match:true")
+				require.Contains(t, diagnostics, "event=selection_failed")
+				require.NotContains(t, diagnostics, "event=channel_selected")
+			} else if mode == "http429" || mode == "first_event429" {
+				require.Contains(t, diagnostics, "action=retry")
+				require.Contains(t, diagnostics, "event=channel_selected attempt=2")
+				require.Contains(t, diagnostics, "before_boundary=1 after_boundary=1")
+				require.Contains(t, diagnostics, "reason=provider_channels_exhausted")
+				require.NotContains(t, diagnostics, "event=first_write")
+			} else {
+				require.Contains(t, diagnostics, `reason=\"response_already_started\"`)
+				require.Contains(t, diagnostics, "retries_remaining=2")
+				require.Contains(t, diagnostics, "non_prelude_events=0")
+				require.NotContains(t, diagnostics, "event=selection_started")
+				source := `source=upstream event_type=\"response.in_progress\"`
+				if mode == "created429" {
+					source = `source=upstream event_type=\"response.created\"`
+				} else if strings.HasPrefix(mode, "ping_") {
+					source = "source=gateway event_type=ping"
+				}
+				require.Contains(t, diagnostics, source)
+			}
+			for _, secret := range []string{"upstream-test-key", "sk-responseslifecycle", "Reply OK", "Quota exceeded", "Too many requests"} {
+				require.NotContains(t, diagnostics, secret)
 			}
 		})
 	}
@@ -107,6 +149,28 @@ type responsesLifecycle struct {
 	mu          sync.Mutex
 	holdForPing bool
 	ping        chan struct{}
+	diagnostics responsesDiagnosticLog
+}
+
+// 多个流协程共用日志输出，捕获时也必须同步；仅保留本次新增的诊断行。
+type responsesDiagnosticLog struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (l *responsesDiagnosticLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if bytes.Contains(p, []byte("responses_retry_diag")) {
+		_, _ = l.buffer.Write(p)
+	}
+	return len(p), nil
+}
+
+func (l *responsesDiagnosticLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buffer.String()
 }
 
 type responsesCaptureWriter struct {
@@ -194,6 +258,9 @@ func newResponsesLifecycle(t *testing.T, baseURL, key string, ping chan struct{}
 		require.NoError(t, ch.Insert())
 	}
 	fixture := &responsesLifecycle{db: db, ping: ping}
+	previousWriter := gin.DefaultWriter
+	gin.DefaultWriter = &fixture.diagnostics
+	t.Cleanup(func() { gin.DefaultWriter = previousWriter })
 	util.HTTPClient = &http.Client{Transport: responsesCountingTransport{base: http.DefaultTransport, fixture: fixture}, Timeout: 30 * time.Second}
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
