@@ -8,6 +8,14 @@
 
 ## 2026-10-23
 
+### release: v0.1.44 发布 Provider 补填兼容与状态绑定限流重试修复
+- **分支**: `main`
+- **类型**: release
+- **涉及文件**: `VERSION`、`docs/CHANGELOG.md`
+- **说明**: 用户授权审查后打 tag 并推送 GitHub。远端最新版本已确认为 v0.1.43，发布 v0.1.44，包含 Provider 补填兼容（ff69577）、历史绑定渠道限流重试与客户端取消归因（b13f871）；tag 将触发现有多架构镜像和 GitHub Release 工作流。
+- **验证**: 发布代码已通过全量测试、Responses 相关 race 测试、编译和静态检查；本提交仅更新版本与发布记录。
+- **关联计划**: `docs/plans/2026-10-23-responses-provider-backfill.md`
+
 ### fix(responses): 兼容原渠道补填 Provider 后的连续会话
 - **分支**: `main`
 - **类型**: fix / test / review
