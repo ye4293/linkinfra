@@ -8,6 +8,14 @@
 
 ## 2026-10-22
 
+### release: v0.1.43 发布 Responses 前置事件重试修复
+- **分支**: `main`
+- **类型**: release
+- **涉及文件**: `VERSION`、`docs/CHANGELOG.md`、`docs/plans/2026-10-22-responses-prelude-retry.md`
+- **说明**: 用户授权推送提交、创建 tag 并触发镜像构建。已 fetch 远端确认最新版本为 v0.1.42，发布 v0.1.43，包含修复提交 `1f72b55`；tag 触发现有工作流构建 amd64/arm64 镜像至 Docker Hub 与 GHCR。
+- **验证**: 修复已通过全量测试、相关 race 测试、`go build ./...`、`go vet ./...`；本次仅更新发布版本与记录。
+- **关联计划**: `docs/plans/2026-10-22-responses-prelude-retry.md`
+
 ### fix(responses): 缓冲前置事件以恢复 OpenAI / Azure 流内 429 重试
 - **分支**: `main`
 - **类型**: fix / test
