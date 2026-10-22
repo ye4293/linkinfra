@@ -22,19 +22,21 @@ import (
 	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/model"
 	"github.com/songquanpeng/one-api/relay/util"
+	"github.com/songquanpeng/one-api/service"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-// 通过完整鉴权、选渠和 RelayResponse 验证失败时不扣费、不重放。
+// 通过完整鉴权、选渠和 RelayResponse 验证失败时不扣费、只在输出前重试。
 func TestResponsesFailureLifecycle(t *testing.T) {
 	for _, mode := range []string{"numeric", "created429", "empty", "ping_error", "ping_eof", "http429", "first_event429", "provider_filtered"} {
 		t.Run(mode, func(t *testing.T) {
 			pingSeen := make(chan struct{})
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if mode == "http429" || mode == "provider_filtered" {
+				if mode == "http429" {
 					// 即使开启 ping，等待 HTTP 头阶段也必须保留 HTTP 错误状态。
 					time.Sleep(1200 * time.Millisecond)
 					w.WriteHeader(429)
@@ -49,18 +51,20 @@ func TestResponsesFailureLifecycle(t *testing.T) {
 					return
 				}
 				if strings.HasPrefix(mode, "ping_") {
+					_, _ = io.WriteString(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\"}}\n\n")
+					w.(http.Flusher).Flush()
 					select {
 					case <-pingSeen:
 					case <-time.After(5 * time.Second):
 						return
 					}
-				} else if mode == "created429" {
+				} else if mode == "created429" || mode == "provider_filtered" {
 					_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{}}\n\n")
 				} else {
-					_, _ = io.WriteString(w, "data: {\"type\":\"response.in_progress\",\"response\":{}}\n\n")
+					_, _ = io.WriteString(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\"}}\n\n")
 				}
 				switch mode {
-				case "numeric", "created429":
+				case "numeric", "created429", "provider_filtered":
 					_, _ = io.WriteString(w, "data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":429,\"message\":\"Too many requests\"}}}\n\n")
 				case "empty":
 					_, _ = io.WriteString(w, "data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{}}}\n\n")
@@ -87,7 +91,7 @@ func TestResponsesFailureLifecycle(t *testing.T) {
 			body, err := io.ReadAll(res.Body)
 			res.Body.Close()
 			require.NoError(t, err)
-			if mode == "http429" || mode == "first_event429" || mode == "provider_filtered" {
+			if mode == "http429" || mode == "first_event429" || mode == "created429" || mode == "provider_filtered" {
 				require.Equal(t, 429, res.StatusCode, string(body))
 				require.NotContains(t, string(body), "event: ping")
 				expectedAttempts := 2
@@ -115,7 +119,7 @@ func TestResponsesFailureLifecycle(t *testing.T) {
 				require.Contains(t, diagnostics, "provider_match:false state_match:true")
 				require.Contains(t, diagnostics, "event=selection_failed")
 				require.NotContains(t, diagnostics, "event=channel_selected")
-			} else if mode == "http429" || mode == "first_event429" {
+			} else if mode == "http429" || mode == "first_event429" || mode == "created429" {
 				require.Contains(t, diagnostics, "action=retry")
 				require.Contains(t, diagnostics, "event=channel_selected attempt=2")
 				require.Contains(t, diagnostics, "before_boundary=1 after_boundary=1")
@@ -124,14 +128,9 @@ func TestResponsesFailureLifecycle(t *testing.T) {
 			} else {
 				require.Contains(t, diagnostics, `reason=\"response_already_started\"`)
 				require.Contains(t, diagnostics, "retries_remaining=2")
-				require.Contains(t, diagnostics, "non_prelude_events=0")
+				require.Contains(t, diagnostics, "non_prelude_events=1")
 				require.NotContains(t, diagnostics, "event=selection_started")
-				source := `source=upstream event_type=\"response.in_progress\"`
-				if mode == "created429" {
-					source = `source=upstream event_type=\"response.created\"`
-				} else if strings.HasPrefix(mode, "ping_") {
-					source = "source=gateway event_type=ping"
-				}
+				source := `source=upstream event_type=\"response.output_item.added\"`
 				require.Contains(t, diagnostics, source)
 			}
 			for _, secret := range []string{"upstream-test-key", "sk-responseslifecycle", "Reply OK", "Quota exceeded", "Too many requests"} {
@@ -147,9 +146,9 @@ type responsesLifecycle struct {
 	calls       atomic.Int32
 	wire        bytes.Buffer
 	mu          sync.Mutex
-	holdForPing bool
 	ping        chan struct{}
 	diagnostics responsesDiagnosticLog
+	done        chan struct{}
 }
 
 // 多个流协程共用日志输出，捕获时也必须同步；仅保留本次新增的诊断行。
@@ -199,29 +198,7 @@ type responsesCountingTransport struct {
 func (tr responsesCountingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	tr.fixture.calls.Add(1)
 	resp, err := tr.base.RoundTrip(req)
-	if err == nil && resp.StatusCode == 200 && tr.fixture.holdForPing {
-		resp.Body = &responsesWaitForPingBody{ReadCloser: resp.Body, ping: tr.fixture.ping}
-	}
 	return resp, err
-}
-
-// 仅用于真实联调：保持上游内容原样，等实际 ping 发出后才开始读取响应体。
-type responsesWaitForPingBody struct {
-	io.ReadCloser
-	ping  <-chan struct{}
-	ready bool
-}
-
-func (b *responsesWaitForPingBody) Read(p []byte) (int, error) {
-	if !b.ready {
-		select {
-		case <-b.ping:
-			b.ready = true
-		case <-time.After(5 * time.Second):
-			return 0, fmt.Errorf("test gateway did not send ping")
-		}
-	}
-	return b.ReadCloser.Read(p)
 }
 
 func newResponsesLifecycle(t *testing.T, baseURL, key string, ping chan struct{}) *responsesLifecycle {
@@ -257,7 +234,7 @@ func newResponsesLifecycle(t *testing.T, baseURL, key string, ping chan struct{}
 		ch := model.Channel{Type: common.ChannelTypeOpenAI, Key: key, Name: "Responses lifecycle", Models: "gpt-5.1", Group: user.Group, BaseURL: &baseURL, Priority: &priority, Config: `{"provider":"responses-lifecycle"}`}
 		require.NoError(t, ch.Insert())
 	}
-	fixture := &responsesLifecycle{db: db, ping: ping}
+	fixture := &responsesLifecycle{db: db, ping: ping, done: make(chan struct{}, 8)}
 	previousWriter := gin.DefaultWriter
 	gin.DefaultWriter = &fixture.diagnostics
 	t.Cleanup(func() { gin.DefaultWriter = previousWriter })
@@ -266,6 +243,10 @@ func newResponsesLifecycle(t *testing.T, baseURL, key string, ping chan struct{}
 	r.Use(func(c *gin.Context) {
 		c.Writer = &responsesCaptureWriter{ResponseWriter: c.Writer, fixture: fixture, ping: ping}
 		c.Next()
+		select {
+		case fixture.done <- struct{}{}:
+		default:
+		}
 	})
 	SetRelayRouter(r)
 	fixture.gateway = httptest.NewServer(r)
@@ -321,7 +302,7 @@ func TestResponsesCodexLiveQuotaFailure(t *testing.T) {
 
 func runResponsesCodexLiveQuotaFailure(t *testing.T, key, codexBin string, withPing bool) {
 	fixture := newResponsesLifecycle(t, "https://api.openai.com", key, make(chan struct{}))
-	fixture.holdForPing = withPing
+	config.PingIntervalEnabled = withPing
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, codexBin, "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--skip-git-repo-check", "--color", "never", "--sandbox", "read-only", "--model", "gpt-5.1",
@@ -348,15 +329,14 @@ func runResponsesCodexLiveQuotaFailure(t *testing.T, key, codexBin string, withP
 	require.Contains(t, safeOutput, "Quota exceeded")
 	require.NotContains(t, safeOutput, "Reconnecting")
 	require.NotContains(t, safeOutput, "stream closed before response.completed")
-	fixture.assertFailure(t, 1)
+	fixture.assertFailure(t, 2)
 	fixture.mu.Lock()
 	wire := fixture.wire.String()
 	fixture.mu.Unlock()
-	require.Equal(t, 1, strings.Count(wire, "event: response.failed"))
-	if withPing {
-		require.Contains(t, wire, "event: ping")
-		require.Less(t, strings.Index(wire, "event: ping"), strings.Index(wire, "event: response.failed"))
-	}
+	require.Contains(t, wire, "Quota exceeded")
+	require.NotContains(t, wire, "event: response.created")
+	require.NotContains(t, wire, "event: response.failed")
+	require.NotContains(t, wire, "event: ping")
 	// 只记录事件类型，不记录模型请求、凭据或 response 元数据。
 	scanner := bufio.NewScanner(strings.NewReader(wire))
 	for scanner.Scan() {
@@ -400,8 +380,17 @@ func TestResponsesDoesNotFallbackToDisabledChannel(t *testing.T) {
 
 // 大正文在 429 后完整重放，最终只计费一次，成功日志包含先前失败渠道。
 func TestResponsesLargeInputRetrySuccess(t *testing.T) {
-	for _, stream := range []bool{false, true} {
-		t.Run(fmt.Sprintf("stream_%t", stream), func(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		stream, prelude, azure bool
+	}{
+		{name: "json"},
+		{name: "http429_stream", stream: true},
+		{name: "openai_prelude", stream: true, prelude: true},
+		{name: "azure_prelude", stream: true, prelude: true, azure: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stream := tc.stream
 			input := strings.Repeat("The release ledger contains a verified routing record.\n", 6000) + "FINAL_MARKER_6141"
 			requestBody, err := json.Marshal(map[string]any{"model": "gpt-5.1", "input": input, "stream": stream})
 			require.NoError(t, err)
@@ -413,7 +402,27 @@ func TestResponsesLargeInputRetrySuccess(t *testing.T) {
 					w.WriteHeader(400)
 					return
 				}
-				if calls.Add(1) == 1 {
+				if tc.azure {
+					assert.Equal(t, "/openai/responses", r.URL.Path)
+					assert.NotEmpty(t, r.URL.Query().Get("api-version"))
+					assert.Equal(t, "test-key", r.Header.Get("api-key"))
+				} else {
+					assert.Equal(t, "/v1/responses", r.URL.Path)
+				}
+				if calls.Add(1) == 1 && tc.prelude {
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_discarded_"+tc.name+"\"}}\n\ndata: {\"type\":\"response.in_progress\",\"response\":{}}\n\n")
+					w.(http.Flusher).Flush()
+					// 超过一个真实 ping 周期，确认前置阶段不会被 ping 提交响应。
+					time.Sleep(1200 * time.Millisecond)
+					if tc.azure {
+						_, _ = io.WriteString(w, "data: {\"type\":\"error\",\"code\":\"rate_limit_exceeded\",\"message\":\"Too many requests\"}\n\n")
+					} else {
+						_, _ = io.WriteString(w, "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":429,\"message\":\"Too many requests\"}}}\n\n")
+					}
+					return
+				}
+				if calls.Load() == 1 {
 					w.WriteHeader(429)
 					_, _ = io.WriteString(w, `{"error":{"message":"Requests have exceeded the throughput limit"}}`)
 					return
@@ -421,6 +430,7 @@ func TestResponsesLargeInputRetrySuccess(t *testing.T) {
 				response := `{"id":"resp_large_retry_success","object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"FINAL_MARKER_6141"}]}],"usage":{"input_tokens":48000,"output_tokens":12,"total_tokens":48012}}`
 				if stream {
 					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_large_retry_success\"},\"future\":9007199254740993}\n\ndata: {\"type\":\"response.in_progress\",\"response\":{}}\n\n")
 					_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":%s}\n\n", response)
 				} else {
 					w.Header().Set("Content-Type", "application/json")
@@ -429,6 +439,9 @@ func TestResponsesLargeInputRetrySuccess(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 			fixture := newResponsesLifecycle(t, upstream.URL, "test-key", make(chan struct{}))
+			if tc.azure {
+				require.NoError(t, fixture.db.Model(&model.Channel{}).Where("id > ?", 0).Updates(map[string]any{"type": common.ChannelTypeAzure, "config": `{"provider":"azure","api_version":"2025-04-01-preview"}`}).Error)
+			}
 			req, err := http.NewRequest("POST", fixture.gateway.URL+"/v1/responses", bytes.NewReader(requestBody))
 			require.NoError(t, err)
 			req.Header.Set("Authorization", "Bearer sk-responseslifecycle")
@@ -441,7 +454,27 @@ func TestResponsesLargeInputRetrySuccess(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, 200, res.StatusCode, string(body))
 			require.Contains(t, string(body), "FINAL_MARKER_6141")
+			require.NotContains(t, string(body), "resp_discarded")
+			require.NotContains(t, string(body), "event: response.failed")
+			require.NotContains(t, string(body), "event: ping")
+			if stream {
+				require.Equal(t, 1, strings.Count(string(body), "event: response.created"))
+				require.Contains(t, string(body), `"future":9007199254740993`)
+				require.Less(t, strings.Index(string(body), "event: response.created"), strings.Index(string(body), "event: response.in_progress"))
+				require.Less(t, strings.Index(string(body), "event: response.in_progress"), strings.Index(string(body), "event: response.completed"))
+			}
 			require.EqualValues(t, 2, fixture.calls.Load())
+			if tc.prelude {
+				next, _ := gin.CreateTestContext(httptest.NewRecorder())
+				next.Set("id", 1)
+				next.Request = httptest.NewRequest("POST", "/v1/responses", strings.NewReader(`{"previous_response_id":"resp_discarded_`+tc.name+`"}`))
+				require.ErrorContains(t, service.BindResponsesState(next), "unknown or expired")
+			}
+			next, _ := gin.CreateTestContext(httptest.NewRecorder())
+			next.Set("id", 1)
+			next.Request = httptest.NewRequest("POST", "/v1/responses", strings.NewReader(`{"previous_response_id":"resp_large_retry_success"}`))
+			require.NoError(t, service.BindResponsesState(next))
+			require.Equal(t, 2, model.ResponseStateChannel(next.Request.Context()))
 			var logs []model.Log
 			require.Eventually(t, func() bool {
 				return fixture.db.Find(&logs).Error == nil && len(logs) == 1
@@ -466,6 +499,118 @@ func TestResponsesLargeInputRetrySuccess(t *testing.T) {
 			require.EqualValues(t, 1000000-logs[0].Quota, user.Quota)
 			require.EqualValues(t, 1000000-logs[0].Quota, token.RemainQuota)
 			require.EqualValues(t, logs[0].Quota, user.UsedQuota)
+		})
+	}
+}
+
+// 客户端取消在前置缓冲期间也必须停止，不能把关闭连接产生的 502 当作换渠理由。
+func TestResponsesCancellationDoesNotRetry(t *testing.T) {
+	for _, output := range []bool{false, true} {
+		t.Run(fmt.Sprintf("output_%t", output), func(t *testing.T) {
+			ready := make(chan struct{})
+			var once sync.Once
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{}}\n\n")
+				if output {
+					_, _ = io.WriteString(w, "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\"}}\n\n")
+				}
+				w.(http.Flusher).Flush()
+				once.Do(func() { close(ready) })
+				<-r.Context().Done()
+			}))
+			t.Cleanup(upstream.Close)
+			fixture := newResponsesLifecycle(t, upstream.URL, "test-key", make(chan struct{}))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, "POST", fixture.gateway.URL+"/v1/responses", strings.NewReader(`{"model":"gpt-5.1","input":"hello","stream":true}`))
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer sk-responseslifecycle")
+			req.Header.Set("Content-Type", "application/json")
+			clientDone := make(chan struct{})
+			clientReceived := make(chan struct{})
+			go func() {
+				defer close(clientDone)
+				res, err := fixture.gateway.Client().Do(req)
+				if err == nil {
+					close(clientReceived)
+					_, _ = io.Copy(io.Discard, res.Body)
+					res.Body.Close()
+				}
+			}()
+			select {
+			case <-ready:
+			case <-time.After(5 * time.Second):
+				t.Fatal("upstream request did not start")
+			}
+			if output {
+				select {
+				case <-clientReceived:
+				case <-time.After(5 * time.Second):
+					t.Fatal("gateway did not forward output")
+				}
+			}
+			cancel()
+			select {
+			case <-fixture.done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("gateway did not stop after cancellation")
+			}
+			<-clientDone
+			fixture.assertFailure(t, 1)
+			require.Contains(t, fixture.diagnostics.String(), `reason=\"client_cancelled\"`)
+			require.NotContains(t, fixture.diagnostics.String(), "event=selection_started")
+		})
+	}
+}
+
+func TestResponsesPreludeRetryBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name, errorEvent string
+		status, attempts int
+	}{
+		{name: "eof", status: 502, attempts: 2},
+		{name: "invalid_history", errorEvent: `{"type":"error","code":"invalid_encrypted_content","message":"Cannot decrypt history"}`, status: 400, attempts: 1},
+		{name: "state_bound", errorEvent: `{"type":"error","code":"rate_limit_exceeded","message":"Too many requests"}`, status: 429, attempts: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{}}\n\n")
+				if tc.errorEvent != "" {
+					_, _ = fmt.Fprintf(w, "data: %s\n\n", tc.errorEvent)
+				}
+			}))
+			t.Cleanup(upstream.Close)
+			fixture := newResponsesLifecycle(t, upstream.URL, "test-key", make(chan struct{}))
+			body := `{"model":"gpt-5.1","input":"hello","stream":true}`
+			if tc.name == "state_bound" {
+				previous, _ := gin.CreateTestContext(httptest.NewRecorder())
+				previous.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+				previous.Request = previous.Request.WithContext(model.WithRetryProvider(previous.Request.Context(), "responses-lifecycle"))
+				previous.Set("id", 1)
+				previous.Set("channel_id", 1)
+				previous.Set("key_index", 0)
+				previous.Set("actual_key", "test-key")
+				require.NoError(t, service.RememberResponsesState(previous, []byte(`{"id":"resp_prelude_bound"}`), false))
+				body = `{"model":"gpt-5.1","input":"hello","stream":true,"previous_response_id":"resp_prelude_bound"}`
+			}
+			req, err := http.NewRequest("POST", fixture.gateway.URL+"/v1/responses", strings.NewReader(body))
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer sk-responseslifecycle")
+			req.Header.Set("Content-Type", "application/json")
+			res, err := fixture.gateway.Client().Do(req)
+			require.NoError(t, err)
+			response, err := io.ReadAll(res.Body)
+			res.Body.Close()
+			require.NoError(t, err)
+			require.Equal(t, tc.status, res.StatusCode, string(response))
+			require.Contains(t, res.Header.Get("Content-Type"), "application/json")
+			require.NotContains(t, string(response), "event:")
+			fixture.assertFailure(t, tc.attempts)
+			if tc.name == "state_bound" {
+				require.Contains(t, fixture.diagnostics.String(), "reason=response_state_channel_exhausted")
+			}
 		})
 	}
 }

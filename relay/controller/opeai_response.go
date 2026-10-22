@@ -475,6 +475,16 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 	streamResponseID := ""
 	var fullText strings.Builder // 累积完整文本
 	webSearchToolCallCount := 0
+	// 只缓冲尚未产生输出的前置事件，避免 created 后的流内 429 被 HTTP 200 锁死。
+	// 保存原始 JSON，不能经 DTO 重编码而丢失扩展字段或大整数。
+	const maxPreludeEvents, maxPreludeBytes = 32, 1 << 20
+	type pendingEvent struct {
+		eventType string
+		data      string
+	}
+	var pending []pendingEvent
+	pendingBytes := 0
+	meta.DeferPingUntilResponse = true
 	helper.StreamScannerHandler(c, resp, meta, func(data string) bool {
 		var streamResponse openai.OpenaiResponseStreamResponse
 		err := json.Unmarshal([]byte(data), &streamResponse)
@@ -506,19 +516,37 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 			}
 			return false
 		}
-		if stateErr := service.RememberResponsesState(c, []byte(data), true); stateErr != nil {
-			c.Set("responses_state_record_failed", true)
-			openaiErr = openai.ErrorWrapper(stateErr, "responses_state_cache_unavailable", http.StatusServiceUnavailable)
-			// 流已经开始时发送明确错误，不能重放请求或伪造 completed。
-			if c.Writer.Written() {
-				// 状态未记录成功时不能把 response id 透给客户端，否则它会拿去当
-				// previous_response_id，而我们没有对应的 provider 绑定。
-				writeResponsesFailureEvent(c, "", openaiErr)
-				errorForwarded = true
+		prelude := streamResponse.Type == "response.created" || streamResponse.Type == "response.in_progress" || streamResponse.Type == "response.queued"
+		if !c.Writer.Written() && prelude {
+			if len(pending) >= maxPreludeEvents || len(data) > maxPreludeBytes-pendingBytes {
+				openaiErr = openai.ErrorWrapper(fmt.Errorf("Upstream Responses prelude exceeded the buffer limit"), "responses_prelude_limit_exceeded", http.StatusBadGateway)
+				return false
 			}
-			return false
+			pending = append(pending, pendingEvent{eventType: streamResponse.Type, data: data})
+			pendingBytes += len(data)
+			return true
 		}
-		helper.OpenaiResponseChunkData(c, streamResponse, data)
+		pending = append(pending, pendingEvent{eventType: streamResponse.Type, data: data})
+		// 所有待发送状态先记录成功，再暴露 response id；失败尝试的前置事件不入缓存。
+		for _, event := range pending {
+			if stateErr := service.RememberResponsesState(c, []byte(event.data), true); stateErr != nil {
+				c.Set("responses_state_record_failed", true)
+				openaiErr = openai.ErrorWrapper(stateErr, "responses_state_cache_unavailable", http.StatusServiceUnavailable)
+				// 流已经开始时发送明确错误，不能重放请求或伪造 completed。
+				if c.Writer.Written() {
+					// 状态未记录成功时不能把 response id 透给客户端，否则它会拿去当
+					// previous_response_id，而我们没有对应的 provider 绑定。
+					writeResponsesFailureEvent(c, "", openaiErr)
+					errorForwarded = true
+				}
+				return false
+			}
+		}
+		for _, event := range pending {
+			helper.OpenaiResponseChunkData(c, openai.OpenaiResponseStreamResponse{Type: event.eventType}, event.data)
+		}
+		pending = nil
+		pendingBytes = 0
 		switch streamResponse.Type {
 		case "response.completed", "response.incomplete":
 			terminal = streamResponse.Response != nil

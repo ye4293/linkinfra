@@ -137,6 +137,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *util.RelayM
 					go func() {
 						writeMutex.Lock()
 						defer writeMutex.Unlock()
+						if info.DeferPingUntilResponse && !c.Writer.Written() {
+							done <- nil
+							return
+						}
 						done <- PingData(c)
 					}()
 

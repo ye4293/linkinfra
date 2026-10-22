@@ -92,8 +92,9 @@ func TestResponsesStreamCacheFailureBeforeAndAfterFirstEvent(t *testing.T) {
 		c.Set("channel_id", 12)
 		payload := "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_failure\"}}\n\n"
 		if started {
-			payload = "data: {\"type\":\"response.in_progress\",\"response\":{}}\n\n" + payload
+			payload = "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\"}}\n\n" + payload
 		}
+		payload += "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_failure\"}}\n\n"
 		upstream := &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(payload)), Header: make(http.Header)}
 		_, err := doNativeOpenaiResponseStream(c, upstream, &util.RelayMeta{DisablePing: true})
 		require.NotNil(t, err)

@@ -37,7 +37,7 @@ func TestResponsesAuditTerminalErrorIsClientReadable(t *testing.T) {
 			c, _ := gin.CreateTestContext(w)
 			c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
 			c.Set("channel_id", 14)
-			payload := "data: {\"type\":\"response.in_progress\",\"response\":{}}\n\ndata: " + tc.event + "\n\n"
+			payload := "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\"}}\n\ndata: " + tc.event + "\n\n"
 			upstream := &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(payload))}
 			_, failure := doNativeOpenaiResponseStream(c, upstream, &util.RelayMeta{DisablePing: true})
 			require.NotNil(t, failure)

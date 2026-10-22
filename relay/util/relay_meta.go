@@ -42,6 +42,8 @@ type RelayMeta struct {
 	IsMultiKey   bool
 	Keys         []string // 存储所有解析的密钥
 	DisablePing  bool
+	// Responses 前置事件尚未确认可输出时，ping 也不能提前提交 HTTP 200。
+	DeferPingUntilResponse bool
 	// 流式响应是否包含 usage 信息
 	ShouldIncludeUsage bool
 	// 自定义请求头覆盖

@@ -8,6 +8,14 @@
 
 ## 2026-10-22
 
+### fix(responses): 缓冲前置事件以恢复 OpenAI / Azure 流内 429 重试
+- **分支**: `main`
+- **类型**: fix / test
+- **涉及文件**: `relay/controller/opeai_response.go`、`relay/helper/stream_scanner.go`、`relay/util/relay_meta.go`、`controller/retry_policy.go`、`relay/controller/responses_error_test.go`、`relay/controller/responses_state_test.go`、`relay/controller/responses_compat_audit_test.go`、`router/responses_lifecycle_test.go`、`AGENT.md`
+- **说明**: OpenAI 与 Azure 共用的 Responses 流处理器在首个非前置事件前缓冲 created/in_progress/queued（最多 32 个事件、1 MiB），同时推迟 ping。前置阶段遇到流内 429、EOF 或缓冲超限，未提交的事件被丢弃，沿用同 provider 与会话资源边界重试；开始输出后仍不重放，客户端取消明确停止重试。成功时先记录状态再按原顺序输出原始 JSON，失败尝试的前置响应 ID 不入缓存。
+- **关联计划**: `docs/plans/2026-10-22-responses-prelude-retry.md`
+- **验证**: `go test ./... -count=1`、`go test -race ./router ./relay/controller ./relay/helper ./controller -run 'TestResponses|TestRetryStays' -count=1`、`go build ./...`、`go vet ./...`、`git diff --check` 均通过。完整路由验证 OpenAI/Azure 前置事件后 429 切换备用渠道、完整正文重放、单次扣费及失败状态不泄漏；覆盖 ping、缓冲上下界、EOF、非法历史、provider/会话边界、取消和状态缓存失败。未执行真实上游/Codex 联调，未发布或部署。
+
 ### fix(responses): v0.1.42 增加临时 429 重试诊断
 - **分支**: `main`
 - **类型**: fix / test / release

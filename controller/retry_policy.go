@@ -78,6 +78,9 @@ func responsesRetryStopReason(c *gin.Context, relayError *relaymodel.ErrorWithSt
 			c.GetString("responses_diag_first_write"), c.GetString("responses_diag_last_event"), c.GetInt("responses_diag_non_prelude_events"), c.GetInt("responses_diag_text_deltas"),
 			ctx.Err() != nil, action, diagnosticReason)
 	}()
+	if c.Request.Context().Err() != nil {
+		return "client_cancelled"
+	}
 	if c.Writer.Written() {
 		return "response_already_started"
 	}

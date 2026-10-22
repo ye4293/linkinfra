@@ -69,7 +69,7 @@ git worktree remove /tmp/dev-test    # 用完清理
 
 百炼在线验证中，`stream_options` 只随 `stream:true` 请求发送；非流式用例携带该参数会被上游拒绝（HTTP 400），应修正测试输入，不让网关静默删除参数掩盖错误。
 
-Responses 流式错误测试若不验证 token 计费，使用不含文本的状态事件模拟流已开始；文本 delta 会触发 tokenizer，测试需先初始化 tokenizer 才能使用。
+Responses 流式错误测试若不验证 token 计费，使用不含文本的 `response.output_item.added` 模拟流已开始；`response.created`、`response.in_progress`、`response.queued` 会先缓冲，不能再用于模拟已提交响应。文本 delta 会触发 tokenizer，测试需先初始化 tokenizer 才能使用。Azure 完整路由测试需显式设置渠道 `api_version`，并断言实际上游路径和请求参数。
 
 诊断代码必须按当前 Gin 版本读取上下文；本仓库没有 `Context.GetIntSlice`，渠道历史用 `Get` 后断言为 `[]int`。
 

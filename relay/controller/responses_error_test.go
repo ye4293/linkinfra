@@ -46,7 +46,7 @@ func TestResponsesHTTP200Failures(t *testing.T) {
 					if stream {
 						payload = "data: " + payload + "\n\n"
 						if started {
-							payload = "data: {\"type\":\"response.in_progress\",\"response\":{}}\n\n" + payload
+							payload = "data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\"}}\n\n" + payload
 						}
 					}
 					resp := &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(payload))}
@@ -83,7 +83,7 @@ func TestResponsesStreamAbortEmitsTerminalFailedEvent(t *testing.T) {
 	oldRedis := common.RedisEnabled
 	common.RedisEnabled = false
 	t.Cleanup(func() { common.RedisEnabled = oldRedis })
-	const started = "data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_abort\"}}\n\n"
+	const started = "data: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_abort\"}}\n\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"reasoning\"}}\n\n"
 	for _, tc := range []struct {
 		name, payload, code string
 		failedEvents        int
@@ -166,6 +166,52 @@ func TestResponsesStreamRequiresTerminalEvent(t *testing.T) {
 					require.Equal(t, 3, usage.OutputTokens)
 				}
 			}
+		})
+	}
+}
+
+func TestResponsesPreludeBuffer(t *testing.T) {
+	oldRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = oldRedis })
+	const created = `{"type":"response.created","response":{},"future":9007199254740993}`
+	const queued = `{"type":"response.queued","response":{}}`
+	const progress = `{"type":"response.in_progress","response":{}}`
+	const completed = `{"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":0,"output_tokens":0}}}`
+	const output = `{"type":"response.output_item.added","item":{"type":"reasoning"}}`
+	const failure = "data: {\"type\":\"error\",\"code\":429,\"message\":\"Too many requests\"}\n\n"
+	large := `{"type":"response.created","future":""}`
+	large = strings.Replace(large, `"future":""`, `"future":"`+strings.Repeat("x", (1<<20)-len(large))+`"`, 1)
+	for _, tc := range []struct {
+		name, payload, code string
+		wire                string
+	}{
+		{name: "ordered_success", payload: "data: " + queued + "\n\ndata: " + created + "\n\ndata: " + progress + "\n\ndata: " + completed + "\n\n", wire: "event: response.queued\ndata: " + queued + "\n\nevent: response.created\ndata: " + created + "\n\nevent: response.in_progress\ndata: " + progress + "\n\nevent: response.completed\ndata: " + completed + "\n\n"},
+		{name: "output_then_success", payload: "data: " + created + "\n\ndata: " + output + "\n\ndata: " + completed + "\n\n", wire: "event: response.created\ndata: " + created + "\n\nevent: response.output_item.added\ndata: " + output + "\n\nevent: response.completed\ndata: " + completed + "\n\n"},
+		{name: "count_boundary", payload: strings.Repeat("data: "+created+"\n\n", 32) + failure, code: "429"},
+		{name: "count_overflow", payload: strings.Repeat("data: "+created+"\n\n", 33) + failure, code: "responses_prelude_limit_exceeded"},
+		{name: "byte_boundary", payload: "data: " + large + "\n\n" + failure, code: "429"},
+		{name: "byte_overflow", payload: "data: " + large + " \n\n" + failure, code: "responses_prelude_limit_exceeded"},
+		{name: "eof", payload: "data: " + created + "\n\n", code: "responses_stream_incomplete"},
+		{name: "done", payload: "data: " + progress + "\n\ndata: [DONE]\n\n", code: "responses_stream_incomplete"},
+		{name: "malformed", payload: "data: " + created + "\n\ndata: {invalid}\n\n", code: "unmarshal_response_failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+			c.Set("channel_id", 14)
+			resp := &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(tc.payload))}
+			_, failure := doNativeOpenaiResponseStream(c, resp, &util.RelayMeta{DisablePing: true})
+			if tc.code == "" {
+				require.Nil(t, failure)
+			} else {
+				require.NotNil(t, failure)
+				require.Equal(t, tc.code, failure.Error.Code)
+				require.False(t, c.Writer.Written())
+				require.Empty(t, w.Header().Get("Content-Type"))
+			}
+			require.Equal(t, tc.wire, w.Body.String())
 		})
 	}
 }
