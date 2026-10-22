@@ -6,6 +6,16 @@
 
 ---
 
+## 2026-10-23
+
+### docs(responses): v0.1.43 修改总结与发布后复审
+- **分支**: `main`
+- **类型**: docs / review
+- **涉及文件**: `docs/reviews/v0.1.43-responses-prelude-review.md`、`docs/CHANGELOG.md`
+- **说明**: 复查 v0.1.42 至 v0.1.43 的修复、重试边界、状态记录、ping 和测试覆盖；记录发布结果、生产日志验收步骤及未验证范围。此次不改运行时代码。
+- **验证**: 重新运行 `go test ./... -count=1 -json`（27 个测试包通过，1008 条测试及子测试通过，5 项真实上游测试跳过）、六包完整 race 测试、`go build ./...`、`go vet ./...`、发布差异检查，均通过。
+- **关联计划**: `docs/plans/2026-10-22-responses-prelude-retry.md`
+
 ## 2026-10-22
 
 ### release: v0.1.43 发布 Responses 前置事件重试修复
