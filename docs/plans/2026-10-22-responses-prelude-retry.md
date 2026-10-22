@@ -42,3 +42,13 @@
 - 首轮新增测试重复使用成功 response id，触发状态缓存来源污染并使后台写日志撞上测试清理；改为按用例独立 id。等待响应头的模拟上游未消费请求体，无法感知连接关闭；修正测试服务端先读请求体。修正后完成上述全部验证。
 - 官方协议参考：https://developers.openai.com/api/docs/guides/conversation-state 。文档说明服务端 response 引用与客户端完整重放历史的区别，没有提供任意 Azure 资源可共享历史的保证；本次不放宽资源边界。
 - 生产根因来自用户提供的日志，修复验证使用本地模拟上游；尚未发布镜像或做生产验收。
+
+## 2026-10-23 Provider 补填兼容与 v0.1.44 发布
+
+用户要求打包、推送尚未完成的更新，并同步 Markdown。沿用本计划完成剩余修复及发布。
+
+- 背景：渠道原先未配置 Provider，补填后产生的新状态带有 Provider；新旧历史混用时此前会误判为来源冲突。
+- 实现：`service/responses_state.go` 先收集非空 Provider；仅当原渠道当前 Provider 与目标一致、原 Key 指纹匹配时兼容空 Provider 的历史。仍锁定原渠道和 Key，不改写共享状态索引；非空 Provider 更名不兼容。
+- 覆盖：`service/responses_state_test.go` 验证新旧历史顺序、显式 Provider、指纹缺失、密钥更换、渠道查询失败及资源冲突；`controller/responses_state_routing_test.go` 验证真实分发链路连续两轮续接及强制换渠拒绝。
+- 影响：无数据库结构变更；同步 `docs/channel-provider.md`、`docs/CHANGELOG.md` 和发布记录。版本由远端最新 v0.1.43 升至 v0.1.44，包含先前提交的原渠道 429 退避重试与客户端取消归因修复。
+- 验证：全量测试、六包完整 race、`go build ./...`、`go vet ./...` 和差异检查；结果及镜像发布状态统一记录在 [v0.1.44 发布记录](../releases/v0.1.44-responses-state.md)。

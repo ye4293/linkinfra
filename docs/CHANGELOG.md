@@ -8,6 +8,22 @@
 
 ## 2026-10-23
 
+### fix(responses): 补填 Provider 后保留已有会话续接
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `service/responses_state.go`、`service/responses_state_test.go`、`controller/responses_state_routing_test.go`、`docs/channel-provider.md`、`docs/plans/2026-10-22-responses-prelude-retry.md`、`docs/CHANGELOG.md`
+- **说明**: 混合新旧状态或显式指定 Provider 时，核对原渠道当前 Provider 和原 Key 指纹，允许从空 Provider 补填后的旧会话继续使用；保持原渠道/Key 绑定，不改写共享索引，不放宽非空 Provider 冲突保护。
+- **验证**: 全量测试通过；完整检查及发布结果见 `docs/releases/v0.1.44-responses-state.md`。
+- **关联计划**: `docs/plans/2026-10-22-responses-prelude-retry.md`
+
+### release: v0.1.44 汇总 Responses 状态与重试修复
+- **分支**: `main`
+- **类型**: release / docs
+- **涉及文件**: `VERSION`、`docs/CHANGELOG.md`、`docs/releases/v0.1.44-responses-state.md`、`docs/plans/2026-10-22-responses-prelude-retry.md`
+- **说明**: 汇总尚未发布的原渠道/原 Key 429 退避重试、客户端取消归因和 Provider 补填兼容；用户授权打包推送，fetch 后确认远端最新版本为 v0.1.43，使用 v0.1.44 触发现有双架构镜像工作流。
+- **发布状态**: 具体构建结果、镜像摘要及验证边界见 `docs/releases/v0.1.44-responses-state.md`。
+- **关联计划**: `docs/plans/2026-10-22-responses-prelude-retry.md`
+
 ### release: v0.1.44 发布 Provider 补填兼容与状态绑定限流重试修复
 - **分支**: `main`
 - **类型**: release
