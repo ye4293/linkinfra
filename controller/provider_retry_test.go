@@ -3,7 +3,9 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/model"
@@ -62,4 +64,38 @@ func TestRetryStaysWithinOriginalProvider(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, []int{1, 2, 3}, channel.Id)
 	require.Empty(t, failed)
+}
+
+func TestResponsesRetryDelay(t *testing.T) {
+	now := time.Date(2026, 10, 23, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name, seconds, milliseconds string
+		attempt                     int
+		want                        time.Duration
+		blocked                     bool
+	}{
+		{name: "default", attempt: 1, want: 2 * time.Second},
+		{name: "backoff", attempt: 4, want: 16 * time.Second},
+		{name: "backoff_bounded", attempt: 100, want: 16 * time.Second},
+		{name: "seconds", seconds: "12", want: 12 * time.Second},
+		{name: "milliseconds", seconds: "12", milliseconds: "250", want: 250 * time.Millisecond},
+		{name: "invalid", seconds: "invalid", milliseconds: "-1", want: 2 * time.Second},
+		{name: "date", seconds: now.Add(10 * time.Second).Format(http.TimeFormat), want: 10 * time.Second},
+		{name: "past_date", seconds: now.Add(-time.Second).Format(http.TimeFormat), want: time.Millisecond},
+		{name: "zero", seconds: "0", want: time.Millisecond},
+		{name: "long_seconds", seconds: "31", blocked: true},
+		{name: "long_milliseconds", milliseconds: "30001", blocked: true},
+		{name: "overflow_duration", seconds: "9223372036854775807", blocked: true},
+		{name: "long_date", seconds: now.Add(time.Minute).Format(http.TimeFormat), blocked: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			delay, err := responsesRetryDelay(tc.seconds, tc.milliseconds, tc.attempt, now)
+			if tc.blocked {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, delay)
+		})
+	}
 }

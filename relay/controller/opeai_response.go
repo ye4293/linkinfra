@@ -32,6 +32,8 @@ func RelayOpenaiResponseNative(c *gin.Context) *model.ErrorWithStatusCode {
 	startTime := time.Now()
 	c.Set("responses_diag_http_status", 0)
 	c.Set("responses_diag_last_event", "")
+	c.Set("responses_retry_after", "")
+	c.Set("responses_retry_after_ms", "")
 
 	// 获取基本信息
 	tokenId := c.GetInt("token_id")
@@ -105,9 +107,14 @@ func RelayOpenaiResponseNative(c *gin.Context) *model.ErrorWithStatusCode {
 	c.Set("metrics_upstream_started", true)
 	resp, err := adaptor.DoRequest(c, meta, bytes.NewBuffer(originRequestBody))
 	if err != nil {
+		if ctx.Err() != nil {
+			return openai.ErrorWrapper(fmt.Errorf("Client cancelled the Responses request before completion"), "client_cancelled", 499)
+		}
 		return openai.ErrorWrapper(err, "failed_to_send_request", http.StatusBadGateway)
 	}
 	if resp != nil {
+		c.Set("responses_retry_after", resp.Header.Get("Retry-After"))
+		c.Set("responses_retry_after_ms", resp.Header.Get("retry-after-ms"))
 		c.Set("responses_diag_http_status", resp.StatusCode)
 		logger.Infof(ctx, "responses_retry_diag event=upstream_headers channel=%d status=%d stream=%t content_type=%q elapsed_ms=%d response_written=%t",
 			channelId, resp.StatusCode, meta.IsStream, resp.Header.Get("Content-Type"), time.Since(startTime).Milliseconds(), c.Writer.Written())
@@ -586,7 +593,11 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 		return true
 	})
 	if openaiErr == nil && !terminal {
-		openaiErr = openai.ErrorWrapper(fmt.Errorf("Upstream Responses stream ended without a completed or incomplete response event"), "responses_stream_incomplete", http.StatusBadGateway)
+		if c.Request.Context().Err() != nil {
+			openaiErr = openai.ErrorWrapper(fmt.Errorf("Client cancelled the Responses request before completion"), "client_cancelled", 499)
+		} else {
+			openaiErr = openai.ErrorWrapper(fmt.Errorf("Upstream Responses stream ended without a completed or incomplete response event"), "responses_stream_incomplete", http.StatusBadGateway)
+		}
 	}
 	if openaiErr == nil && lastUsageMetadata.OutputTokens == 0 {
 		// 计算输出文本的 token 数量
@@ -604,7 +615,7 @@ func doNativeOpenaiResponseStream(c *gin.Context, resp *http.Response, meta *uti
 	}
 
 	if openaiErr != nil {
-		if c.Writer.Written() && !errorForwarded {
+		if c.Request.Context().Err() == nil && c.Writer.Written() && !errorForwarded {
 			writeResponsesFailureEvent(c, streamResponseID, openaiErr)
 		}
 		if !c.Writer.Written() {

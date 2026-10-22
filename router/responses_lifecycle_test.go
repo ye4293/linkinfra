@@ -153,13 +153,20 @@ type responsesLifecycle struct {
 
 // 多个流协程共用日志输出，捕获时也必须同步；仅保留本次新增的诊断行。
 type responsesDiagnosticLog struct {
-	mu     sync.Mutex
-	buffer bytes.Buffer
+	mu        sync.Mutex
+	buffer    bytes.Buffer
+	retryWait chan struct{}
 }
 
 func (l *responsesDiagnosticLog) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if bytes.Contains(p, []byte("event=retry_wait")) {
+		select {
+		case l.retryWait <- struct{}{}:
+		default:
+		}
+	}
 	if bytes.Contains(p, []byte("responses_retry_diag")) {
 		_, _ = l.buffer.Write(p)
 	}
@@ -235,6 +242,7 @@ func newResponsesLifecycle(t *testing.T, baseURL, key string, ping chan struct{}
 		require.NoError(t, ch.Insert())
 	}
 	fixture := &responsesLifecycle{db: db, ping: ping, done: make(chan struct{}, 8)}
+	fixture.diagnostics.retryWait = make(chan struct{}, 1)
 	previousWriter := gin.DefaultWriter
 	gin.DefaultWriter = &fixture.diagnostics
 	t.Cleanup(func() { gin.DefaultWriter = previousWriter })
@@ -278,9 +286,7 @@ func (f *responsesLifecycle) assertFailure(t *testing.T, expectedCalls int) {
 		require.Equal(t, i+1, attempt.Attempt)
 		require.NotEmpty(t, attempt.Error)
 		require.GreaterOrEqual(t, attempt.Status, 400)
-		if i > 0 {
-			require.NotEqual(t, attempts[i-1].ChannelId, attempt.ChannelId)
-		}
+
 	}
 	require.NotEmpty(t, attempts[len(attempts)-1].StopReason)
 
@@ -383,16 +389,29 @@ func TestResponsesLargeInputRetrySuccess(t *testing.T) {
 	for _, tc := range []struct {
 		name                   string
 		stream, prelude, azure bool
+		bound, portable        bool
 	}{
 		{name: "json"},
 		{name: "http429_stream", stream: true},
 		{name: "openai_prelude", stream: true, prelude: true},
 		{name: "azure_prelude", stream: true, prelude: true, azure: true},
+		{name: "bound_http429", stream: true, azure: true, bound: true},
+		{name: "bound_sse429", stream: true, prelude: true, azure: true, bound: true},
+		{name: "unconfigured_portable_sse429", stream: true, prelude: true, azure: true, bound: true, portable: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			stream := tc.stream
+			responseID := "resp_large_retry_" + tc.name
 			input := strings.Repeat("The release ledger contains a verified routing record.\n", 6000) + "FINAL_MARKER_6141"
-			requestBody, err := json.Marshal(map[string]any{"model": "gpt-5.1", "input": input, "stream": stream})
+			request := map[string]any{"model": "gpt-5.1", "input": input, "stream": stream}
+			if tc.bound {
+				request["previous_response_id"] = "resp_bound_" + tc.name
+				if tc.portable {
+					delete(request, "previous_response_id")
+					request["input"] = []any{map[string]any{"type": "reasoning", "encrypted_content": "encrypted_" + tc.name}, map[string]any{"role": "user", "content": input}}
+				}
+			}
+			requestBody, err := json.Marshal(request)
 			require.NoError(t, err)
 			var calls atomic.Int32
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -408,6 +427,9 @@ func TestResponsesLargeInputRetrySuccess(t *testing.T) {
 					assert.Equal(t, "test-key", r.Header.Get("api-key"))
 				} else {
 					assert.Equal(t, "/v1/responses", r.URL.Path)
+				}
+				if tc.bound {
+					w.Header().Set("retry-after-ms", "1")
 				}
 				if calls.Add(1) == 1 && tc.prelude {
 					w.Header().Set("Content-Type", "text/event-stream")
@@ -427,10 +449,10 @@ func TestResponsesLargeInputRetrySuccess(t *testing.T) {
 					_, _ = io.WriteString(w, `{"error":{"message":"Requests have exceeded the throughput limit"}}`)
 					return
 				}
-				response := `{"id":"resp_large_retry_success","object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"FINAL_MARKER_6141"}]}],"usage":{"input_tokens":48000,"output_tokens":12,"total_tokens":48012}}`
+				response := `{"id":"` + responseID + `","object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"FINAL_MARKER_6141"}]}],"usage":{"input_tokens":48000,"output_tokens":12,"total_tokens":48012}}`
 				if stream {
 					w.Header().Set("Content-Type", "text/event-stream")
-					_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_large_retry_success\"},\"future\":9007199254740993}\n\ndata: {\"type\":\"response.in_progress\",\"response\":{}}\n\n")
+					_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{\"id\":\""+responseID+"\"},\"future\":9007199254740993}\n\ndata: {\"type\":\"response.in_progress\",\"response\":{}}\n\n")
 					_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":%s}\n\n", response)
 				} else {
 					w.Header().Set("Content-Type", "application/json")
@@ -441,6 +463,23 @@ func TestResponsesLargeInputRetrySuccess(t *testing.T) {
 			fixture := newResponsesLifecycle(t, upstream.URL, "test-key", make(chan struct{}))
 			if tc.azure {
 				require.NoError(t, fixture.db.Model(&model.Channel{}).Where("id > ?", 0).Updates(map[string]any{"type": common.ChannelTypeAzure, "config": `{"provider":"azure","api_version":"2025-04-01-preview"}`}).Error)
+			}
+			if tc.bound {
+				provider := "azure"
+				if tc.portable {
+					provider = ""
+					require.NoError(t, fixture.db.Model(&model.Channel{}).Where("id = ?", 1).Update("config", `{"api_version":"2025-04-01-preview"}`).Error)
+				}
+				multi := model.MultiKeyInfo{IsMultiKey: true, KeyCount: 2, EnabledKeyCount: 2, KeySelectionMode: model.KeySelectionPolling}
+				require.NoError(t, fixture.db.Model(&model.Channel{}).Where("id = ?", 1).Updates(map[string]any{"key": "unused-key\ntest-key", "multi_key_info": multi}).Error)
+				previous, _ := gin.CreateTestContext(httptest.NewRecorder())
+				previous.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+				previous.Request = previous.Request.WithContext(model.WithRetryProvider(previous.Request.Context(), provider))
+				previous.Set("id", 1)
+				previous.Set("channel_id", 1)
+				previous.Set("key_index", 1)
+				previous.Set("actual_key", "test-key")
+				require.NoError(t, service.RememberResponsesState(previous, []byte(`{"id":"resp_bound_`+tc.name+`","output":[{"type":"reasoning","encrypted_content":"encrypted_`+tc.name+`"}]}`), false))
 			}
 			req, err := http.NewRequest("POST", fixture.gateway.URL+"/v1/responses", bytes.NewReader(requestBody))
 			require.NoError(t, err)
@@ -472,9 +511,13 @@ func TestResponsesLargeInputRetrySuccess(t *testing.T) {
 			}
 			next, _ := gin.CreateTestContext(httptest.NewRecorder())
 			next.Set("id", 1)
-			next.Request = httptest.NewRequest("POST", "/v1/responses", strings.NewReader(`{"previous_response_id":"resp_large_retry_success"}`))
+			next.Request = httptest.NewRequest("POST", "/v1/responses", strings.NewReader(`{"previous_response_id":"`+responseID+`"}`))
 			require.NoError(t, service.BindResponsesState(next))
-			require.Equal(t, 2, model.ResponseStateChannel(next.Request.Context()))
+			expectedChannel := 2
+			if tc.bound {
+				expectedChannel = 1
+			}
+			require.Equal(t, expectedChannel, model.ResponseStateChannel(next.Request.Context()))
 			var logs []model.Log
 			require.Eventually(t, func() bool {
 				return fixture.db.Find(&logs).Error == nil && len(logs) == 1
@@ -491,7 +534,14 @@ func TestResponsesLargeInputRetrySuccess(t *testing.T) {
 			require.Len(t, attempts, 2)
 			require.Equal(t, 429, attempts[0].Status)
 			require.Equal(t, 200, attempts[1].Status)
-			require.NotEqual(t, attempts[0].ChannelId, attempts[1].ChannelId)
+			if tc.bound {
+				require.Equal(t, 1, attempts[0].ChannelId)
+				require.Equal(t, 1, attempts[1].ChannelId)
+				require.Equal(t, 1, attempts[0].KeyIndex)
+				require.Equal(t, 1, attempts[1].KeyIndex)
+			} else {
+				require.NotEqual(t, attempts[0].ChannelId, attempts[1].ChannelId)
+			}
 			var user model.User
 			var token model.Token
 			require.NoError(t, fixture.db.First(&user, 1).Error)
@@ -505,11 +555,18 @@ func TestResponsesLargeInputRetrySuccess(t *testing.T) {
 
 // 客户端取消在前置缓冲期间也必须停止，不能把关闭连接产生的 502 当作换渠理由。
 func TestResponsesCancellationDoesNotRetry(t *testing.T) {
-	for _, output := range []bool{false, true} {
-		t.Run(fmt.Sprintf("output_%t", output), func(t *testing.T) {
+	for _, stage := range []string{"headers", "prelude", "output"} {
+		t.Run(stage, func(t *testing.T) {
+			output := stage == "output"
 			ready := make(chan struct{})
 			var once sync.Once
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				if stage == "headers" {
+					once.Do(func() { close(ready) })
+					<-r.Context().Done()
+					return
+				}
 				w.Header().Set("Content-Type", "text/event-stream")
 				_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{}}\n\n")
 				if output {
@@ -521,6 +578,17 @@ func TestResponsesCancellationDoesNotRetry(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 			fixture := newResponsesLifecycle(t, upstream.URL, "test-key", make(chan struct{}))
+			config.AutomaticDisableChannelEnabled = true
+			config.OptionMapRWMutex.Lock()
+			oldKeywords := config.AutoDisableKeywords
+			config.AutoDisableKeywords = "Client cancelled"
+			config.OptionMapRWMutex.Unlock()
+			t.Cleanup(func() {
+				config.OptionMapRWMutex.Lock()
+				config.AutoDisableKeywords = oldKeywords
+				config.OptionMapRWMutex.Unlock()
+			})
+			require.NoError(t, fixture.db.Model(&model.Channel{}).Where("id = ?", 1).Update("auto_disabled", true).Error)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			req, err := http.NewRequestWithContext(ctx, "POST", fixture.gateway.URL+"/v1/responses", strings.NewReader(`{"model":"gpt-5.1","input":"hello","stream":true}`))
@@ -558,6 +626,20 @@ func TestResponsesCancellationDoesNotRetry(t *testing.T) {
 			}
 			<-clientDone
 			fixture.assertFailure(t, 1)
+			var channel model.Channel
+			require.NoError(t, fixture.db.First(&channel, 1).Error)
+			require.Equal(t, common.ChannelStatusEnabled, channel.Status, "client cancellation must not disable the upstream channel")
+			var logs []model.Log
+			require.NoError(t, fixture.db.Find(&logs).Error)
+			require.Contains(t, logs[0].Content, "Client cancelled")
+			require.Contains(t, logs[0].Other, `"status":499`)
+			fixture.mu.Lock()
+			wire := fixture.wire.String()
+			fixture.mu.Unlock()
+			require.NotContains(t, wire, "response.failed")
+			if !output {
+				require.Empty(t, wire)
+			}
 			require.Contains(t, fixture.diagnostics.String(), `reason=\"client_cancelled\"`)
 			require.NotContains(t, fixture.diagnostics.String(), "event=selection_started")
 		})
@@ -571,20 +653,34 @@ func TestResponsesPreludeRetryBoundaries(t *testing.T) {
 	}{
 		{name: "eof", status: 502, attempts: 2},
 		{name: "invalid_history", errorEvent: `{"type":"error","code":"invalid_encrypted_content","message":"Cannot decrypt history"}`, status: 400, attempts: 1},
-		{name: "state_bound", errorEvent: `{"type":"error","code":"rate_limit_exceeded","message":"Too many requests"}`, status: 429, attempts: 1},
+		{name: "state_bound", errorEvent: `{"type":"error","code":"rate_limit_exceeded","message":"Too many requests"}`, status: 429, attempts: 3},
+		{name: "state_bound_disabled", errorEvent: `{"type":"error","code":"rate_limit_exceeded","message":"Too many requests"}`, status: 429, attempts: 1},
+		{name: "state_bound_key_changed", errorEvent: `{"type":"error","code":"rate_limit_exceeded","message":"Too many requests"}`, status: 429, attempts: 1},
+		{name: "state_bound_long_wait", errorEvent: `{"type":"error","code":"rate_limit_exceeded","message":"Too many requests"}`, status: 429, attempts: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			var fixture *responsesLifecycle
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "text/event-stream")
+				w.Header().Set("retry-after-ms", "1")
+				switch tc.name {
+				case "state_bound_disabled":
+					assert.NoError(t, fixture.db.Model(&model.Channel{}).Where("id = ?", 1).Update("status", common.ChannelStatusManuallyDisabled).Error)
+				case "state_bound_key_changed":
+					assert.NoError(t, fixture.db.Model(&model.Channel{}).Where("id = ?", 1).Update("key", "replacement-key").Error)
+				case "state_bound_long_wait":
+					w.Header().Del("retry-after-ms")
+					w.Header().Set("Retry-After", "60")
+				}
 				_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"response\":{}}\n\n")
 				if tc.errorEvent != "" {
 					_, _ = fmt.Fprintf(w, "data: %s\n\n", tc.errorEvent)
 				}
 			}))
 			t.Cleanup(upstream.Close)
-			fixture := newResponsesLifecycle(t, upstream.URL, "test-key", make(chan struct{}))
+			fixture = newResponsesLifecycle(t, upstream.URL, "test-key", make(chan struct{}))
 			body := `{"model":"gpt-5.1","input":"hello","stream":true}`
-			if tc.name == "state_bound" {
+			if strings.HasPrefix(tc.name, "state_bound") {
 				previous, _ := gin.CreateTestContext(httptest.NewRecorder())
 				previous.Request = httptest.NewRequest("POST", "/v1/responses", nil)
 				previous.Request = previous.Request.WithContext(model.WithRetryProvider(previous.Request.Context(), "responses-lifecycle"))
@@ -592,8 +688,8 @@ func TestResponsesPreludeRetryBoundaries(t *testing.T) {
 				previous.Set("channel_id", 1)
 				previous.Set("key_index", 0)
 				previous.Set("actual_key", "test-key")
-				require.NoError(t, service.RememberResponsesState(previous, []byte(`{"id":"resp_prelude_bound"}`), false))
-				body = `{"model":"gpt-5.1","input":"hello","stream":true,"previous_response_id":"resp_prelude_bound"}`
+				require.NoError(t, service.RememberResponsesState(previous, []byte(`{"id":"resp_prelude_bound_`+tc.name+`"}`), false))
+				body = `{"model":"gpt-5.1","input":"hello","stream":true,"previous_response_id":"resp_prelude_bound_` + tc.name + `"}`
 			}
 			req, err := http.NewRequest("POST", fixture.gateway.URL+"/v1/responses", strings.NewReader(body))
 			require.NoError(t, err)
@@ -608,9 +704,66 @@ func TestResponsesPreludeRetryBoundaries(t *testing.T) {
 			require.Contains(t, res.Header.Get("Content-Type"), "application/json")
 			require.NotContains(t, string(response), "event:")
 			fixture.assertFailure(t, tc.attempts)
-			if tc.name == "state_bound" {
+			switch tc.name {
+			case "state_bound":
+				require.Contains(t, fixture.diagnostics.String(), "reason=retry_limit_reached")
+			case "state_bound_disabled":
 				require.Contains(t, fixture.diagnostics.String(), "reason=response_state_channel_exhausted")
+			case "state_bound_key_changed":
+				require.Contains(t, fixture.diagnostics.String(), "response_state_key_unavailable")
+			case "state_bound_long_wait":
+				require.Contains(t, fixture.diagnostics.String(), "reason=retry_after_exceeds_limit")
 			}
 		})
 	}
+}
+
+func TestResponsesBoundRetryCancelledDuringWait(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Retry-After", "30")
+		_, _ = io.WriteString(w, "data: {\"type\":\"error\",\"code\":\"rate_limit_exceeded\",\"message\":\"Too many requests\"}\n\n")
+	}))
+	t.Cleanup(upstream.Close)
+	fixture := newResponsesLifecycle(t, upstream.URL, "test-key", make(chan struct{}))
+	previous, _ := gin.CreateTestContext(httptest.NewRecorder())
+	previous.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+	previous.Request = previous.Request.WithContext(model.WithRetryProvider(previous.Request.Context(), "responses-lifecycle"))
+	previous.Set("id", 1)
+	previous.Set("channel_id", 1)
+	previous.Set("key_index", 0)
+	previous.Set("actual_key", "test-key")
+	require.NoError(t, service.RememberResponsesState(previous, []byte(`{"id":"resp_cancel_retry_wait"}`), false))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "POST", fixture.gateway.URL+"/v1/responses", strings.NewReader(`{"model":"gpt-5.1","input":"hello","stream":true,"previous_response_id":"resp_cancel_retry_wait"}`))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer sk-responseslifecycle")
+	req.Header.Set("Content-Type", "application/json")
+	clientDone := make(chan struct{})
+	go func() {
+		defer close(clientDone)
+		res, err := fixture.gateway.Client().Do(req)
+		if err == nil {
+			res.Body.Close()
+		}
+	}()
+	select {
+	case <-fixture.diagnostics.retryWait:
+	case <-time.After(5 * time.Second):
+		t.Fatal("gateway did not enter the rate limit wait")
+	}
+	cancel()
+	select {
+	case <-fixture.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("gateway did not cancel its retry wait")
+	}
+	<-clientDone
+	fixture.assertFailure(t, 1)
+	require.Contains(t, fixture.diagnostics.String(), "reason=client_cancelled")
+	fixture.mu.Lock()
+	wire := fixture.wire.String()
+	fixture.mu.Unlock()
+	require.Empty(t, wire)
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/logger"
+	"github.com/songquanpeng/one-api/relay/constant"
 	"github.com/songquanpeng/one-api/relay/util"
 )
 
@@ -37,6 +38,10 @@ func DoRequestHelper(a Adaptor, c *gin.Context, meta *util.RelayMeta, requestBod
 	req, err := http.NewRequest(c.Request.Method, fullRequestURL, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
+	}
+	// Responses 流取消后不会继续交付结果，等待响应头阶段也应及时停止上游。
+	if meta.IsStream && meta.Mode == constant.RelayModeOpenaiResponse {
+		req = req.WithContext(c.Request.Context())
 	}
 	err = a.SetupRequestHeader(c, req, meta)
 	if err != nil {

@@ -3117,7 +3117,7 @@ func RelayResponse(c *gin.Context) {
 	// 普通失败不再每次写 DB，统一在所有重试结束后由 recordFinalErrorLog 写一条
 
 	// 在当前请求内完成渠道错误处理，避免返回后继续读取配置或错过重试前的状态更新。
-	if !c.GetBool("responses_state_record_failed") {
+	if ctx.Err() == nil && !c.GetBool("responses_state_record_failed") {
 		processChannelRelayError(ctx, userId, originalChannelId, originalChannelName, originalKeyIndex, relayError, originalModel)
 	}
 
@@ -3135,10 +3135,12 @@ func RelayResponse(c *gin.Context) {
 		currentAttempt := retryTimes - i + 1
 		logger.Infof(ctx, "responses_retry_diag event=selection_started next_attempt=%d retries_remaining=%d group=%q model=%q provider=%q state_channel=%d excluded_channels=%v",
 			currentAttempt+1, i, group, originalModel, dbmodel.RetryProvider(ctx), dbmodel.ResponseStateChannel(ctx), failedChannelIds)
-		channel, err := selectRetryChannel(ctx, group, originalModel, &failedChannelIds)
+		channel, selectionReason, err := selectResponsesRetryChannel(c, group, originalModel, &failedChannelIds, relayError.StatusCode, currentAttempt)
 		if err != nil {
 			stopReason = "no_available_channel"
-			if dbmodel.ResponseStateChannel(ctx) > 0 {
+			if selectionReason != "" {
+				stopReason = selectionReason
+			} else if dbmodel.ResponseStateChannel(ctx) > 0 {
 				stopReason = "response_state_channel_exhausted"
 			} else if dbmodel.RetryProvider(ctx) != "" {
 				stopReason = "provider_channels_exhausted"
@@ -3153,7 +3155,21 @@ func RelayResponse(c *gin.Context) {
 		retryReason := relayError.Error.Message
 
 		// 先完成选 key，再记录实际使用的索引，避免日志预取导致多轮转一次。
+		if err := service.RestoreResponsesStateKey(c, channel); err != nil {
+			stopReason = "response_state_key_unavailable"
+			logger.Infof(ctx, "Responses retry stopped: %s: %v", stopReason, err)
+			break
+		}
 		middleware.SetupContextForSelectedChannel(c, channel, originalModel)
+		if err := service.VerifyResponsesStateKey(c); err != nil {
+			stopReason = "response_state_key_unavailable"
+			logger.Infof(ctx, "Responses retry stopped: %s: %v", stopReason, err)
+			break
+		}
+		if ctx.Err() != nil {
+			stopReason = "client_cancelled"
+			break
+		}
 		newKeyIndex := c.GetInt("key_index")
 		isMultiKey := channel.MultiKeyInfo.IsMultiKey
 		logger.Infof(ctx, "responses_retry_diag event=channel_selected attempt=%d channel=%d provider=%q key_index=%d",
@@ -3213,13 +3229,13 @@ func RelayResponse(c *gin.Context) {
 
 		if stopReason = responsesRetryStopReason(c, relayError, i-1); stopReason != "" {
 			logger.Infof(ctx, "Responses retry stopped: %s (status=%d)", stopReason, relayError.StatusCode)
-			if !c.GetBool("responses_state_record_failed") {
+			if ctx.Err() == nil && !c.GetBool("responses_state_record_failed") {
 				processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
 			}
 			break
 		}
 
-		if !c.GetBool("responses_state_record_failed") {
+		if ctx.Err() == nil && !c.GetBool("responses_state_record_failed") {
 			processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
 		}
 	}
@@ -3235,7 +3251,7 @@ func RelayResponse(c *gin.Context) {
 		util.PublishFailedRetryHistory(c, retryAttempts)
 		c.Set("admin_channel_history", channelHistory)
 		recordFinalErrorLog(ctx, c, relayError, retryAttempts, channelHistory, service.GetAffinityLogTag(c))
-		if c.Writer.Written() {
+		if ctx.Err() != nil || c.Writer.Written() {
 			return
 		}
 		//转换成claude 的错误格式

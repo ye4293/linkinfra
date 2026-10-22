@@ -249,6 +249,10 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *util.RelayM
 			}
 		}
 
+		// 主动取消和清理导致的 Body.Close 不属于上游读取故障。
+		if ctx.Err() != nil || c.Request.Context().Err() != nil {
+			return
+		}
 		if err := scanner.Err(); err != nil {
 			if err != io.EOF && !strings.Contains(err.Error(), "use of closed network connection") {
 				logger.Error(c, "scanner error: "+err.Error())

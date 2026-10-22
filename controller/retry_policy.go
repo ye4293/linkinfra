@@ -2,6 +2,11 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/songquanpeng/one-api/common/config"
@@ -42,6 +47,60 @@ func selectRetryChannel(ctx context.Context, group string, model string, failedC
 		)
 	}
 	return channel, err
+}
+
+// responsesRetryDelay 保留上游的等待要求，超过本次允许等待的上限时停止，不能提前重试。
+func responsesRetryDelay(retryAfter, retryAfterMS string, attempt int, now time.Time) (time.Duration, error) {
+	delay := time.Duration(1<<min(max(attempt, 1), 4)) * time.Second
+	const limit = 30 * time.Second
+	if ms, err := strconv.ParseInt(strings.TrimSpace(retryAfterMS), 10, 64); err == nil && ms >= 0 {
+		if ms > int64(limit/time.Millisecond) {
+			return 0, fmt.Errorf("upstream retry-after-ms exceeds the 30 second retry wait limit")
+		}
+		return max(time.Millisecond, time.Duration(ms)*time.Millisecond), nil
+	}
+	if seconds, err := strconv.ParseInt(strings.TrimSpace(retryAfter), 10, 64); err == nil && seconds >= 0 {
+		if seconds > int64(limit/time.Second) {
+			return 0, fmt.Errorf("upstream Retry-After exceeds the 30 second retry wait limit")
+		}
+		delay = time.Duration(seconds) * time.Second
+	} else if until, err := http.ParseTime(retryAfter); err == nil {
+		delay = until.Sub(now)
+	}
+	if delay > limit {
+		return 0, fmt.Errorf("upstream Retry-After exceeds the 30 second retry wait limit")
+	}
+	return max(time.Millisecond, delay), nil
+}
+
+// selectResponsesRetryChannel 对状态绑定的限流请求退避后重试原资源，不放宽历史来源边界。
+func selectResponsesRetryChannel(c *gin.Context, group, model string, failedIDs *[]int, status, attempt int) (*dbmodel.Channel, string, error) {
+	ctx := c.Request.Context()
+	if err := ctx.Err(); err != nil {
+		return nil, "client_cancelled", err
+	}
+	if dbmodel.ResponseStateChannel(ctx) <= 0 || status != http.StatusTooManyRequests {
+		channel, err := selectRetryChannel(ctx, group, model, failedIDs)
+		return channel, "", err
+	}
+	delay, err := responsesRetryDelay(c.GetString("responses_retry_after"), c.GetString("responses_retry_after_ms"), attempt, time.Now())
+	if err != nil {
+		return nil, "retry_after_exceeds_limit", err
+	}
+	logger.Infof(ctx, "responses_retry_diag event=retry_wait next_attempt=%d channel=%d delay_ms=%d reason=state_bound_rate_limit", attempt+1, dbmodel.ResponseStateChannel(ctx), delay.Milliseconds())
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return nil, "client_cancelled", ctx.Err()
+	case <-timer.C:
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, "client_cancelled", err
+	}
+	// 不传失败排除列表，但仍由原选渠器检查分组、模型、状态和 provider / channel 边界。
+	channel, _, err := dbmodel.CacheGetRandomSatisfiedChannel(ctx, group, model, 0, "", nil)
+	return channel, "", err
 }
 
 func getLastRetryFallbackChannel(channelID int) *dbmodel.Channel {

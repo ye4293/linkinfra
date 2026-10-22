@@ -8,6 +8,15 @@
 
 ## 2026-10-23
 
+### fix(responses): 历史绑定渠道限流重试与客户端取消归因
+- **分支**: `main`
+- **类型**: fix
+- **涉及文件**: `controller/relay.go`、`controller/retry_policy.go`、`controller/provider_retry_test.go`、`relay/channel/common.go`、`relay/controller/opeai_response.go`、`relay/helper/stream_scanner.go`、`router/responses_lifecycle_test.go`、`AGENT.md`、`docs/plans/2026-10-22-responses-prelude-retry.md`
+- **说明**: 修复状态绑定渠道返回 HTTP/SSE 429 后被失败列表排除、无法进行第二次请求的问题；等待上游限流提示或指数退避后在原渠道、原 Key 重试，保持请求正文和历史资源边界。客户端取消及时停止 Responses 流上游请求，未完成流记为 client_cancelled / 499，避免写失败 SSE、误报读取故障及触发渠道禁用。
+- **限制**: 仍受重试次数限制；单次上游要求等待超过 30 秒则明确停止，不提前重试；已输出、渠道/Key 不可用或状态指纹变化不重放。不能解决客户端或中间代理本身的断线原因。
+- **验证**: `go test ./... -count=1 -timeout 5m`、`go test -race ./router ./relay/controller ./relay/helper ./controller -run 'TestResponses|TestRetryStays' -count=1 -timeout 5m`、`go build ./...`、`go vet ./...`、`git diff --check` 通过；race 命令中的 relay/helper 无匹配测试，扫描器经完整路由调用覆盖。未调用真实 Azure 上游、未发布。
+- **关联计划**: `docs/plans/2026-10-22-responses-prelude-retry.md`
+
 ### docs(responses): v0.1.43 修改总结与发布后复审
 - **分支**: `main`
 - **类型**: docs / review
