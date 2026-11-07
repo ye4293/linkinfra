@@ -487,6 +487,36 @@ func CacheGetRandomSatisfiedChannel(ctx context.Context, group string, model str
 		return nil, -1, err
 	}
 
+	if skipPriorityLevels == 0 && RetryProvider(ctx) != "" && ResponseStateChannel(ctx) == 0 && len(excludeIds) > 0 {
+		// Provider 重试优先降级，避免同档渠道过多时耗尽全部重试次数。
+		// 失败渠道可能已被自动禁用，因此不能从当前可用优先级的索引推算进度。
+		// 用失败历史中的最低优先级作为上界，降级后不再返回更高档。
+		var failedPriority sql.NullInt64
+		err = DB.WithContext(ctx).Model(&Channel{}).
+			Select("MIN(COALESCE(priority, 0))").Where("id IN ?", excludeIds).Scan(&failedPriority).Error
+		if err != nil {
+			return nil, -1, fmt.Errorf("failed to fetch retry priority: %w", err)
+		}
+		if !failedPriority.Valid {
+			return nil, -1, errors.New("no failed channel priority available")
+		}
+		retryPriorities := make([]int, 0, len(priorities))
+		for _, priority := range priorities {
+			if int64(priority) < failedPriority.Int64 {
+				retryPriorities = append(retryPriorities, priority)
+			}
+		}
+		// 更低档没有同 provider 可用渠道时，才补重试当前档剩余渠道。
+		// 后续查询继续应用失败排除、provider、模型和用户组约束。
+		for _, priority := range priorities {
+			if int64(priority) == failedPriority.Int64 {
+				retryPriorities = append(retryPriorities, priority)
+				break
+			}
+		}
+		priorities = retryPriorities
+	}
+
 	// logger.SysLog(fmt.Sprintf("Found priorities for group=%s, model=%s: %v, excludeIds=%v", group, model, priorities, excludeIds)) // 调试用，生产环境可注释
 
 	if len(priorities) == 0 {
