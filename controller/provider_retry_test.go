@@ -100,7 +100,7 @@ func TestResponsesRetryDelay(t *testing.T) {
 	}
 }
 
-func TestProviderRetryPrefersLowerPriority(t *testing.T) {
+func TestProviderRetryOnceAtHighestThenLowerPriority(t *testing.T) {
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
 	for _, spec := range []struct {
@@ -108,7 +108,7 @@ func TestProviderRetryPrefersLowerPriority(t *testing.T) {
 		priority int64
 		provider string
 	}{
-		{1, 100, "openai"}, {2, 100, "openai"},
+		{1, 100, "openai"}, {2, 100, "openai"}, {9, 100, "openai"},
 		{3, 90, "azure"}, {4, 80, " OpenAI "}, {5, 80, "openai"},
 		{6, 0, "openai"}, {7, 0, "openai"}, {8, -10, "azure"},
 	} {
@@ -121,19 +121,18 @@ func TestProviderRetryPrefersLowerPriority(t *testing.T) {
 	failed := []int{1}
 	channel, err := selectRetryChannel(ctx, "default", "gpt-test", &failed)
 	require.NoError(t, err)
-	require.Contains(t, []int{4, 5}, channel.Id, "同档仍有渠道时也应优先降级，并跳过其他 provider")
+	require.Contains(t, []int{2, 9}, channel.Id, "首次失败后应先在最高档补重试一次")
 	failed = append(failed, channel.Id)
 	// 自动禁用失败渠道后，仍以它的优先级继续降级，不能从最高档重新开始。
 	require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("status", common.ChannelStatusAutoDisabled).Error)
 	require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", channel.Id).Update("enabled", false).Error)
 	channel, err = selectRetryChannel(ctx, "default", "gpt-test", &failed)
 	require.NoError(t, err)
-	require.Contains(t, []int{6, 7}, channel.Id)
+	require.Contains(t, []int{4, 5}, channel.Id, "最高档补重试失败后，即使仍有同档渠道也必须降级，并跳过其他 provider")
 	failed = append(failed, channel.Id)
 	channel, err = selectRetryChannel(ctx, "default", "gpt-test", &failed)
 	require.NoError(t, err)
-	require.Contains(t, []int{6, 7}, channel.Id, "最低可用档仍可重试未失败的同档渠道")
-	require.NotContains(t, failed, channel.Id)
+	require.Contains(t, []int{6, 7}, channel.Id, "之后每次失败继续降到下一档")
 	failed = append(failed, channel.Id)
 	channel, err = selectRetryChannel(ctx, "default", "gpt-test", &failed)
 	require.Error(t, err)
@@ -144,14 +143,35 @@ func TestProviderRetryPrefersLowerPriority(t *testing.T) {
 	failed = []int{1}
 	channel, err = selectRetryChannel(context.Background(), "default", "gpt-test", &failed)
 	require.NoError(t, err)
-	require.Equal(t, 2, channel.Id)
+	require.Contains(t, []int{2, 9}, channel.Id)
 	channel, _, err = model.CacheGetRandomSatisfiedChannel(ctx, "default", "gpt-test", 0, "")
 	require.NoError(t, err)
-	require.Contains(t, []int{1, 2}, channel.Id)
+	require.Contains(t, []int{1, 2, 9}, channel.Id)
 
 	// 原渠道绑定不能因优先级降级而被放宽。
 	failed = []int{1}
 	channel, err = selectRetryChannel(model.WithResponseStateChannel(ctx, 1), "default", "gpt-test", &failed)
 	require.Error(t, err)
 	require.Nil(t, channel)
+}
+
+func TestProviderRetryHighestTierHasOnlyOneExtraAttempt(t *testing.T) {
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	priority, weight := int64(100), uint(1)
+	for id := 1; id <= 3; id++ {
+		channel := model.Channel{Id: id, Status: common.ChannelStatusEnabled, Group: "default", Models: "gpt-test", Priority: &priority, Weight: &weight, Config: `{"provider":"openai"}`}
+		require.NoError(t, db.Create(&channel).Error)
+		require.NoError(t, db.Create(&model.Ability{ChannelId: id, Group: "default", Model: "gpt-test", Enabled: true, Priority: &priority}).Error)
+	}
+	ctx := model.WithRetryProvider(context.Background(), "openai")
+	failed := []int{1}
+	channel, err := selectRetryChannel(ctx, "default", "gpt-test", &failed)
+	require.NoError(t, err)
+	require.Contains(t, []int{2, 3}, channel.Id)
+	failed = append(failed, channel.Id)
+	channel, err = selectRetryChannel(ctx, "default", "gpt-test", &failed)
+	require.Error(t, err)
+	require.Nil(t, channel, "没有更低档时应停止，不能继续消耗最高档的剩余渠道")
+	require.Len(t, failed, 2)
 }
