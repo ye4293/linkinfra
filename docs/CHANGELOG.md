@@ -6,6 +6,17 @@
 
 ---
 
+## 2026-11-11
+
+### feat(billing): 渠道计费标签与按标签的用户折扣
+- **分支**: `billing-tag`
+- **类型**: feat
+- **涉及文件**: `model/channel.go`、`model/channel_billing_tag.go`、`model/cache.go`、`middleware/distributor.go`、`relay/util/ratio.go`、`relay/util/relay_meta.go`、`relay/controller/helper.go`、`relay/controller/systemone_billing.go`、`controller/channel.go`、`controller/log.go`、`controller/user.go`、`router/api-router.go` 及对应测试、`docs/billing-tag.md`
+- **说明**: 渠道 `config` 新增可选的 `billing_tag`，用户折扣（`users.channel_ratios`）新增 `tag:<标签>` 项。渠道有标签且用户配置了该标签时用标签折扣，否则回落到渠道类型折扣，再否则 1.0；标签折扣覆盖类型折扣，计费公式不变。同一渠道类型下的不同渠道（如 Vertex AI 的 Gemini 与 Claude）可以对同一用户设置不同折扣。标签不参与选渠、重试和 Provider 状态绑定，重试换渠道后折扣随最终渠道变化。新增 `GET /api/channel/billing_tags`；非法标签在保存渠道时被拒绝；命中标签折扣时计费明细带 `billing_tag`，用户查询自己的日志和资料时不返回标签。无数据库迁移。
+- **验证**: `go build ./...`、`go vet ./...`、全量 `go test ./... -count=1` 通过。新增测试覆盖标签规范化、`channel_ratios` 解析与取值顺序、缓存内容保留两类 key、同步与异步结算取值一致、同一请求换渠道后折扣和标签随之切换，以及从管理 API 建渠道到跨渠道重试的完整路由（两个渠道均未配置 Provider）。
+- **关联计划**: `docs/plans/2026-11-11-billing-tag-user-discount.md`
+- **使用说明**: `docs/billing-tag.md`
+
 ## 2026-09-30
 
 ### release: v0.1.40 Responses 兼容修复

@@ -73,6 +73,9 @@ func recordSystemOneConsumption(ctx context.Context, c *gin.Context, meta *util.
 		"group_ratio": tariff.group, "tier_ratio": tariff.tier, "model_discount": tariff.discount,
 		"channel_discount": meta.ChannelDiscount, "user_channel_ratio": meta.UserChannelRatio,
 	}
+	if meta.BillingTag != "" {
+		details["billing_tag"] = meta.BillingTag
+	}
 	if meta.IsMultiKey && meta.KeyIndex != nil {
 		details["is_multi_key"] = true
 		details["key_index"] = *meta.KeyIndex

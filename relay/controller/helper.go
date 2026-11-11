@@ -320,6 +320,10 @@ func postConsumeQuota(ctx context.Context, c *gin.Context, usage *relaymodel.Usa
 			"channel_discount":   meta.ChannelDiscount,
 			"user_channel_ratio": meta.UserChannelRatio,
 		}
+		// 用户渠道折扣来自计费标签时，记录命中的标签
+		if meta.BillingTag != "" {
+			billingDetails["billing_tag"] = meta.BillingTag
+		}
 		// 多 Key 渠道：记录本次实际使用的 Key 索引
 		if meta.IsMultiKey && meta.KeyIndex != nil {
 			billingDetails["is_multi_key"] = true
@@ -437,6 +441,10 @@ func enrichBillingDetailsFromContext(c *gin.Context, details map[string]interfac
 	}
 	details["channel_discount"] = channelDiscount
 	details["user_channel_ratio"] = userChannelRatio
+	// 用户渠道折扣来自计费标签时，记录命中的标签
+	if tag := c.GetString("billing_tag"); tag != "" {
+		details["billing_tag"] = tag
+	}
 	// 若调用方已填入 group_ratio（组合后的），反推一下 tier_ratio 方便前端显示。
 	if gr, ok := details["group_ratio"].(float64); ok && channelDiscount > 0 && userChannelRatio > 0 {
 		tierRatio := common.GetGroupRatio(c.GetString("group"))

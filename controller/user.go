@@ -423,6 +423,8 @@ func GetSelf(c *gin.Context) {
 			_ = user.Update(false)
 		}
 	}
+	// 计费标签是管理端的内部分组名，不随用户本人的资料返回；渠道类型折扣保持原样。
+	user.ChannelRatios = model.StripBillingTagRatios(user.ChannelRatios)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

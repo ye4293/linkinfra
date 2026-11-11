@@ -15,21 +15,26 @@ import (
 // 渠道历史是 []int，不会出现嵌套 ']'
 var adminInfoRegex = regexp.MustCompile(`adminInfo:\[[^\]]*\];?`)
 
-// stripAdminInfoFromLogs 从普通用户日志的 other 字段里剥离渠道链路信息（adminInfo / retryHistory）
-// 用于 /api/log/self 等用户接口，避免向终端用户暴露后端渠道 ID、渠道名和重试明细
+// billingTagDetailRegex 匹配 billingDetails 里的 "billing_tag":"..." 项及相邻的一个逗号，
+// 剥离后仍是合法 JSON。计费标签只含 a-z 0-9 . _ -，值里不会出现引号或转义。
+var billingTagDetailRegex = regexp.MustCompile(`"billing_tag":"[^"]*",?|,"billing_tag":"[^"]*"`)
+
+// stripAdminInfoFromLogs 从普通用户日志的 other 字段里剥离渠道链路信息
+// （adminInfo / retryHistory，以及 billingDetails 里的 billing_tag）
+// 用于 /api/log/self 等用户接口，避免向终端用户暴露后端渠道 ID、渠道名、重试明细和计费标签
 //
 // 兼容两种 other 格式：
 //   - 分号格式: "adminInfo:[1,2];retryHistory:[{...}];usageDetails:{...};..."
 //   - JSON 格式: {"admin_info":[...],"retry_history":[...],"usageDetails":{...},...}
 //
-// fast-path: 不含 "admin" 也不含 "retryHistory" 子串直接跳过
+// fast-path: 不含 "admin"、"retryHistory" 和 "billing_tag" 子串直接跳过
 func stripAdminInfoFromLogs(logs []*model.Log) {
 	for _, log := range logs {
 		if log == nil || log.Other == "" {
 			continue
 		}
-		// fast-path: 既没有 admin 也没有 retryHistory → 跳过
-		if !strings.Contains(log.Other, "admin") && !strings.Contains(log.Other, "retryHistory") && !strings.Contains(log.Other, "retry_history") {
+		// fast-path: 没有 admin、retryHistory 和 billing_tag → 跳过
+		if !strings.Contains(log.Other, "admin") && !strings.Contains(log.Other, "retryHistory") && !strings.Contains(log.Other, "retry_history") && !strings.Contains(log.Other, "billing_tag") {
 			continue
 		}
 
@@ -42,6 +47,9 @@ func stripAdminInfoFromLogs(logs []*model.Log) {
 				delete(obj, "adminInfo")
 				delete(obj, "retry_history")
 				delete(obj, "retryHistory")
+				if details, ok := obj["billingDetails"].(map[string]any); ok {
+					delete(details, "billing_tag")
+				}
 				if b, err := json.Marshal(obj); err == nil {
 					log.Other = string(b)
 				}
@@ -53,6 +61,7 @@ func stripAdminInfoFromLogs(logs []*model.Log) {
 		// 分号格式
 		cleaned := adminInfoRegex.ReplaceAllString(other, "")
 		cleaned = stripRetryHistorySegment(cleaned)
+		cleaned = billingTagDetailRegex.ReplaceAllString(cleaned, "")
 		// 避免出现 ";;" 残留
 		cleaned = strings.ReplaceAll(cleaned, ";;", ";")
 		log.Other = strings.Trim(cleaned, ";")
