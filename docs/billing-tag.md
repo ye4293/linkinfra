@@ -15,12 +15,15 @@
 - 只允许字母、数字、`.`、`_`、`-`，最长 64。匹配时忽略大小写和首尾空格，前端保存时统一转为小写。
 - 含其他字符或超长的标签在保存渠道时被拒绝。
 - 多个渠道可以用同一个标签，渠道类型不必相同。
+- 清除标签：在渠道编辑页清空 Billing Tag 后保存。直接调用 `PUT /api/channel/` 时，`config` 传空字符串不会生效（空值在更新时被跳过，原 `config` 保持不变）；要清除请传去掉 `billing_tag` 后的 `config`，没有其他配置项时传 `"{}"`。
 
 用户：编辑用户 → Additional discount → Billing-Tag Discount。保存在 `users.channel_ratios`，与渠道类型折扣共用一个 JSON：纯数字 key 是渠道类型，`tag:<标签>` 是计费标签。
 
 ```json
 {"48":0.9,"tag:vertex-gemini":0.7,"tag:vertex-claude":0.85}
 ```
+
+编辑页列出渠道上现有的标签，留空表示沿用渠道类型折扣。用户配过、但已没有渠道使用的标签会标为 `Not used by any channel`：折扣仍保存在用户上，在有渠道重新使用该标签之前不会生效，可以在这里移除。
 
 ## 折扣取值
 
