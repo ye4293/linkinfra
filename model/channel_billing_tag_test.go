@@ -88,6 +88,11 @@ func TestDecodeChannelRatiosJSON(t *testing.T) {
 		require.Equal(t, map[string]float64{"vertex": 0.6}, ratios.Tags)
 		require.Equal(t, map[int]float64{48: 0.9}, ratios.Types)
 	}
+	// 渠道类型都是正整数：不大于 0 的类型 key 取值时用不到，不带进缓存和返回给用户的内容。
+	ratios, err = decodeChannelRatiosJSON(`{"0":0.5,"-5":0.6,"48":0.9}`)
+	require.NoError(t, err)
+	require.Equal(t, map[int]float64{48: 0.9}, ratios.Types)
+	require.Equal(t, `{"48":0.9}`, ratios.encode())
 
 	_, err = decodeChannelRatiosJSON(`{"48":"0.9"}`)
 	require.Error(t, err)
@@ -169,8 +174,11 @@ func TestValidateUserChannelRatios(t *testing.T) {
 		`{"48":0.9,"tag:vertex-claude":0.85}`,
 		// 写法不规范但标签合法，读取时会规范化
 		`{"TAG: Vertex-Claude ":0.85}`,
-		// 非正数和无法识别的 key 沿用既有约定：可以保存，读取时忽略
-		`{"48":0,"abc":0.5}`,
+		// 渠道类型的非规范写法（前导 0、正号）读取时仍按该类型取值
+		`{"048":0.9}`,
+		`{"+48":0.9}`,
+		// 非正数沿用既有约定：可以保存，读取时视为未设置
+		`{"48":0,"tag:vertex-claude":-1}`,
 	} {
 		require.NoError(t, ValidateUserChannelRatios(valid), "input %q", valid)
 	}
@@ -178,6 +186,16 @@ func TestValidateUserChannelRatios(t *testing.T) {
 		`not json`,
 		`[]`,
 		`"text"`,
+		// JSON 的 null 不是折扣配置
+		`null`,
+		// 既不是渠道类型也不是 tag: 项的 key：读取时被忽略，填的折扣不会生效
+		`{"abc":0.5}`,
+		`{"48":0.9,"vertex-claude":0.85}`,
+		`{" 48":0.9}`,
+		`{"48.0":0.9}`,
+		`{"0":0.5}`,
+		`{"-5":0.5}`,
+		`{"":0.5}`,
 		// 有一项的值不是数字：计费侧整份解析失败，渠道类型折扣也跟着失效
 		`{"48":"0.9"}`,
 		`{"48":0.9,"tag:vertex-claude":"0.85"}`,
@@ -191,6 +209,12 @@ func TestValidateUserChannelRatios(t *testing.T) {
 	} {
 		require.Error(t, ValidateUserChannelRatios(invalid), "input %q", invalid)
 	}
+
+	// 报错里带上出问题的 key：漏写 tag: 前缀是最容易犯的错，要让管理员一眼看到是哪一项。
+	err := ValidateUserChannelRatios(`{"48":0.9,"vertex-claude":0.85}`)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `"vertex-claude"`)
+	require.Contains(t, err.Error(), `tag:<billing tag>`)
 }
 
 func TestCacheGetUserChannelRatiosFromDB(t *testing.T) {

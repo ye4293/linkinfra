@@ -8,6 +8,19 @@
 
 ## 2026-11-12
 
+### fix(billing): 按第二轮复核收紧折扣校验并补测试
+- **分支**: `release/billing-tag-v0.1.46`
+- **类型**: fix / test / docs
+- **涉及文件**: `model/channel_billing_tag.go`、`controller/user.go`、`model/dashboard_stats.go`、`common/redistest/redistest.go`（新增，只被测试引用）；测试 `model/channel_billing_tag_test.go`、`model/user_channel_ratios_cache_test.go`、`model/dashboard_stats_test.go`、`controller/billing_tag_visibility_test.go`；文档 `docs/billing-tag.md`、`docs/plans/2026-11-11-billing-tag-user-discount.md`、`CLAUDE.md`
+- **说明**: 发布前审查的修复提交是审查之后新写的代码，所以又单独复核了一轮。复核没有发现会把折扣算错的问题，指出的几处在这里修掉：
+  - 保存用户时 `channel_ratios` 的 key 只能是渠道类型（正整数）或 `tag:<标签>`。原先漏写 `tag:` 前缀的标签名（如 `{"vertex-claude":0.85}`）和 `" 48"`、`"48.0"`、`"0"` 这类 key 能保存，计费时被忽略，填的折扣不生效也没有任何提示；内容是 JSON 的 `null` 也能保存。现在都在保存时拒绝，报错里带上出问题的 key。解析时不大于 0 的渠道类型 key 不再带进缓存和 `/api/user/self` 的返回值。
+  - `PUT /api/user/` 里 `channel_ratios` 的值是 `null` 时按没有提交处理，原先会清空已有折扣。判为没有提交时同时清掉请求体里解析出的值：`User.Update()` 按非零字段更新，同一个 key 出现两次、后一次是 `null` 时，先解析出的值原本会绕过校验直接写库，并且不清缓存。
+  - 来源统计查询失败时，缺了来源的那份总览不再写入缓存（返回的 `cached_until` 等于 `end_timestamp`），下一次请求重新查询。原先会缓存 10 分钟，文档写的却是“只是这一次没有来源列表”。
+  - 各包测试共用的内存假 Redis 提到 `common/redistest`（只被 `_test.go` 引用，不进二进制）。补上三处原先改坏了测试也照样通过的行为：保存折扣后清除新旧两个缓存 key、`channel_ratios` 字段名不区分大小写、折扣缓存带过期时间。
+  - `docs/billing-tag.md` 补充 `PUT /api/user/` 的新规则、来源统计失败时不缓存，以及“滚动发布期间不要修改用户折扣”：旧版本实例保存时清不到新版本的缓存 key，新版本实例最长陈旧一个 `SYNC_FREQUENCY`。
+- **验证**: 12 个变异体（逐处去掉上面的一段行为，用 `go test -overlay` 套上）全部被对应的断言发现。`go build ./...`、`go vet ./...`、全量 `go test ./... -count=1`（27 个包）、model 等八个包的 race 检测、linux/amd64 和 linux/arm64 交叉编译与 vet 通过。
+- **关联计划**: `docs/plans/2026-11-11-billing-tag-user-discount.md`
+
 ### test(billing): 补上变异检查发现的测试缺口
 - **分支**: `release/billing-tag-v0.1.46`
 - **类型**: test

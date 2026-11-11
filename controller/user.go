@@ -448,17 +448,22 @@ func UpdateUser(c *gin.Context) {
 		})
 		return
 	}
-	// 请求里没有 channel_ratios 字段时不动已有折扣（例如只改额度的局部更新）；
-	// 显式提交空串才表示清空。
+	// 请求里没有 channel_ratios 字段（或它的值是 null）时不动已有折扣，例如只改额度的局部更新；
+	// 显式提交空串才表示清空。字段名和解析请求体时一样不区分大小写。
 	ratiosSubmitted := false
 	var submitted map[string]json.RawMessage
 	if json.NewDecoder(bytes.NewReader(body)).Decode(&submitted) == nil {
-		for key := range submitted {
-			if strings.EqualFold(key, "channel_ratios") {
+		for key, value := range submitted {
+			if strings.EqualFold(key, "channel_ratios") && string(bytes.TrimSpace(value)) != "null" {
 				ratiosSubmitted = true
 				break
 			}
 		}
+	}
+	if !ratiosSubmitted {
+		// 判为未提交时结构体里仍可能有值：同一个 key 重复出现且后一次是 null 时，null 不会清掉先解析出的值。
+		// 清空后下面的 Update 不写这一列（按非零字段更新），该列保持原值，也不会绕过校验。
+		updatedUser.ChannelRatios = ""
 	}
 	if updatedUser.Password == "" {
 		updatedUser.Password = "$I_LOVE_U" // make Validator happy :)

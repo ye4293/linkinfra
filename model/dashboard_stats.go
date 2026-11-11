@@ -243,11 +243,15 @@ func GetDashboard24hStats(userId int) (*Dashboard24hStats, error) {
 		}
 		// 来源消耗是附加数据：它的查询失败时只记日志、本次不返回来源，
 		// 不让总览原有的小时、模型、用户和充值统计跟着失败。
-		if sourceStats, err := dashboardSourceStats(startTimestamp, endTimestamp); err != nil {
+		sourceStats, err := dashboardSourceStats(startTimestamp, endTimestamp)
+		if err != nil {
 			logger.SysError("dashboard source stats failed: " + err.Error())
-		} else {
-			data.SourceStats = sourceStats
+			// 缺了来源的结果不写缓存，下一次请求重新查询：否则一次瞬时失败会让来源列表消失
+			// 整个缓存周期，而调用方分不清“查询失败”和“没有消耗”。
+			data.CachedUntil = endTimestamp
+			return data, nil
 		}
+		data.SourceStats = sourceStats
 	}
 
 	expiresAt := now.Add(dashboardStatsTTL)

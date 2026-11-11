@@ -152,7 +152,8 @@ func TestDashboard24hAdminSourceStatsGroupByBillingTagOrChannelType(t *testing.T
 	require.Empty(t, userStats.SourceStats, "source stats are admin-only")
 }
 
-// 来源消耗是附加数据：它的查询失败时，总览原有的统计照常返回，只是没有来源。
+// 来源消耗是附加数据：它的查询失败时，总览原有的统计照常返回，只是没有来源；
+// 缺了来源的结果不留在缓存里，查询恢复后的下一次请求就能拿到来源。
 func TestDashboard24hAdminStatsSurviveSourceStatsFailure(t *testing.T) {
 	// 不建 channels 表：按渠道归组时读取渠道会报错。
 	setupTestDB(t, &Log{}, &TopUp{})
@@ -170,4 +171,16 @@ func TestDashboard24hAdminStatsSurviveSourceStatsFailure(t *testing.T) {
 	require.Len(t, stats.ModelStats, 1)
 	require.EqualValues(t, 100, stats.ModelStats[0].QuotaSum)
 	require.Len(t, stats.UserStats, 1)
+	// 返回值标明这份结果没有进缓存。
+	require.Equal(t, stats.EndTimestamp, stats.CachedUntil)
+
+	// 渠道表可读之后再请求一次：拿到的是重新查询的结果，带来源，并且正常进缓存。
+	require.NoError(t, DB.AutoMigrate(&Channel{}))
+	require.NoError(t, DB.Create(&Channel{Id: 1, Type: common.ChannelTypeVertexAI, Config: `{"billing_tag":"vertex-claude"}`}).Error)
+	stats, err = GetDashboard24hStats(0)
+	require.NoError(t, err)
+	require.Equal(t, []DashboardSourceStats{
+		{Kind: DashboardSourceTag, Tag: "vertex-claude", Name: "vertex-claude", QuotaSum: 100},
+	}, stats.SourceStats)
+	require.Greater(t, stats.CachedUntil, stats.EndTimestamp)
 }

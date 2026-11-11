@@ -132,15 +132,19 @@ func ratioKeyBillingTag(key string) (tag string, isTag bool) {
 
 // ValidateUserChannelRatios 供保存用户时校验 channel_ratios：空串（没有折扣），
 // 或 key 为渠道类型 / tag:<标签>、值为数字的 JSON 对象。
-// 有一项的值不是数字时，计费侧整份解析失败，所有折扣（包括原本正常的渠道类型折扣）一起失效；
-// 标签名不合法的项永远不会命中。两种情况都在保存时拒绝，而不是保存后静默失效。
-// 无法识别的 key 和非正数沿用既有约定：可以保存，读取时忽略。
+// 保存后会在计费时静默失效的内容都在这里拒绝：
+//   - 有一项的值不是数字：计费侧整份解析失败，所有折扣（包括原本正常的渠道类型折扣）一起失效；
+//   - tag: 项的标签名不合法：永远不会命中；
+//   - 既不是渠道类型也不是 tag: 项的 key（例如漏写了 tag: 前缀的标签名）：读取时被忽略。
+//
+// 非正数沿用既有约定：可以保存，读取时视为未设置。
 func ValidateUserChannelRatios(raw string) error {
 	if raw == "" {
 		return nil
 	}
-	entries := map[string]float64{}
-	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+	// JSON 的 null 解析后 map 仍是 nil，和空对象区分开：它不是折扣配置。
+	var entries map[string]float64
+	if err := json.Unmarshal([]byte(raw), &entries); err != nil || entries == nil {
 		return errors.New(`channel_ratios must be a JSON object that maps channel types or "tag:<billing tag>" keys to numbers`)
 	}
 	keys := make([]string, 0, len(entries))
@@ -149,8 +153,14 @@ func ValidateUserChannelRatios(raw string) error {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		if tag, isTag := ratioKeyBillingTag(key); isTag && tag == "" {
-			return fmt.Errorf("channel_ratios has an invalid billing tag key %q: billing tags may only contain letters, digits, '.', '_' and '-' (max %d characters)", key, billingTagMaxLength)
+		if tag, isTag := ratioKeyBillingTag(key); isTag {
+			if tag == "" {
+				return fmt.Errorf("channel_ratios has an invalid billing tag key %q: billing tags may only contain letters, digits, '.', '_' and '-' (max %d characters)", key, billingTagMaxLength)
+			}
+			continue
+		}
+		if channelType, err := strconv.Atoi(key); err != nil || channelType <= 0 {
+			return fmt.Errorf("channel_ratios has an unrecognized key %q: a key must be a channel type (a positive integer) or \"tag:<billing tag>\"", key)
 		}
 	}
 	return nil
@@ -180,7 +190,8 @@ func parseUserChannelRatios(raw map[string]float64) UserChannelRatios {
 			}
 			continue
 		}
-		if channelType, err := strconv.Atoi(k); err == nil {
+		// 渠道类型都是正整数；不大于 0 的 key 取值时用不到，也不必带进缓存和返回给用户的内容里。
+		if channelType, err := strconv.Atoi(k); err == nil && channelType > 0 {
 			result.Types[channelType] = v
 		}
 	}

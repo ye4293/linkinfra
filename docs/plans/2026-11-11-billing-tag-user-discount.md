@@ -117,6 +117,14 @@ X 走渠道 A 按 0.7，走渠道 B 按 0.85，走其他没有标签的 Vertex �
 - 来源统计的查询失败时只记日志，不影响总览原有的统计。
 - `RelayMeta` 上记录命中标签的字段命名为 `MatchedBillingTag`，与渠道配置里的 `Config.BillingTag` 区分。
 
+对修复提交的第二轮复核后的调整（2026-11-12，同一分支）：
+
+- 保存用户时的校验再收紧：`channel_ratios` 的 key 只能是渠道类型（正整数）或 `tag:<标签>`。原先漏写 `tag:` 前缀的标签名（如 `{"vertex-claude":0.85}`）能存进去，计费时被忽略；JSON 的 `null` 也不再算合法内容。解析时不大于 0 的渠道类型 key 不再带进缓存和返回给用户的内容。
+- `PUT /api/user/` 里 `channel_ratios` 的值是 `null` 时按没有提交处理，原先会清空折扣。判为没有提交时把请求体里解析出的值清掉，同一个 key 重复出现（后一次是 `null`）也不能绕过校验写库。
+- 来源统计失败的那份结果不进总览缓存，原先会缺着来源被缓存 10 分钟。
+- 各包测试共用的内存假 Redis 提到 `common/redistest`（只被测试引用）；补上“保存折扣后清缓存”“字段名不区分大小写”“缓存带过期时间”的测试，这三处原先改坏了测试也照样通过。
+- 滚动发布期间不要修改用户折扣（旧版本实例清不到新 key），写入 `docs/billing-tag.md` 的“上线注意”。
+
 第 2 节的文件清单没有列全，实际还改了：`relay/util/relay_meta.go`、`relay/controller/systemone_billing.go` 和 `relay/controller/helper.go` 的 `postConsumeQuota`（两处都写入 `billing_tag`）、`controller/log.go`、`controller/user.go`、`controller/dashboard.go`、`controller/model.go`（来源的展示名）、`model/user.go`、`model/dashboard_stats.go`。
 
 审查确认、本次不改的既有行为（已写入 `docs/billing-tag.md`）：
