@@ -65,6 +65,9 @@ git worktree remove /tmp/dev-test    # 用完清理
 3. 最小化修复并本地验证
 4. 更新此文件记录教训
 
+### 教训记录
+- **2026-11-11 本地起后端满屏 `no such table`**：只有 `NODE_TYPE=master` 的节点才执行 `AutoMigrate`。用全新的库在本地起二进制做联调时必须带上这个变量，例如 `NODE_TYPE=master SQLITE_PATH=<临时库文件> PORT=<端口>`；在仓库外的临时目录里运行，不要指向已有的数据库。
+
 ## 变更记录与计划文档（强制）
 
 ### 更新记录
