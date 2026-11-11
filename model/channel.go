@@ -171,7 +171,8 @@ const (
 )
 
 type ChannelConfig struct {
-	Provider          string `json:"provider,omitempty"` // 上游 provider；重试限定为与首次渠道相同的 provider
+	Provider          string `json:"provider,omitempty"`    // 上游 provider；重试限定为与首次渠道相同的 provider
+	BillingTag        string `json:"billing_tag,omitempty"` // 计费标签；只用于用户折扣和消耗统计，不参与选渠与重试
 	Region            string `json:"region,omitempty"`
 	SK                string `json:"sk,omitempty"`
 	AK                string `json:"ak,omitempty"`

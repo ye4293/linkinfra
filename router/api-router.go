@@ -132,6 +132,7 @@ func SetApiRouter(router *gin.Engine) {
 			channelRoute.GET("/models", controller.ListModels)
 			channelRoute.GET("/models_by_id", controller.GetChannelModelsById)
 			channelRoute.GET("/types", controller.ListTypes)
+			channelRoute.GET("/billing_tags", controller.ListBillingTags)
 			channelRoute.GET("/model/details", controller.ListModelDetails)
 			// 获取上游模型列表（必须在 /:id 之前注册）
 			channelRoute.GET("/fetch_models/:id", controller.FetchUpstreamModels)

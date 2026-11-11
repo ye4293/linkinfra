@@ -42,26 +42,27 @@ func GetBillingFactors(c *gin.Context, group string) (groupRatio, channelDiscoun
 }
 
 // GetAsyncBillingGroupRatio 在异步回调等场景（没有活的 gin.Context）计算组合倍率。
-// 通过 userId 直查缓存，通过 channelId 从 DB 拉渠道拿 Discount。
+// 通过 userId 直查缓存，通过 channelId 从 DB 拉渠道拿 Discount 和计费标签。
 // 任何一段失败都回退到 1.0，不会因为取不到数据阻塞计费。
 func GetAsyncBillingGroupRatio(group string, userId int, channelId int, channelType int, modelName string) float64 {
 	groupRatio := common.GetGroupRatio(group)
 
 	channelDiscount := 1.0
+	billingTag := ""
 	if channelId > 0 {
 		if channel, err := model.GetChannelById(channelId, false); err == nil && channel != nil {
 			if channel.Discount != nil && *channel.Discount > 0 {
 				channelDiscount = *channel.Discount
 			}
+			billingTag = model.ChannelBillingTag(channel)
 		}
 	}
 
+	// 与 middleware/distributor 相同的取值顺序：计费标签折扣优先，其次渠道类型折扣。
 	userChannelRatio := 1.0
-	if userId > 0 && channelType > 0 {
+	if userId > 0 && (channelType > 0 || billingTag != "") {
 		if ratios, err := model.CacheGetUserChannelRatios(userId); err == nil {
-			if r, ok := ratios[channelType]; ok && r > 0 {
-				userChannelRatio = r
-			}
+			userChannelRatio, _ = ratios.Resolve(channelType, billingTag)
 		}
 	}
 	return groupRatio * channelDiscount * userChannelRatio * common.GetModelDiscount(modelName)

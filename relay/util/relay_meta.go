@@ -52,8 +52,10 @@ type RelayMeta struct {
 	ChannelCreateTime int64
 	// 渠道折扣倍率（来自 Channel.Discount），默认 1.0
 	ChannelDiscount float64
-	// 当前用户对当前渠道类型的额外折扣倍率，默认 1.0
+	// 当前用户对当前渠道的额外折扣倍率（计费标签折扣优先，其次渠道类型折扣），默认 1.0
 	UserChannelRatio float64
+	// UserChannelRatio 来自计费标签折扣时为该标签，否则为空
+	BillingTag string
 }
 
 // SetFirstResponseTime 设置首字响应时间（只设置一次）
@@ -174,7 +176,7 @@ func GetRelayMeta(c *gin.Context) *RelayMeta {
 	}
 	meta.APIType = constant.ChannelType2APIType(meta.ChannelType)
 
-	// 计费所需：渠道折扣 + 用户针对当前渠道类型的额外折扣
+	// 计费所需：渠道折扣 + 用户针对当前渠道的额外折扣
 	// 这两项由 middleware/distributor 在选中渠道时写入 c，缺省 1.0。
 	meta.ChannelDiscount = 1.0
 	if v := c.GetFloat64("channel_discount"); v > 0 {
@@ -184,6 +186,7 @@ func GetRelayMeta(c *gin.Context) *RelayMeta {
 	if v := c.GetFloat64("user_channel_ratio"); v > 0 {
 		meta.UserChannelRatio = v
 	}
+	meta.BillingTag = c.GetString("billing_tag")
 	return &meta
 }
 

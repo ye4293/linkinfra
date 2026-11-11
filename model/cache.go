@@ -100,11 +100,11 @@ func CacheGetUserGroup(id int) (group string, err error) {
 	return group, err
 }
 
-// CacheGetUserChannelRatios 读取用户针对每个渠道类型的折扣 map。
-// 未开 Redis 或缓存 miss 时回落 DB。查询失败返回空 map。
-func CacheGetUserChannelRatios(id int) (map[int]float64, error) {
+// CacheGetUserChannelRatios 读取用户的渠道折扣（按渠道类型和按计费标签）。
+// 未开 Redis 或缓存 miss 时回落 DB。查询失败返回空配置。
+func CacheGetUserChannelRatios(id int) (UserChannelRatios, error) {
 	if id <= 0 {
-		return map[int]float64{}, nil
+		return UserChannelRatios{}, nil
 	}
 	if !common.RedisEnabled {
 		return fetchUserChannelRatiosFromDB(id)
@@ -114,7 +114,7 @@ func CacheGetUserChannelRatios(id int) (map[int]float64, error) {
 	if err == nil {
 		// 缓存命中
 		if cached == "" {
-			return map[int]float64{}, nil
+			return UserChannelRatios{}, nil
 		}
 		if m, parseErr := decodeChannelRatiosJSON(cached); parseErr == nil {
 			return m, nil
@@ -129,17 +129,7 @@ func CacheGetUserChannelRatios(id int) (map[int]float64, error) {
 		return ratios, dbErr
 	}
 	// 写缓存（即使为空也写，避免反复穿透）
-	payload := ""
-	if len(ratios) > 0 {
-		raw := make(map[string]float64, len(ratios))
-		for k, v := range ratios {
-			raw[strconv.Itoa(k)] = v
-		}
-		if bs, mErr := json.Marshal(raw); mErr == nil {
-			payload = string(bs)
-		}
-	}
-	if setErr := common.RedisSet(redisKey, payload, time.Duration(UserId2ChannelRatiosCacheSeconds)*time.Second); setErr != nil {
+	if setErr := common.RedisSet(redisKey, ratios.encode(), time.Duration(UserId2ChannelRatiosCacheSeconds)*time.Second); setErr != nil {
 		logger.SysError("Redis set user channel ratios error: " + setErr.Error())
 	}
 	return ratios, nil
@@ -167,43 +157,32 @@ func InvalidateUserGroupCache(id int) {
 	}
 }
 
-// decodeChannelRatiosJSON 把 JSON 字符串解析为 map[channelType]ratio，过滤非法值。
-func decodeChannelRatiosJSON(s string) (map[int]float64, error) {
+// decodeChannelRatiosJSON 把 JSON 字符串解析为用户渠道折扣（渠道类型 + 计费标签），过滤非法值。
+func decodeChannelRatiosJSON(s string) (UserChannelRatios, error) {
 	raw := map[string]float64{}
 	if err := json.Unmarshal([]byte(s), &raw); err != nil {
-		return nil, err
+		return UserChannelRatios{}, err
 	}
-	result := make(map[int]float64, len(raw))
-	for k, v := range raw {
-		if v <= 0 {
-			continue
-		}
-		ct, convErr := strconv.Atoi(k)
-		if convErr != nil {
-			continue
-		}
-		result[ct] = v
-	}
-	return result, nil
+	return parseUserChannelRatios(raw), nil
 }
 
-func fetchUserChannelRatiosFromDB(id int) (map[int]float64, error) {
+func fetchUserChannelRatiosFromDB(id int) (UserChannelRatios, error) {
 	var raw sql.NullString
 	err := DB.Model(&User{}).Where("id = ?", id).Limit(1).Pluck("channel_ratios", &raw).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return map[int]float64{}, nil
+			return UserChannelRatios{}, nil
 		}
-		return map[int]float64{}, err
+		return UserChannelRatios{}, err
 	}
 	if !raw.Valid || raw.String == "" {
-		return map[int]float64{}, nil
+		return UserChannelRatios{}, nil
 	}
 	m, parseErr := decodeChannelRatiosJSON(raw.String)
 	if parseErr != nil {
-		// DB 里的数据破了，返回空 map 不阻塞计费，同时上报
+		// DB 里的数据破了，返回空配置不阻塞计费，同时上报
 		logger.SysError(fmt.Sprintf("user %d channel_ratios in DB is not valid JSON: %s", id, parseErr.Error()))
-		return map[int]float64{}, nil
+		return UserChannelRatios{}, nil
 	}
 	return m, nil
 }

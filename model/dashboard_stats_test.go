@@ -4,6 +4,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/songquanpeng/one-api/common"
+	"github.com/stretchr/testify/require"
 )
 
 func resetDashboardStatsCache() {
@@ -88,4 +91,63 @@ func TestDashboard24hAdminStatsExcludeManualAndNonUSDTopups(t *testing.T) {
 	if len(stats.ModelStats) != 2 || stats.ModelStats[0].ModelName != "model-b" {
 		t.Fatalf("unexpected admin model stats: %+v", stats.ModelStats)
 	}
+}
+
+// 来源消耗：打了计费标签的渠道按标签归组（跨渠道类型合并），其余按渠道类型归组，
+// 已删除的渠道合并为一项；只对管理员返回。
+func TestDashboard24hAdminSourceStatsGroupByBillingTagOrChannelType(t *testing.T) {
+	setupTestDB(t, &Log{}, &TopUp{}, &Channel{})
+	resetDashboardStatsCache()
+	t.Cleanup(resetDashboardStatsCache)
+
+	channels := []Channel{
+		{Id: 1, Type: common.ChannelTypeVertexAI, Config: `{"billing_tag":"vertex-gemini"}`},
+		{Id: 2, Type: common.ChannelTypeVertexAI, Config: `{"billing_tag":" Vertex-Claude "}`},
+		{Id: 3, Type: common.ChannelTypeAnthropic, Config: `{"billing_tag":"vertex-claude","provider":"anthropic"}`},
+		{Id: 4, Type: common.ChannelTypeVertexAI},
+		{Id: 5, Type: common.ChannelTypeVertexAI, Config: `{"provider":"vertex"}`},
+		{Id: 6, Type: common.ChannelTypeOpenAI},
+		{Id: 7, Type: common.ChannelTypeAzure},
+	}
+	require.NoError(t, DB.Create(&channels).Error)
+
+	now := time.Now().UTC().Unix()
+	logs := []Log{
+		{UserId: 1, Username: "alice", CreatedAt: now - 60, Type: LogTypeConsume, ModelName: "gemini", Quota: 100, ChannelId: 1},
+		{UserId: 1, Username: "alice", CreatedAt: now - 60, Type: LogTypeConsume, ModelName: "claude", Quota: 200, ChannelId: 2},
+		{UserId: 2, Username: "bob", CreatedAt: now - 60, Type: LogTypeConsume, ModelName: "claude", Quota: 50, ChannelId: 3},
+		{UserId: 2, Username: "bob", CreatedAt: now - 60, Type: LogTypeConsume, ModelName: "gemini", Quota: 300, ChannelId: 4},
+		{UserId: 2, Username: "bob", CreatedAt: now - 60, Type: LogTypeConsume, ModelName: "gemini", Quota: 25, ChannelId: 5},
+		{UserId: 1, Username: "alice", CreatedAt: now - 60, Type: LogTypeConsume, ModelName: "gpt", Quota: 10, ChannelId: 6},
+		// 渠道已删除
+		{UserId: 1, Username: "alice", CreatedAt: now - 60, Type: LogTypeConsume, ModelName: "gpt", Quota: 40, ChannelId: 99},
+		// 没有消耗的来源不出现
+		{UserId: 1, Username: "alice", CreatedAt: now - 60, Type: LogTypeError, ModelName: "gpt", Quota: 0, ChannelId: 7},
+		// 没有渠道的日志不计入
+		{UserId: 1, Username: "alice", CreatedAt: now - 60, Type: LogTypeConsume, ModelName: "gpt", Quota: 999},
+		// 超出 24 小时窗口
+		{UserId: 1, Username: "alice", CreatedAt: now - 25*3600, Type: LogTypeConsume, ModelName: "gemini", Quota: 5000, ChannelId: 1},
+	}
+	require.NoError(t, DB.Create(&logs).Error)
+
+	stats, err := GetDashboard24hStats(0)
+	require.NoError(t, err)
+	require.Equal(t, []DashboardSourceStats{
+		{Kind: DashboardSourceChannelType, ChannelType: common.ChannelTypeVertexAI, QuotaSum: 325},
+		{Kind: DashboardSourceTag, Tag: "vertex-claude", Name: "vertex-claude", QuotaSum: 250},
+		{Kind: DashboardSourceTag, Tag: "vertex-gemini", Name: "vertex-gemini", QuotaSum: 100},
+		{Kind: DashboardSourceDeleted, QuotaSum: 40},
+		{Kind: DashboardSourceChannelType, ChannelType: common.ChannelTypeOpenAI, QuotaSum: 10},
+	}, stats.SourceStats)
+
+	// 调用方（controller 会补展示名）修改返回值不能污染缓存。
+	stats.SourceStats[0].Name = "mutated"
+	cached, err := GetDashboard24hStats(0)
+	require.NoError(t, err)
+	require.Len(t, cached.SourceStats, 5)
+	require.Empty(t, cached.SourceStats[0].Name)
+
+	userStats, err := GetDashboard24hStats(1)
+	require.NoError(t, err)
+	require.Empty(t, userStats.SourceStats, "source stats are admin-only")
 }

@@ -18,6 +18,25 @@ import (
 	"github.com/songquanpeng/one-api/relay/channel/baidu"
 )
 
+const invalidBillingTagMessage = "Billing tag may only contain letters, digits, '.', '_' and '-' (max 64 characters)."
+
+// ListBillingTags 返回渠道上已配置的计费标签及渠道数，供渠道表单和用户折扣编辑器选择。
+func ListBillingTags(c *gin.Context) {
+	tags, err := model.ListChannelBillingTags()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    tags,
+	})
+}
+
 func GetAllChannels(c *gin.Context) {
 	page, _ := strconv.Atoi(c.Query("page"))
 	if page < 0 {
@@ -159,6 +178,14 @@ func AddChannel(c *gin.Context) {
 			return
 		}
 		channel.HeaderOverride = &trimmed
+	}
+
+	if model.HasInvalidBillingTag(&channel) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": invalidBillingTagMessage,
+		})
+		return
 	}
 
 	logger.Info(c.Request.Context(), fmt.Sprintf("AddChannel: Received request for channel type %d", channel.Type))
@@ -624,6 +651,15 @@ func UpdateChannel(c *gin.Context) {
 			return
 		}
 		channel.HeaderOverride = &trimmed
+	}
+
+	// 只在本次请求提交了 config 时校验，避免历史数据影响状态切换等局部更新。
+	if _, exists := rawBody["config"]; exists && model.HasInvalidBillingTag(&channel) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": invalidBillingTagMessage,
+		})
+		return
 	}
 
 	logger.Info(c.Request.Context(), fmt.Sprintf("UpdateChannel: channel.Id=%d, IsMultiKey=%v", channel.Id, channel.MultiKeyInfo.IsMultiKey))
