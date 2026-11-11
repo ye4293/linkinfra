@@ -45,13 +45,25 @@ func ChannelBillingTag(channel *Channel) string {
 	return NormalizeBillingTag(cfg.BillingTag)
 }
 
-// HasInvalidBillingTag 供保存渠道时校验：填了标签但规范化后为空，说明超长或含非法字符。
+// HasInvalidBillingTag 供保存渠道时校验：填了标签但规范化后为空（超长或含非法字符），
+// 或者标签不是字符串。后者会让 LoadConfig 整体报错，连带 Provider 等配置也读不出来，
+// 所以这里单独取出 billing_tag 判断，不依赖 LoadConfig 的结果。
 func HasInvalidBillingTag(channel *Channel) bool {
-	cfg, err := channel.LoadConfig()
-	if err != nil {
+	if channel == nil || channel.Config == "" {
 		return false
 	}
-	return strings.TrimSpace(cfg.BillingTag) != "" && NormalizeBillingTag(cfg.BillingTag) == ""
+	var raw struct {
+		BillingTag json.RawMessage `json:"billing_tag"`
+	}
+	if err := json.Unmarshal([]byte(channel.Config), &raw); err != nil || len(raw.BillingTag) == 0 {
+		// config 不是合法的 JSON 对象，或没有 billing_tag：不是标签的问题。
+		return false
+	}
+	var tag string
+	if err := json.Unmarshal(raw.BillingTag, &tag); err != nil {
+		return true
+	}
+	return strings.TrimSpace(tag) != "" && NormalizeBillingTag(tag) == ""
 }
 
 // UserChannelRatios 是用户的渠道折扣配置：按渠道类型，或按渠道的计费标签。

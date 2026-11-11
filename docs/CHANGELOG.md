@@ -8,6 +8,14 @@
 
 ## 2026-11-12
 
+### fix(billing): 保存渠道时拒绝非字符串的计费标签
+- **分支**: `release/billing-tag-v0.1.46`
+- **类型**: fix
+- **涉及文件**: `model/channel_billing_tag.go`、`model/channel_billing_tag_test.go`、`router/billing_tag_test.go`、`docs/billing-tag.md`
+- **说明**: 发布前代码审查发现：渠道 `config` 里的 `billing_tag` 不是字符串（如 `123`）时，整个 config 解析报错，原先的校验把它当成没有标签放行，保存后该渠道的 Provider 也读不出来。现在校验单独取出 `billing_tag` 判断，非字符串在保存时拒绝。前端表单只提交字符串，这个问题只影响直接调用管理 API 的情况。
+- **验证**: 新增的路由断言在修复前的实现上失败（`{"billing_tag":123}` 被放行），修复后通过；`go build ./...`、`go vet ./...` 通过。
+- **关联计划**: `docs/plans/2026-11-11-billing-tag-user-discount.md`
+
 ### feat(web): 计费标签前端与本地联调验证
 - **分支**: `billing-tag`（前端仓库 `linkinfra-web` 的同名分支，提交 `054c0ff`、`a037efa`）
 - **类型**: feat / fix / docs

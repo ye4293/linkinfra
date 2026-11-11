@@ -39,6 +39,13 @@ func TestChannelBillingTag(t *testing.T) {
 	require.False(t, HasInvalidBillingTag(&Channel{Config: `{"billing_tag":" Vertex-Claude "}`}))
 	require.False(t, HasInvalidBillingTag(&Channel{Config: `{"billing_tag":"  "}`}))
 	require.False(t, HasInvalidBillingTag(&Channel{}))
+	require.False(t, HasInvalidBillingTag(nil))
+	// 标签不是字符串时整个 config 解析报错（Provider 等配置也读不出来），保存时同样拒绝。
+	require.True(t, HasInvalidBillingTag(&Channel{Config: `{"provider":"azure","billing_tag":123}`}))
+	require.True(t, HasInvalidBillingTag(&Channel{Config: `{"billing_tag":["vertex-claude"]}`}))
+	require.False(t, HasInvalidBillingTag(&Channel{Config: `{"provider":"azure","billing_tag":null}`}))
+	// config 本身不是合法 JSON 不属于标签校验的范围。
+	require.False(t, HasInvalidBillingTag(&Channel{Config: `not json`}))
 }
 
 func TestDecodeChannelRatiosJSON(t *testing.T) {
