@@ -1,12 +1,14 @@
 package controller
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/model"
 	"github.com/stretchr/testify/require"
 )
@@ -19,21 +21,29 @@ func TestBillingTagIsStrippedFromUserLogs(t *testing.T) {
 		{"标签在最后", `billingDetails:{"a":1,"billing_tag":"t"}`, `billingDetails:{"a":1}`},
 		{"只有标签", `billingDetails:{"billing_tag":"t"}`, `billingDetails:{}`},
 		{"没有标签的日志不变", `billingDetails:{"billing_type":"token","user_channel_ratio":0.9}`, `billingDetails:{"billing_type":"token","user_channel_ratio":0.9}`},
+		// 前面的段里恰好有同样的字样（被重定向的模型名）：不能因此把计费明细里真正的标签留下来。
+		{"其他段里有同样的字样", `is_model_mapped:true;origin_model_name:x"billing_tag":";billingDetails:{"billing_tag":"secret-tag","billing_type":"token"}`, `is_model_mapped:true;origin_model_name:x"billing_tag":";billingDetails:{"billing_type":"token"}`},
 	} {
 		logs := []*model.Log{{Other: tc.other}}
 		stripAdminInfoFromLogs(logs)
 		require.Equal(t, tc.want, logs[0].Other, tc.name)
 	}
 
-	// JSON 格式的 other
-	logs := []*model.Log{{Other: `{"admin_info":[1],"billingDetails":{"billing_tag":"t","billing_type":"token"}}`}}
-	stripAdminInfoFromLogs(logs)
-	require.JSONEq(t, `{"billingDetails":{"billing_type":"token"}}`, logs[0].Other)
+	// JSON 格式的 other：标签可能嵌在计费明细里（两种 key 写法），也可能平铺在顶层（按时长计费的音频日志是平铺结构）
+	for _, tc := range []struct{ other, want string }{
+		{`{"admin_info":[1],"billingDetails":{"billing_tag":"t","billing_type":"token"}}`, `{"billingDetails":{"billing_type":"token"}}`},
+		{`{"admin_info":[1],"billing_details":{"billing_tag":"t","billing_type":"token"}}`, `{"billing_details":{"billing_type":"token"}}`},
+		{`{"billing_mode":"duration","group_ratio":0.85,"billing_tag":"t"}`, `{"billing_mode":"duration","group_ratio":0.85}`},
+	} {
+		logs := []*model.Log{{Other: tc.other}}
+		stripAdminInfoFromLogs(logs)
+		require.JSONEq(t, tc.want, logs[0].Other, tc.other)
+	}
 
 	// 与实际写入格式一致的完整记录：剥离后 billingDetails 仍可解析，其余字段不丢。
 	details, err := json.Marshal(map[string]interface{}{"billing_tag": "vertex-claude", "billing_type": "token", "group_ratio": 0.85, "user_channel_ratio": 0.85})
 	require.NoError(t, err)
-	logs = []*model.Log{{Other: "adminInfo:[3,7];billingDetails:" + string(details) + `;retryHistory:[{"channel_name":"Vertex [primary]","error":"overloaded; retry"}]`}}
+	logs := []*model.Log{{Other: "adminInfo:[3,7];billingDetails:" + string(details) + `;retryHistory:[{"channel_name":"Vertex [primary]","error":"overloaded; retry"}]`}}
 	stripAdminInfoFromLogs(logs)
 	require.True(t, strings.HasPrefix(logs[0].Other, "billingDetails:"), logs[0].Other)
 	var parsed map[string]interface{}
@@ -69,4 +79,74 @@ func TestGetSelfHidesBillingTagRatios(t *testing.T) {
 	var reloaded model.User
 	require.NoError(t, db.First(&reloaded, user.Id).Error)
 	require.Equal(t, stored, reloaded.ChannelRatios)
+}
+
+// 管理员保存用户：写坏的 channel_ratios 被拒绝且不落库；请求里不带该字段时已有折扣保持不变；
+// 显式提交空串才是清空。
+func TestUpdateUserValidatesChannelRatios(t *testing.T) {
+	db := setupTestDB(t)
+	oldRedis := common.RedisEnabled
+	common.RedisEnabled = false
+	t.Cleanup(func() { common.RedisEnabled = oldRedis })
+
+	const stored = `{"48":0.9,"tag:vertex-claude":0.85}`
+	user := model.User{Username: "ratio-user", AffCode: "ratio-user", AccessToken: "ratio-user", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 100, ChannelRatios: stored}
+	require.NoError(t, db.Create(&user).Error)
+
+	update := func(fields map[string]interface{}) (bool, string) {
+		t.Helper()
+		fields["id"] = user.Id
+		body, err := json.Marshal(fields)
+		require.NoError(t, err)
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("PUT", "/api/user/", bytes.NewReader(body))
+		c.Set("role", common.RoleRootUser)
+		UpdateUser(c)
+		var response struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response), w.Body.String())
+		return response.Success, response.Message
+	}
+	reload := func() model.User {
+		t.Helper()
+		var reloaded model.User
+		require.NoError(t, db.First(&reloaded, user.Id).Error)
+		return reloaded
+	}
+
+	for _, invalid := range []string{
+		// 折扣写成了字符串：计费侧会让整份折扣作废
+		`{"48":0.9,"tag:vertex-claude":"0.85"}`,
+		// 标签名不合法：永远不会命中
+		`{"48":0.9,"tag:Vertex Claude":0.85}`,
+		`not json`,
+	} {
+		ok, message := update(map[string]interface{}{"channel_ratios": invalid})
+		require.False(t, ok, invalid)
+		require.Contains(t, message, "Invalid channel discounts", invalid)
+		require.Equal(t, stored, reload().ChannelRatios, invalid)
+	}
+
+	// 不带 channel_ratios 的局部更新（只改额度）不动已有折扣。
+	ok, message := update(map[string]interface{}{"quota": 200})
+	require.True(t, ok, message)
+	require.Equal(t, stored, reload().ChannelRatios)
+	require.EqualValues(t, 200, reload().Quota)
+
+	// 合法内容照常保存，计费读到的是新值。
+	const updated = `{"48":0.8,"tag:vertex-claude":0.7}`
+	ok, message = update(map[string]interface{}{"channel_ratios": updated})
+	require.True(t, ok, message)
+	require.Equal(t, updated, reload().ChannelRatios)
+	ratio, matched := model.ResolveUserChannelRatio(user.Id, 48, "vertex-claude")
+	require.Equal(t, 0.7, ratio)
+	require.Equal(t, "vertex-claude", matched)
+
+	// 显式提交空串是清空。
+	ok, message = update(map[string]interface{}{"channel_ratios": ""})
+	require.True(t, ok, message)
+	require.Empty(t, reload().ChannelRatios)
 }

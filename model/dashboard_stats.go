@@ -5,6 +5,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/songquanpeng/one-api/common/logger"
 )
 
 const dashboardStatsTTL = 10 * time.Minute
@@ -239,11 +241,13 @@ func GetDashboard24hStats(userId int) (*Dashboard24hStats, error) {
 			Scan(&data.RechargeAmount).Error; err != nil {
 			return nil, err
 		}
-		sourceStats, err := dashboardSourceStats(startTimestamp, endTimestamp)
-		if err != nil {
-			return nil, err
+		// 来源消耗是附加数据：它的查询失败时只记日志、本次不返回来源，
+		// 不让总览原有的小时、模型、用户和充值统计跟着失败。
+		if sourceStats, err := dashboardSourceStats(startTimestamp, endTimestamp); err != nil {
+			logger.SysError("dashboard source stats failed: " + err.Error())
+		} else {
+			data.SourceStats = sourceStats
 		}
-		data.SourceStats = sourceStats
 	}
 
 	expiresAt := now.Add(dashboardStatsTTL)

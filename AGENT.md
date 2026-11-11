@@ -92,6 +92,8 @@ Claude Code 兼容性验收必须覆盖默认工具定义与至少一次工具�
 
 Messages 渠道统一分派回归位于 relay/helper/messages_audit_test.go，必须通过生产工厂和真实 HTTP 请求验证；支持 SDK base 时避免重复前缀并保留查询参数，Anthropic 的 OpenAI 转换入口仍需固定发送 /v1/messages。
 
+从渠道 `config` 读取单个字段时不要依赖 `LoadConfig` 整体成功：其他字段类型不对会让它报错，而转发仍在使用解析出的部分配置（计费标签因此单独解析 `billing_tag`）。缓存内容的含义变了要换 key，否则新旧版本实例会互相读到对方写的内容。写坏后会在计费时静默失效的配置（渠道计费标签、用户 `channel_ratios`）在保存时校验并拒绝。只有 `NODE_TYPE=master` 的节点才建表，本地用全新的库起后端做联调必须带上。通过工具写文件时，源码里的 Unicode 转义（反斜杠加 u 加四位十六进制）可能被还原成真实字符，测试里的特殊字符用码点构造并在磁盘上核对。
+
 ## 变更记录与计划文档（强制）
 
 模型映射的消费日志沿用既有约定：`model_name` 保存调用方原模型名，`other` 包含 `origin_model_name` 和 `is_model_mapped`；测试应断言这些字段及实际扣费，不假定 `other` 一定包含映射后的名称。

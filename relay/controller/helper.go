@@ -321,8 +321,8 @@ func postConsumeQuota(ctx context.Context, c *gin.Context, usage *relaymodel.Usa
 			"user_channel_ratio": meta.UserChannelRatio,
 		}
 		// 用户渠道折扣来自计费标签时，记录命中的标签
-		if meta.BillingTag != "" {
-			billingDetails["billing_tag"] = meta.BillingTag
+		if meta.MatchedBillingTag != "" {
+			billingDetails["billing_tag"] = meta.MatchedBillingTag
 		}
 		// 多 Key 渠道：记录本次实际使用的 Key 索引
 		if meta.IsMultiKey && meta.KeyIndex != nil {

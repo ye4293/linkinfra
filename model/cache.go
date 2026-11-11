@@ -100,6 +100,14 @@ func CacheGetUserGroup(id int) (group string, err error) {
 	return group, err
 }
 
+// 用户渠道折扣的缓存 key。缓存内容从 v2 起包含计费标签折扣，所以换了 key：
+// 旧版本实例按旧格式写的缓存不含标签项（只配了标签折扣的用户会被写成空串），
+// 新版本如果读到，标签折扣会在缓存有效期内失效。新旧版本同时在线或回滚时都会遇到。
+const (
+	userChannelRatiosCacheKeyFormat       = "user_channel_ratios:v2:%d"
+	legacyUserChannelRatiosCacheKeyFormat = "user_channel_ratios:%d"
+)
+
 // CacheGetUserChannelRatios 读取用户的渠道折扣（按渠道类型和按计费标签）。
 // 未开 Redis 或缓存 miss 时回落 DB。查询失败返回空配置。
 func CacheGetUserChannelRatios(id int) (UserChannelRatios, error) {
@@ -109,7 +117,7 @@ func CacheGetUserChannelRatios(id int) (UserChannelRatios, error) {
 	if !common.RedisEnabled {
 		return fetchUserChannelRatiosFromDB(id)
 	}
-	redisKey := fmt.Sprintf("user_channel_ratios:%d", id)
+	redisKey := fmt.Sprintf(userChannelRatiosCacheKeyFormat, id)
 	cached, err := common.RedisGet(redisKey)
 	if err == nil {
 		// 缓存命中
@@ -136,12 +144,15 @@ func CacheGetUserChannelRatios(id int) (UserChannelRatios, error) {
 }
 
 // InvalidateUserChannelRatiosCache 清除指定用户的渠道折扣缓存。
+// 旧版本实例使用的 key 一并清除：滚动发布期间在新版本上改了折扣，旧版本实例也要重新读库。
 func InvalidateUserChannelRatiosCache(id int) {
 	if id <= 0 || !common.RedisEnabled {
 		return
 	}
-	if err := common.RedisDel(fmt.Sprintf("user_channel_ratios:%d", id)); err != nil {
-		logger.SysError("Redis del user channel ratios error: " + err.Error())
+	for _, format := range []string{userChannelRatiosCacheKeyFormat, legacyUserChannelRatiosCacheKeyFormat} {
+		if err := common.RedisDel(fmt.Sprintf(format, id)); err != nil {
+			logger.SysError("Redis del user channel ratios error: " + err.Error())
+		}
 	}
 }
 

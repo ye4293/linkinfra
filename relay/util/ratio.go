@@ -58,12 +58,7 @@ func GetAsyncBillingGroupRatio(group string, userId int, channelId int, channelT
 		}
 	}
 
-	// 与 middleware/distributor 相同的取值顺序：计费标签折扣优先，其次渠道类型折扣。
-	userChannelRatio := 1.0
-	if userId > 0 && (channelType > 0 || billingTag != "") {
-		if ratios, err := model.CacheGetUserChannelRatios(userId); err == nil {
-			userChannelRatio, _ = ratios.Resolve(channelType, billingTag)
-		}
-	}
+	// 与 middleware/distributor 走同一个取值函数：计费标签折扣优先，其次渠道类型折扣。
+	userChannelRatio, _ := model.ResolveUserChannelRatio(userId, channelType, billingTag)
 	return groupRatio * channelDiscount * userChannelRatio * common.GetModelDiscount(modelName)
 }

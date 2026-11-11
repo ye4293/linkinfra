@@ -1,10 +1,8 @@
 package model
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/songquanpeng/one-api/common"
@@ -46,66 +44,8 @@ type User struct {
 	TopupQuota int64 `json:"topup_quota" gorm:"type:bigint;default:0;column:topup_quota"`
 }
 
-// GetChannelRatiosMap 解析 ChannelRatios JSON 为 map[channelType]ratio。
-// 空串、解析失败均返回空 map，调用方不需要再判 nil。
-func (user *User) GetChannelRatiosMap() map[int]float64 {
-	result := map[int]float64{}
-	if user.ChannelRatios == "" {
-		return result
-	}
-	raw := map[string]float64{}
-	if err := json.Unmarshal([]byte(user.ChannelRatios), &raw); err != nil {
-		return result
-	}
-	for k, v := range raw {
-		if v <= 0 {
-			continue
-		}
-		ct, err := strconv.Atoi(k)
-		if err != nil {
-			continue
-		}
-		result[ct] = v
-	}
-	return result
-}
-
-// SetChannelRatiosMap 序列化 map 到 ChannelRatios。空 map 置空串。
-func (user *User) SetChannelRatiosMap(m map[int]float64) error {
-	if len(m) == 0 {
-		user.ChannelRatios = ""
-		return nil
-	}
-	raw := make(map[string]float64, len(m))
-	for k, v := range m {
-		if v <= 0 {
-			continue
-		}
-		raw[strconv.Itoa(k)] = v
-	}
-	if len(raw) == 0 {
-		user.ChannelRatios = ""
-		return nil
-	}
-	bs, err := json.Marshal(raw)
-	if err != nil {
-		return err
-	}
-	user.ChannelRatios = string(bs)
-	return nil
-}
-
-// GetChannelRatio 取指定渠道类型的用户折扣，缺失/非正数返回 1.0。
-func (user *User) GetChannelRatio(channelType int) float64 {
-	if channelType <= 0 {
-		return 1.0
-	}
-	ratios := user.GetChannelRatiosMap()
-	if r, ok := ratios[channelType]; ok && r > 0 {
-		return r
-	}
-	return 1.0
-}
+// ChannelRatios 的解析和取值见 channel_billing_tag.go：UserChannelRatios.Resolve 是取值顺序的唯一定义，
+// 这里不再保留只认渠道类型的读写方法（它们读不到计费标签折扣，回写还会把标签项抹掉）。
 
 func GetMaxUserId() int {
 	var user User

@@ -8,6 +8,23 @@
 
 ## 2026-11-12
 
+### fix(billing): 发布前代码审查的修复
+- **分支**: `release/billing-tag-v0.1.46`
+- **类型**: fix / test / docs
+- **涉及文件**: `model/channel_billing_tag.go`、`model/cache.go`、`model/user.go`、`model/dashboard_stats.go`、`middleware/distributor.go`、`relay/util/ratio.go`、`relay/util/relay_meta.go`、`relay/controller/helper.go`、`relay/controller/systemone_billing.go`、`controller/user.go`、`controller/log.go`；测试 `model/channel_billing_tag_test.go`、`model/user_channel_ratios_cache_test.go`、`model/dashboard_stats_test.go`、`middleware/distributor_billing_tag_test.go`、`controller/billing_tag_visibility_test.go`；文档 `docs/billing-tag.md`、`docs/plans/2026-11-11-billing-tag-user-discount.md`、`CLAUDE.md`、`AGENT.md`
+- **说明**: 对 billing-tag 的改动做了多角度代码审查并逐条复核，修掉会影响计费或数据的问题：
+  - 标签的读取不再依赖整份 `config` 解析成功。原先 `config` 的其他字段类型不对时（例如 Vertex 区域映射被存成字符串），渠道照常转发，标签却被当成未配置，标签折扣和按标签的统计静默失效。
+  - 标签名按 ASCII 逐字节校验，个别非 ASCII 字符不再被大小写转换折叠成合法标签。
+  - 用户折扣缓存改用新的 Redis key `user_channel_ratios:v2:<用户 id>`。旧版本实例写入的缓存不含标签折扣（只配了标签折扣的用户被写成空串），沿用旧 key 时新版本读到会让标签折扣在缓存有效期内失效。
+  - 保存用户时校验 `channel_ratios`：有一项的值不是数字会让计费侧整份作废（渠道类型折扣一起失效），标签名不合法的项永远不会命中，现在都在保存时拒绝。请求里不带 `channel_ratios` 字段时不再清空已有折扣。
+  - `/api/user/self` 用计费的同一个解析器，只输出渠道类型折扣。原先在原文里找 `tag:` 字样，key 用 JSON 转义书写时标签名会返回给用户本人。
+  - 用户日志去掉 `billing_tag` 时只处理计费明细段，并覆盖 JSON 格式里平铺和 `billing_details` 两种写法。
+  - 来源统计的查询失败时只记日志，总览原有的统计照常返回。
+  - 同步选渠和异步结算共用 `model.ResolveUserChannelRatio`；删除 `model/user.go` 里只认渠道类型、没有调用方的三个旧方法；`RelayMeta` 上记录命中标签的字段改名为 `MatchedBillingTag`。
+  - 审查确认、本次不改的既有行为写入 `docs/billing-tag.md` 的“适用范围”“日志”“统计”和“上线注意”。
+- **验证**: 全量 `go test ./... -count=1`、`go build ./...`、`go vet ./...` 和 model、middleware、controller、relay/util、relay/controller、relay/helper、router、service 八个包的 race 检测通过。新增测试覆盖：Redis 开启时不读旧版本的缓存、清缓存时新旧 key 一起删除；`config` 区域映射写坏时标签照常生效；转义写法的标签 key 不返回给用户；非数字折扣和非法标签名在保存时被拒绝；局部更新不清空折扣；来源统计失败时总览照常返回。本地隔离环境复验：浏览器走查 40 项、逐键输入 6 项、折扣编辑器与接口校验 18 项全部通过。
+- **关联计划**: `docs/plans/2026-11-11-billing-tag-user-discount.md`
+
 ### fix(billing): 保存渠道时拒绝非字符串的计费标签
 - **分支**: `release/billing-tag-v0.1.46`
 - **类型**: fix

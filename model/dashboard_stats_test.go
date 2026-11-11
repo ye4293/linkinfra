@@ -151,3 +151,23 @@ func TestDashboard24hAdminSourceStatsGroupByBillingTagOrChannelType(t *testing.T
 	require.NoError(t, err)
 	require.Empty(t, userStats.SourceStats, "source stats are admin-only")
 }
+
+// 来源消耗是附加数据：它的查询失败时，总览原有的统计照常返回，只是没有来源。
+func TestDashboard24hAdminStatsSurviveSourceStatsFailure(t *testing.T) {
+	// 不建 channels 表：按渠道归组时读取渠道会报错。
+	setupTestDB(t, &Log{}, &TopUp{})
+	resetDashboardStatsCache()
+	t.Cleanup(resetDashboardStatsCache)
+
+	now := time.Now().UTC().Unix()
+	require.NoError(t, DB.Create(&Log{UserId: 1, Username: "alice", CreatedAt: now - 60, Type: LogTypeConsume, ModelName: "model-a", Quota: 100, ChannelId: 1}).Error)
+	_, err := dashboardSourceStats(now-3600, now)
+	require.Error(t, err)
+
+	stats, err := GetDashboard24hStats(0)
+	require.NoError(t, err)
+	require.Empty(t, stats.SourceStats)
+	require.Len(t, stats.ModelStats, 1)
+	require.EqualValues(t, 100, stats.ModelStats[0].QuotaSum)
+	require.Len(t, stats.UserStats, 1)
+}

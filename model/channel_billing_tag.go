@@ -2,6 +2,8 @@ package model
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,19 +20,41 @@ const UserChannelRatioTagPrefix = "tag:"
 const billingTagMaxLength = 64
 
 // NormalizeBillingTag 忽略大小写和首尾空格；空值、超长或含非法字符时返回空串（视为未配置）。
-// 只允许 a-z 0-9 . _ -，保证标签可以直接拼进 channel_ratios 的 key。
+// 只允许 ASCII 字母、数字和 . _ -，保证标签可以直接拼进 channel_ratios 的 key。
+// 逐字节检查后再转小写，不用 strings.ToLower：它会把个别非 ASCII 字符（如开尔文符号 U+212A）
+// 折叠成 ASCII 字母，让本该被拒绝的标签变成另一个合法标签。
 func NormalizeBillingTag(tag string) string {
-	tag = strings.ToLower(strings.TrimSpace(tag))
+	tag = strings.TrimSpace(tag)
 	if tag == "" || len(tag) > billingTagMaxLength {
 		return ""
 	}
-	for _, r := range tag {
-		allowed := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
-		if !allowed {
+	normalized := make([]byte, len(tag))
+	for i := 0; i < len(tag); i++ {
+		c := tag[i]
+		switch {
+		case c >= 'A' && c <= 'Z':
+			c += 'a' - 'A'
+		case (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-':
+		default:
 			return ""
 		}
+		normalized[i] = c
 	}
-	return tag
+	return string(normalized)
+}
+
+// rawBillingTag 只取出 config 里的 billing_tag，不经过 LoadConfig。
+// config 里别的字段类型不对时（例如 Vertex 的区域映射被存成了字符串）LoadConfig 整体报错，
+// 而转发仍在用解析出的其余配置；标签的读取和校验都只看 billing_tag，不受其他字段影响。
+func rawBillingTag(config string) (string, error) {
+	if strings.TrimSpace(config) == "" {
+		return "", nil
+	}
+	var probe struct {
+		BillingTag string `json:"billing_tag"`
+	}
+	err := json.Unmarshal([]byte(config), &probe)
+	return probe.BillingTag, err
 }
 
 // ChannelBillingTag 返回渠道 config.billing_tag 规范化后的值，未配置或非法时为空串。
@@ -38,30 +62,26 @@ func ChannelBillingTag(channel *Channel) string {
 	if channel == nil {
 		return ""
 	}
-	cfg, err := channel.LoadConfig()
+	tag, err := rawBillingTag(channel.Config)
 	if err != nil {
 		return ""
 	}
-	return NormalizeBillingTag(cfg.BillingTag)
+	return NormalizeBillingTag(tag)
 }
 
 // HasInvalidBillingTag 供保存渠道时校验：填了标签但规范化后为空（超长或含非法字符），
-// 或者标签不是字符串。后者会让 LoadConfig 整体报错，连带 Provider 等配置也读不出来，
-// 所以这里单独取出 billing_tag 判断，不依赖 LoadConfig 的结果。
+// 或者 billing_tag 不是字符串（这会让 LoadConfig 整体报错，连带 Provider 等配置也读不出来）。
 func HasInvalidBillingTag(channel *Channel) bool {
-	if channel == nil || channel.Config == "" {
+	if channel == nil {
 		return false
 	}
-	var raw struct {
-		BillingTag json.RawMessage `json:"billing_tag"`
-	}
-	if err := json.Unmarshal([]byte(channel.Config), &raw); err != nil || len(raw.BillingTag) == 0 {
-		// config 不是合法的 JSON 对象，或没有 billing_tag：不是标签的问题。
-		return false
-	}
-	var tag string
-	if err := json.Unmarshal(raw.BillingTag, &tag); err != nil {
-		return true
+	tag, err := rawBillingTag(channel.Config)
+	if err != nil {
+		// 探测用的结构体只有 billing_tag 一个字段：config 是 JSON 对象时，类型错误只可能来自它
+		// （包括同一个 key 重复出现、其中一次不是字符串）。config 本身不是合法的 JSON 对象
+		// 不属于标签校验的范围。
+		var typeErr *json.UnmarshalTypeError
+		return errors.As(err, &typeErr) && strings.HasPrefix(strings.TrimSpace(channel.Config), "{")
 	}
 	return strings.TrimSpace(tag) != "" && NormalizeBillingTag(tag) == ""
 }
@@ -89,11 +109,58 @@ func (r UserChannelRatios) Resolve(channelType int, billingTag string) (ratio fl
 	return 1.0, ""
 }
 
+// ResolveUserChannelRatio 读取用户的渠道折扣配置并按 Resolve 取值，同步选渠和异步结算共用。
+// 未登录、没有配置或读取失败时为 1.0，不会因为取不到数据阻塞计费。
+func ResolveUserChannelRatio(userId int, channelType int, billingTag string) (ratio float64, matchedTag string) {
+	ratios, err := CacheGetUserChannelRatios(userId)
+	if err != nil {
+		return 1.0, ""
+	}
+	return ratios.Resolve(channelType, billingTag)
+}
+
+// ratioKeyBillingTag 判断 channel_ratios 的一个 key 是不是计费标签折扣（tag:<标签>，前缀不分大小写）。
+// isTag 为 true 而 tag 为空，表示这是一个标签项，但标签名不合法。
+func ratioKeyBillingTag(key string) (tag string, isTag bool) {
+	key = strings.TrimSpace(key)
+	n := len(UserChannelRatioTagPrefix)
+	if len(key) < n || !strings.EqualFold(key[:n], UserChannelRatioTagPrefix) {
+		return "", false
+	}
+	return NormalizeBillingTag(key[n:]), true
+}
+
+// ValidateUserChannelRatios 供保存用户时校验 channel_ratios：空串（没有折扣），
+// 或 key 为渠道类型 / tag:<标签>、值为数字的 JSON 对象。
+// 有一项的值不是数字时，计费侧整份解析失败，所有折扣（包括原本正常的渠道类型折扣）一起失效；
+// 标签名不合法的项永远不会命中。两种情况都在保存时拒绝，而不是保存后静默失效。
+// 无法识别的 key 和非正数沿用既有约定：可以保存，读取时忽略。
+func ValidateUserChannelRatios(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	entries := map[string]float64{}
+	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
+		return errors.New(`channel_ratios must be a JSON object that maps channel types or "tag:<billing tag>" keys to numbers`)
+	}
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if tag, isTag := ratioKeyBillingTag(key); isTag && tag == "" {
+			return fmt.Errorf("channel_ratios has an invalid billing tag key %q: billing tags may only contain letters, digits, '.', '_' and '-' (max %d characters)", key, billingTagMaxLength)
+		}
+	}
+	return nil
+}
+
 // parseUserChannelRatios 解析 channel_ratios 的原始内容，非正数和无法识别的 key 被忽略。
 func parseUserChannelRatios(raw map[string]float64) UserChannelRatios {
 	result := UserChannelRatios{Types: map[int]float64{}, Tags: map[string]float64{}}
-	// 按 key 排序后处理：同一标签出现多种写法（大小写、空格）时结果固定，并以规范写法为准，
-	// 不让 map 遍历顺序影响计费。
+	// 按 key 排序后处理：同一标签出现多种写法（大小写、空格）时结果固定，不让 map 遍历顺序影响计费。
+	// 非正数的项先被忽略；剩下的写法里以规范写法（tag:<规范标签>）为准，没有规范写法时取排在最前的。
 	keys := make([]string, 0, len(raw))
 	for k := range raw {
 		keys = append(keys, k)
@@ -104,8 +171,7 @@ func parseUserChannelRatios(raw map[string]float64) UserChannelRatios {
 		if v <= 0 {
 			continue
 		}
-		if name, isTag := strings.CutPrefix(strings.ToLower(strings.TrimSpace(k)), UserChannelRatioTagPrefix); isTag {
-			tag := NormalizeBillingTag(name)
+		if tag, isTag := ratioKeyBillingTag(k); isTag {
 			if tag == "" {
 				continue
 			}
@@ -140,30 +206,19 @@ func (r UserChannelRatios) encode() string {
 	return string(bs)
 }
 
-// StripBillingTagRatios 去掉 channel_ratios 原始内容里的计费标签项，供返回给用户本人的接口使用：
-// 标签名是管理端的内部分组，不向终端用户暴露。不含标签项时原样返回，渠道类型折扣不受影响。
+// StripBillingTagRatios 返回 channel_ratios 里可以给用户本人看的部分：只有按渠道类型的折扣。
+// 标签名是管理端的内部分组，不向终端用户暴露。这里用计费的同一个解析器解析，再只输出渠道类型项，
+// 所以返回的折扣与实际计费用到的一致，也不依赖在原文里辨认标签项；内容无法解析时返回空串。
 func StripBillingTagRatios(raw string) string {
-	if !strings.Contains(strings.ToLower(raw), UserChannelRatioTagPrefix) {
-		return raw
-	}
-	entries := map[string]json.RawMessage{}
-	if err := json.Unmarshal([]byte(raw), &entries); err != nil {
-		// 无法解析就无法只去掉标签项，整体不返回。
+	if raw == "" {
 		return ""
 	}
-	for key := range entries {
-		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(key)), UserChannelRatioTagPrefix) {
-			delete(entries, key)
-		}
-	}
-	if len(entries) == 0 {
-		return ""
-	}
-	bs, err := json.Marshal(entries)
+	ratios, err := decodeChannelRatiosJSON(raw)
 	if err != nil {
 		return ""
 	}
-	return string(bs)
+	ratios.Tags = nil
+	return ratios.encode()
 }
 
 // BillingTagUsage 是一个计费标签及配置了它的渠道数（含已禁用的渠道）。

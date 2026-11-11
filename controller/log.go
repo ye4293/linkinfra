@@ -47,8 +47,12 @@ func stripAdminInfoFromLogs(logs []*model.Log) {
 				delete(obj, "adminInfo")
 				delete(obj, "retry_history")
 				delete(obj, "retryHistory")
-				if details, ok := obj["billingDetails"].(map[string]any); ok {
-					delete(details, "billing_tag")
+				// 计费标签：平铺在顶层、或嵌在计费明细里（两种 key 写法）都去掉
+				delete(obj, "billing_tag")
+				for _, key := range []string{"billingDetails", "billing_details"} {
+					if details, ok := obj[key].(map[string]any); ok {
+						delete(details, "billing_tag")
+					}
 				}
 				if b, err := json.Marshal(obj); err == nil {
 					log.Other = string(b)
@@ -61,11 +65,25 @@ func stripAdminInfoFromLogs(logs []*model.Log) {
 		// 分号格式
 		cleaned := adminInfoRegex.ReplaceAllString(other, "")
 		cleaned = stripRetryHistorySegment(cleaned)
-		cleaned = billingTagDetailRegex.ReplaceAllString(cleaned, "")
+		cleaned = stripBillingTagDetail(cleaned)
 		// 避免出现 ";;" 残留
 		cleaned = strings.ReplaceAll(cleaned, ";;", ";")
 		log.Other = strings.Trim(cleaned, ";")
 	}
+}
+
+// stripBillingTagDetail 去掉分号格式 other 里计费明细的 billing_tag。
+// 只有命中标签折扣的日志才带这个字段，其余的不必过正则。替换只作用于 billingDetails 段及其之后：
+// 它前面的段（例如模型重定向记录的原始模型名）里如果恰好出现同样的字样，整串替换会把真正的标签留下来。
+func stripBillingTagDetail(s string) string {
+	if !strings.Contains(s, "billing_tag") {
+		return s
+	}
+	start := strings.LastIndex(s, "billingDetails:")
+	if start < 0 {
+		start = 0
+	}
+	return s[:start] + billingTagDetailRegex.ReplaceAllString(s[start:], "")
 }
 
 // stripRetryHistorySegment 从分号格式 other 中剥掉 retryHistory:[...] 段。

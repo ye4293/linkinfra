@@ -285,13 +285,7 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	}
 	c.Set("channel_discount", channelDiscount)
 	// 用户针对本渠道的额外折扣：计费标签折扣优先，其次渠道类型折扣，未设置或 ≤0 视为 1.0
-	userChannelRatio, matchedBillingTag := 1.0, ""
-	billingTag := model.ChannelBillingTag(channel)
-	if userId := c.GetInt("id"); userId > 0 && (channel.Type > 0 || billingTag != "") {
-		if ratios, err := model.CacheGetUserChannelRatios(userId); err == nil {
-			userChannelRatio, matchedBillingTag = ratios.Resolve(channel.Type, billingTag)
-		}
-	}
+	userChannelRatio, matchedBillingTag := model.ResolveUserChannelRatio(c.GetInt("id"), channel.Type, model.ChannelBillingTag(channel))
 	c.Set("user_channel_ratio", userChannelRatio)
 	// 折扣来自计费标签时记录该标签；每次选渠都替换（包括空值），避免重试后沿用上一渠道的标签。
 	c.Set("billing_tag", matchedBillingTag)

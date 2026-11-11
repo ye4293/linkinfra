@@ -104,3 +104,24 @@ X 走渠道 A 按 0.7，走渠道 B 按 0.85，走其他没有标签的 Vertex �
 验证与计划的差异：
 
 - 第 4 节第 6 项原定用两个 Vertex 渠道手工验证，实际改在本地隔离环境做浏览器走查（临时 SQLite 库、模拟上游、两个同为 OpenAI 类型的渠道），结果见 `docs/CHANGELOG.md` 的 2026-11-12 条目。没有用真实 Vertex AI 渠道联调。
+
+发布前代码审查后的调整（2026-11-12，分支 `release/billing-tag-v0.1.46`）：
+
+- 标签的读取和保存校验只看 `config` 里的 `billing_tag` 一项，不再依赖整份 `config` 解析成功。原先 `config` 的其他字段类型不对时（例如 Vertex 区域映射被存成字符串），渠道照常转发，标签却被当成未配置。`billing_tag` 不是字符串时保存被拒绝。
+- 标签名逐字节按 ASCII 校验，不再先做大小写转换：个别非 ASCII 字符会被折叠成 ASCII 字母而通过校验。
+- 用户折扣缓存改用新的 Redis key `user_channel_ratios:v2:<用户 id>`（第 2 节后端第 3 项原写“Redis key 和失效逻辑不变”）。旧版本实例写入的缓存不含标签折扣，沿用旧 key 时新版本读到会让标签折扣失效；清缓存时新旧两个 key 一起删除。
+- 保存用户时校验 `channel_ratios`（值必须是数字，`tag:` 项的标签名必须合法）；请求里不带该字段时不改动已有折扣，原先会被当成清空。
+- `/api/user/self` 改为用计费的同一个解析器解析后只输出渠道类型折扣，不再在原文里辨认标签项。
+- 同步选渠和异步结算共用 `model.ResolveUserChannelRatio`；删除 `model/user.go` 里只认渠道类型、没有调用方的三个旧方法（读不到标签折扣，回写会抹掉标签项）。
+- 用户日志去掉 `billing_tag` 时只处理计费明细段，并覆盖 JSON 格式里平铺和 `billing_details` 两种写法。
+- 来源统计的查询失败时只记日志，不影响总览原有的统计。
+- `RelayMeta` 上记录命中标签的字段命名为 `MatchedBillingTag`，与渠道配置里的 `Config.BillingTag` 区分。
+
+第 2 节的文件清单没有列全，实际还改了：`relay/util/relay_meta.go`、`relay/controller/systemone_billing.go` 和 `relay/controller/helper.go` 的 `postConsumeQuota`（两处都写入 `billing_tag`）、`controller/log.go`、`controller/user.go`、`controller/dashboard.go`、`controller/model.go`（来源的展示名）、`model/user.go`、`model/dashboard_stats.go`。
+
+审查确认、本次不改的既有行为（已写入 `docs/billing-tag.md`）：
+
+- 通过 API 更新渠道时 `config` 传空字符串不生效。
+- 图片、音频和 Flux 的消费日志没有计费明细，看不到命中的标签；视频、异步图片、Recraft、OCR 等路径不乘用户渠道折扣。
+- 开启渠道内存缓存时，重试回退到上一个渠道的路径在下一次缓存同步前仍读旧的渠道配置。
+- 总览的各项统计都包含渠道测试写入的消费日志。

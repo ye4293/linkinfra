@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -435,13 +437,28 @@ func GetSelf(c *gin.Context) {
 
 func UpdateUser(c *gin.Context) {
 	var updatedUser model.User
-	err := json.NewDecoder(c.Request.Body).Decode(&updatedUser)
+	body, err := io.ReadAll(c.Request.Body)
+	if err == nil {
+		err = json.NewDecoder(bytes.NewReader(body)).Decode(&updatedUser)
+	}
 	if err != nil || updatedUser.Id == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": "Invalid parameter",
 		})
 		return
+	}
+	// 请求里没有 channel_ratios 字段时不动已有折扣（例如只改额度的局部更新）；
+	// 显式提交空串才表示清空。
+	ratiosSubmitted := false
+	var submitted map[string]json.RawMessage
+	if json.NewDecoder(bytes.NewReader(body)).Decode(&submitted) == nil {
+		for key := range submitted {
+			if strings.EqualFold(key, "channel_ratios") {
+				ratiosSubmitted = true
+				break
+			}
+		}
 	}
 	if updatedUser.Password == "" {
 		updatedUser.Password = "$I_LOVE_U" // make Validator happy :)
@@ -479,6 +496,18 @@ func UpdateUser(c *gin.Context) {
 	if updatedUser.Password == "$I_LOVE_U" {
 		updatedUser.Password = "" // rollback to what it should be
 	}
+	// channel_ratios 只在有改动时校验：写坏的内容在计费时会静默失效（一项不是数字，全部折扣作废），
+	// 所以在保存时拒绝；没改这个字段的更新（改额度、改分组等）不受已有数据影响。
+	ratiosChanged := ratiosSubmitted && updatedUser.ChannelRatios != originUser.ChannelRatios
+	if ratiosChanged {
+		if err := model.ValidateUserChannelRatios(updatedUser.ChannelRatios); err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "Invalid channel discounts: " + err.Error(),
+			})
+			return
+		}
+	}
 	updatePassword := updatedUser.Password != ""
 	if err := updatedUser.Update(updatePassword); err != nil {
 		c.JSON(http.StatusOK, gin.H{
@@ -489,7 +518,7 @@ func UpdateUser(c *gin.Context) {
 	}
 	// ChannelRatios 可能需要清空（''），GORM Updates(struct) 会跳过零值字段，
 	// 所以若前后值不同则直接按列更新一次。
-	if updatedUser.ChannelRatios != originUser.ChannelRatios {
+	if ratiosChanged {
 		if err := model.DB.Model(&model.User{}).Where("id = ?", updatedUser.Id).Update("channel_ratios", updatedUser.ChannelRatios).Error; err != nil {
 			logger.Error(c.Request.Context(), "failed to update channel_ratios: "+err.Error())
 		}
