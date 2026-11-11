@@ -80,6 +80,14 @@ func TestDecodeChannelRatiosJSON(t *testing.T) {
 	ratios, err = decodeChannelRatiosJSON(`{"tag:vertex":0,"tag:Vertex":0.5}`)
 	require.NoError(t, err)
 	require.Equal(t, map[string]float64{"vertex": 0.5}, ratios.Tags)
+	// 没有规范写法时取 key 排序最前的一项；渠道类型的非规范写法（前导 0）让位于规范写法。
+	// 多跑几遍：去掉排序后，结果会随 map 遍历顺序变化。
+	for i := 0; i < 200; i++ {
+		ratios, err = decodeChannelRatiosJSON(`{"tag:Vertex":0.5,"TAG: vertex ":0.6,"048":0.4,"48":0.9}`)
+		require.NoError(t, err)
+		require.Equal(t, map[string]float64{"vertex": 0.6}, ratios.Tags)
+		require.Equal(t, map[int]float64{48: 0.9}, ratios.Types)
+	}
 
 	_, err = decodeChannelRatiosJSON(`{"48":"0.9"}`)
 	require.Error(t, err)

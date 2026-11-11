@@ -79,6 +79,33 @@ func TestGetSelfHidesBillingTagRatios(t *testing.T) {
 	var reloaded model.User
 	require.NoError(t, db.First(&reloaded, user.Id).Error)
 	require.Equal(t, stored, reloaded.ChannelRatios)
+
+	// 没有邀请码的老用户：GetSelf 会补生成邀请码并把用户整体保存一次。
+	// 这次保存不能把去掉标签项之后的折扣写回库里。
+	legacy := model.User{Username: "self-legacy", AccessToken: "selflegacy", ChannelRatios: stored}
+	require.NoError(t, db.Create(&legacy).Error)
+	w = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/user/self", nil)
+	c.Set("id", legacy.Id)
+	GetSelf(c)
+
+	var legacyResponse struct {
+		Success bool `json:"success"`
+		Data    struct {
+			AffCode       string `json:"aff_code"`
+			ChannelRatios string `json:"channel_ratios"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &legacyResponse), w.Body.String())
+	require.True(t, legacyResponse.Success, w.Body.String())
+	require.NotEmpty(t, legacyResponse.Data.AffCode)
+	require.JSONEq(t, `{"48":0.9}`, legacyResponse.Data.ChannelRatios)
+
+	var reloadedLegacy model.User
+	require.NoError(t, db.First(&reloadedLegacy, legacy.Id).Error)
+	require.Equal(t, legacyResponse.Data.AffCode, reloadedLegacy.AffCode)
+	require.Equal(t, stored, reloadedLegacy.ChannelRatios)
 }
 
 // 管理员保存用户：写坏的 channel_ratios 被拒绝且不落库；请求里不带该字段时已有折扣保持不变；

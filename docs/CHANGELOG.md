@@ -8,6 +8,19 @@
 
 ## 2026-11-12
 
+### test(billing): 补上变异检查发现的测试缺口
+- **分支**: `release/billing-tag-v0.1.46`
+- **类型**: test
+- **涉及文件**: `model/channel_billing_tag_test.go`、`controller/billing_tag_visibility_test.go`、`controller/dashboard_source_test.go`、`router/billing_tag_test.go`、`relay/controller/billing_tag_details_test.go`（新增）
+- **说明**: 发布前审查的补漏扫描做了变异检查（逐处去掉一段行为，看现有测试能否发现），找到几处没有测试守住的行为。这里只补断言，不改业务代码：
+  - 解析 `channel_ratios` 时按 key 排序。去掉排序后，同一标签只有非规范写法、或同一渠道类型有两种写法（如 `048` 和 `48`）时，取到的折扣会随 map 遍历顺序变化。
+  - 更新渠道时只在本次请求提交了 `config` 才校验标签。库里已有非法标签的渠道（历史数据或直接写库）仍可以改名、切换状态。
+  - `/api/user/self` 给没有邀请码的老用户补生成邀请码时会把用户整体保存一次，这次保存不能把去掉标签项之后的折扣写回库里。
+  - 文本路径（`postConsumeQuota`）和 Claude、Gemini、Responses 共用的 `enrichBillingDetailsFromContext` 在命中标签折扣时写 `billing_tag`。原先三处写入点里只有 System One 有测试。
+  - 管理员总览接口给来源消耗补展示名。原先只测了辅助函数，没有测接口确实调用了它。
+- **验证**: 每条新断言先在仓库外用 `go test -overlay` 套上对应的变异体确认会失败（6 个变异体全部被发现），再在未改动的代码上确认通过；此前重排过用例的 `middleware/distributor_billing_tag_test.go` 也用“无标签渠道不清除上一渠道标签”的变异体确认能发现。`go build ./...`、`go vet ./...` 通过。
+- **关联计划**: `docs/plans/2026-11-11-billing-tag-user-discount.md`
+
 ### fix(billing): 发布前代码审查的修复
 - **分支**: `release/billing-tag-v0.1.46`
 - **类型**: fix / test / docs

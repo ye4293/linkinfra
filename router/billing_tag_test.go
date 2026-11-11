@@ -146,6 +146,20 @@ func TestBillingTagDiscountFollowsFinalChannel(t *testing.T) {
 	require.Equal(t, "primary-renamed", stored.Name)
 	require.Equal(t, "ts-primary", model.ChannelBillingTag(&stored))
 
+	// 库里已有的非法标签（历史数据或直接写库）：不带 config 的局部更新照常成功，再次提交 config 时才校验。
+	// 这类标签读取时视为未配置，也不出现在下面的标签列表里。
+	legacy := model.Channel{Name: "legacy", Type: common.ChannelTypeCustom, Key: "legacy-key", Status: common.ChannelStatusEnabled, Models: "legacy-model", Group: "legacy-group", Config: `{"billing_tag":"bad tag"}`}
+	require.NoError(t, db.Create(&legacy).Error)
+	_, body = call("PUT", "/api/channel/", adminAuth, "", map[string]interface{}{"id": legacy.Id, "name": "legacy-renamed"})
+	require.Contains(t, body, `"success":true`)
+	_, body = call("PUT", "/api/channel/", adminAuth, "", map[string]interface{}{"id": legacy.Id, "config": legacy.Config})
+	require.Contains(t, body, "Billing tag")
+	var legacyStored model.Channel
+	require.NoError(t, db.First(&legacyStored, legacy.Id).Error)
+	require.Equal(t, "legacy-renamed", legacyStored.Name)
+	require.Equal(t, legacy.Config, legacyStored.Config)
+	require.Empty(t, model.ChannelBillingTag(&legacyStored))
+
 	// 标签列表：仅管理员可读，标签已规范化并带渠道数。
 	status, _ := call("GET", "/api/channel/billing_tags", "", "", nil)
 	require.Equal(t, 401, status)
