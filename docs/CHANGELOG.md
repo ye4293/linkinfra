@@ -8,6 +8,14 @@
 
 ## 2026-11-11
 
+### feat(dashboard): 管理员总览增加按来源的 24 小时消耗
+- **分支**: `billing-tag`
+- **类型**: feat
+- **涉及文件**: `model/dashboard_stats.go`、`controller/dashboard.go`、`controller/model.go` 及对应测试、`docs/billing-tag.md`
+- **说明**: `/api/dashboard/stats` 的管理员结果新增 `source_stats`。先按 `channel_id` 聚合日志，再在内存里归组：打了计费标签的渠道按标签归组（跨渠道类型合并），其余按渠道类型归组，已删除的渠道合并为一项；按消耗降序返回所有有消耗的来源。覆盖文本、图片、视频、音频全部消费日志，不改 `logs` 表；归组依据是渠道当前的配置，不是历史快照。用户视图不返回。
+- **验证**: `go build ./...`、`go vet ./...`、全量 `go test ./... -count=1` 通过。新增测试覆盖标签跨类型合并、无标签按类型归组、已删除渠道、无消耗与无渠道日志排除、24 小时窗口、缓存副本不被调用方修改、用户视图不返回，以及渠道类型展示名和返回字段。
+- **关联计划**: `docs/plans/2026-11-11-billing-tag-user-discount.md`
+
 ### feat(billing): 渠道计费标签与按标签的用户折扣
 - **分支**: `billing-tag`
 - **类型**: feat

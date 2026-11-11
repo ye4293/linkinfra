@@ -113,7 +113,18 @@ func GetAdminDashboardStats(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
 		return
 	}
+	nameDashboardSources(stats.SourceStats)
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": stats, "message": ""})
+}
+
+// nameDashboardSources 为按渠道类型归组的来源补上展示名，
+// 与渠道表单、用户折扣编辑器使用的类型选项（/api/channel/types）保持一致。
+func nameDashboardSources(sources []model.DashboardSourceStats) {
+	for i := range sources {
+		if sources[i].Kind == model.DashboardSourceChannelType {
+			sources[i].Name = channelTypeDisplayName(sources[i].ChannelType)
+		}
+	}
 }
 
 func GetUserDashboardStats(c *gin.Context) {

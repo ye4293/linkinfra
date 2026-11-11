@@ -211,6 +211,20 @@ var channelOptions = []ChannelOption{
 	{Key: 40, Text: "豆包", Value: 40, Color: "purple"},
 }
 
+// channelTypeDisplayName 返回渠道类型在管理端的名称（与 /api/channel/types 一致）；
+// 不在类型选项里的旧类型回退到供应商名称。
+func channelTypeDisplayName(channelType int) string {
+	for _, option := range channelOptions {
+		if option.Value == channelType {
+			return option.Text
+		}
+	}
+	if name, ok := common.ChannelTypeToProvider[channelType]; ok {
+		return name
+	}
+	return fmt.Sprintf("Channel type %d", channelType)
+}
+
 // 定义返回的数据结构
 func ListTypes(c *gin.Context) {
 	// 定义返回的数据结构
