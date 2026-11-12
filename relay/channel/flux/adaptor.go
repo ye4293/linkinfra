@@ -384,7 +384,7 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, meta *util.Rel
 
 	group, _ := model.CacheGetUserGroup(a.ImageRecord.UserId)
 	if group == "" {
-		group = "Lv1"
+		group = model.GetDefaultGroup()
 	}
 	groupRatio := util.GetAsyncBillingGroupRatio(group, a.ImageRecord.UserId, a.ImageRecord.ChannelId, common.ChannelTypeFlux, meta.OriginModelName)
 
@@ -510,7 +510,7 @@ func (a *Adaptor) handleReplicateSuccess(c *gin.Context, replicateResp Replicate
 
 	group, err := model.CacheGetUserGroup(a.ImageRecord.UserId)
 	if err != nil {
-		group = "Lv1"
+		group = model.GetDefaultGroup()
 	}
 	groupRatio := util.GetAsyncBillingGroupRatio(group, a.ImageRecord.UserId, a.ImageRecord.ChannelId, common.ChannelTypeFlux, meta.OriginModelName)
 	quota := CalculateReplicateQuota(meta.OriginModelName, replicateResp.Metrics, groupRatio)
@@ -556,7 +556,7 @@ func (a *Adaptor) handleReplicatePending(c *gin.Context, replicateResp Replicate
 	// 排队阶段 Metrics 尚无有效值，CalculateReplicateQuota 会降级到 FluxPriceMap 固定价
 	group, err := model.CacheGetUserGroup(a.ImageRecord.UserId)
 	if err != nil || group == "" {
-		group = "Lv1"
+		group = model.GetDefaultGroup()
 	}
 	groupRatio := util.GetAsyncBillingGroupRatio(group, a.ImageRecord.UserId, a.ImageRecord.ChannelId, common.ChannelTypeFlux, meta.OriginModelName)
 	quota := CalculateReplicateQuota(meta.OriginModelName, replicateResp.Metrics, groupRatio)
@@ -768,7 +768,7 @@ func handleSuccessCallback(c *gin.Context, image *model.Image, notification Flux
 	if quota <= 0 {
 		group, _ := model.CacheGetUserGroup(image.UserId)
 		if group == "" {
-			group = "Lv1"
+			group = model.GetDefaultGroup()
 		}
 		groupRatio := util.GetAsyncBillingGroupRatio(group, image.UserId, image.ChannelId, common.ChannelTypeFlux, image.Model)
 		if price, ok := FluxPriceMap[image.Model]; ok {
@@ -1044,7 +1044,7 @@ func HandleReplicateCallback(c *gin.Context, replicateResp ReplicateResponse, ra
 		if quota <= 0 {
 			group, _ := model.CacheGetUserGroup(image.UserId)
 			if group == "" {
-				group = "Lv1"
+				group = model.GetDefaultGroup()
 			}
 			groupRatio := util.GetAsyncBillingGroupRatio(group, image.UserId, image.ChannelId, common.ChannelTypeFlux, image.Model)
 			quota = CalculateReplicateQuota(image.Model, replicateResp.Metrics, groupRatio)

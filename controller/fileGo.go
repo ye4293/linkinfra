@@ -191,27 +191,22 @@ func UploadFileR2WithUrl(ctx context.Context, file multipart.File, filename, con
 }
 
 func CheckUserUsage(group string, UserUsedBytes int64) bool {
-	levelSizeMap := map[string]int64{
-		"Lv1": 100 * 1024 * 1024,
-		"Lv2": 300 * 1024 * 1024,
-		"Lv3": 500 * 1024 * 1024,
-		"Lv4": 1 * 1024 * 1024 * 1024,
-		"Lv5": 2 * 1024 * 1024 * 1024,
+	limit := int64(100 * 1024 * 1024)
+	if cfg, err := model.GetGroupConfigByKey(group); err == nil {
+		threshold := float64(cfg.UpgradeThreshold)
+		switch {
+		case threshold >= 250*commonConfig.QuotaPerUnit:
+			limit = 2 * 1024 * 1024 * 1024
+		case threshold >= 100*commonConfig.QuotaPerUnit:
+			limit = 1024 * 1024 * 1024
+		case threshold >= 50*commonConfig.QuotaPerUnit:
+			limit = 500 * 1024 * 1024
+		case threshold >= 5*commonConfig.QuotaPerUnit:
+			limit = 300 * 1024 * 1024
+		}
 	}
-
-	limit, exists := levelSizeMap[group]
-	if !exists {
-		// 如果传入的group值不存在于levelSizeMap中，返回false
-		return false
-	}
-
-	if UserUsedBytes > limit {
-		// 如果用户使用的字节数超过了对应的限制，返回false
-		return false
-	}
-
-	// 如果用户使用的字节数没有超过限制，返回true
-	return true
+	// 未配置的分组使用入门容量；容量等于上限时仍允许。
+	return UserUsedBytes <= limit
 }
 
 type UploadPurpose struct {

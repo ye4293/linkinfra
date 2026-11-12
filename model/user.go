@@ -16,26 +16,27 @@ import (
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
-	Id                      int    `json:"id"`
-	Username                string `json:"username" gorm:"unique;index" validate:"max=12"`
-	Password                string `json:"password" gorm:"not null;" validate:"min=8,max=20"`
-	DisplayName             string `json:"display_name" gorm:"index" validate:"max=20"`
-	Role                    int    `json:"role" gorm:"type:int;default:1"`   // admin, util
-	Status                  int    `json:"status" gorm:"type:int;default:1"` // enabled, disabled
-	Email                   string `json:"email" gorm:"index" validate:"max=50"`
-	GitHubId                string `json:"github_id" gorm:"column:github_id;index"`
-	GoogleId                string `json:"google_id" gorm:"column:google_id;index"`
-	VerificationCode        string `json:"verification_code" gorm:"-:all"`                                    // this field is only for Email verification, don't save it to database!
-	AccessToken             string `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
-	Quota                   int64  `json:"quota" gorm:"type:bigint;default:0"`
-	UsedQuota               int64  `json:"used_quota" gorm:"type:bigint;default:0;column:used_quota"` // used quota
-	RequestCount            int    `json:"request_count" gorm:"type:int;default:0;"`               // request number
-	Group                   string `json:"group" gorm:"type:varchar(32);default:'Lv1"`
-	AffCode                 string `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
-	InviterId               int    `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
-	UserRemindThreshold     int64  `json:"user_remind_threshold"`
-	UserLastNoticeTime int64 `json:"user_last_notice_time" gorm:"default:0"`
-	ChannelRatios           string `json:"channel_ratios" gorm:"type:text"`
+	Id               int    `json:"id"`
+	Username         string `json:"username" gorm:"unique;index" validate:"max=12"`
+	Password         string `json:"password" gorm:"not null;" validate:"min=8,max=20"`
+	DisplayName      string `json:"display_name" gorm:"index" validate:"max=20"`
+	Role             int    `json:"role" gorm:"type:int;default:1"`   // admin, util
+	Status           int    `json:"status" gorm:"type:int;default:1"` // enabled, disabled
+	Email            string `json:"email" gorm:"index" validate:"max=50"`
+	GitHubId         string `json:"github_id" gorm:"column:github_id;index"`
+	GoogleId         string `json:"google_id" gorm:"column:google_id;index"`
+	VerificationCode string `json:"verification_code" gorm:"-:all"`                                    // this field is only for Email verification, don't save it to database!
+	AccessToken      string `json:"access_token" gorm:"type:char(32);column:access_token;uniqueIndex"` // this token is for system management
+	Quota            int64  `json:"quota" gorm:"type:bigint;default:0"`
+	UsedQuota        int64  `json:"used_quota" gorm:"type:bigint;default:0;column:used_quota"` // used quota
+	RequestCount     int    `json:"request_count" gorm:"type:int;default:0;"`                  // request number
+	// 保留原默认值 tag，避免滚动发布时 AutoMigrate 修改 users 列；实际默认值由 BeforeCreate 按配置填入。
+	Group               string `json:"group" gorm:"type:varchar(32);default:'Lv1"`
+	AffCode             string `json:"aff_code" gorm:"type:varchar(32);column:aff_code;uniqueIndex"`
+	InviterId           int    `json:"inviter_id" gorm:"type:int;column:inviter_id;index"`
+	UserRemindThreshold int64  `json:"user_remind_threshold"`
+	UserLastNoticeTime  int64  `json:"user_last_notice_time" gorm:"default:0"`
+	ChannelRatios       string `json:"channel_ratios" gorm:"type:text"`
 	// GiftQuota 累计获赠总额（注册奖励 + 邀请返现），只增不减；
 	// 退款冲正是唯一例外。这是累计量，不是可用余额——可用余额始终是 Quota。
 	GiftQuota int64 `json:"gift_quota" gorm:"type:bigint;default:0;column:gift_quota"`
@@ -46,6 +47,14 @@ type User struct {
 
 // ChannelRatios 的解析和取值见 channel_billing_tag.go：UserChannelRatios.Resolve 是取值顺序的唯一定义，
 // 这里不再保留只认渠道类型的读写方法（它们读不到计费标签折扣，回写还会把标签项抹掉）。
+
+// BeforeCreate 覆盖注册、OAuth、管理员建用户和根账号，显式指定的分组不变。
+func (user *User) BeforeCreate(tx *gorm.DB) error {
+	if user.Group == "" {
+		user.Group = getDefaultGroupTx(tx)
+	}
+	return nil
+}
 
 func GetMaxUserId() int {
 	var user User

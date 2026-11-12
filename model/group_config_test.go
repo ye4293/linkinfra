@@ -43,7 +43,7 @@ func runInitGroupConfigs(t *testing.T) map[string]int {
 
 // TestInitGroupConfigsDefaults 验证默认门槛与返现比例。
 // commission_rate 必须默认为 0（返现全局关闭，安全默认）；
-// upgrade_threshold 必须沿用原 controller/stripeCharge.go 的硬编码值。
+// upgrade_threshold 与 sort_order 必须对应新四档的门槛和顺序。
 func TestInitGroupConfigsDefaults(t *testing.T) {
 	db := setupTestDB(t, &GroupConfig{})
 	if err := InitGroupConfigs(db); err != nil {
@@ -51,13 +51,17 @@ func TestInitGroupConfigsDefaults(t *testing.T) {
 	}
 
 	want := map[string]int64{
-		"Lv1": 0,
-		"Lv2": 2500000,   // $5
-		"Lv3": 25000000,  // $50
-		"Lv4": 50000000,  // $100
-		"Lv5": 125000000, // $250
-		"Lv6": 250000000, // $500
+		"Start":      0,
+		"Build":      25000000,
+		"Scale":      150000000,
+		"Enterprise": 500000000,
 	}
+	var count int64
+	db.Model(&GroupConfig{}).Count(&count)
+	if count != 4 {
+		t.Fatalf("got %d groups, want 4", count)
+	}
+	orders := map[string]int{"Start": 0, "Build": 1, "Scale": 2, "Enterprise": 3}
 
 	for key, wantThreshold := range want {
 		var c GroupConfig
@@ -72,6 +76,9 @@ func TestInitGroupConfigsDefaults(t *testing.T) {
 		if c.CommissionRate != 0 {
 			t.Errorf("group %q CommissionRate = %v, want 0 (返现默认关闭)",
 				key, c.CommissionRate)
+		}
+		if c.SortOrder != orders[key] || c.DisplayName != key {
+			t.Errorf("group %q: unexpected order/name: %+v", key, c)
 		}
 	}
 }

@@ -8,6 +8,32 @@
 
 ## 2026-11-12
 
+### docs(tiers): 复核实现并在线上库演练迁移与回滚
+- **分支**: `worktree-tier-rename`
+- **类型**: docs / test
+- **涉及文件**: `scripts/migrations/2026-11-12-tier-rename.pg.md`、`docs/plans/2026-11-12-tier-rename.md`、`docs/CHANGELOG.md`
+- **说明**: 下面两条记录的实现由 Codex（gpt-6-astra）完成，这一条记录之后的复核和演练结果。第一轮复核发现迁移报告在真实数据量下会逐行输出数万条、回滚在恢复流量后几乎必然中止，连同用户新确认的 Enterprise 渠道规则一起退回，第二轮已改。线上库没有独立副本，经用户同意，在线上库做了只读检查和两次以 `ROLLBACK` 结束的演练。数据迁移尚未执行，代码尚未推送。
+- **验证**: 两轮之后各自重跑 `go build ./...`、`go vet ./...`、全量 `go test ./... -count=1`（27 个包）通过；`node scripts/verify-tier-rename.pg.cjs` 40 个场景通过。把线上导出的分组相关数据装进 PGlite，按线上的表结构重放：演练不留改动，迁移后回滚完全复原，提交结果符合预期（Enterprise 与 Scale 的渠道和模型完全相同），重复执行提示已迁移，提交回滚后数据复原。线上：先用一个空事务确认整份文件在同一个事务里、在主节点上执行；只跑迁移约 3 秒，迁移后立刻回滚约 5 秒，脚本内断言全部通过；演练前后五处数据的指纹、序列值、表的数量一致，回滚后的指纹和开始时一致。没有验证的部分：真实提交后的 Redis 清理和实例重启、多实例并发、AutoMigrate 在 PostgreSQL 上的 DDL。
+- **关联计划**: `docs/plans/2026-11-12-tier-rename.md`
+
+### fix(tiers): 补齐 Enterprise 渠道继承并支持恢复流量后的回滚
+- **分支**: `worktree-tier-rename`
+- **类型**: fix / test / docs
+- **涉及文件**: `scripts/migrations/2026-11-12-tier-rename.pg.sql`、`scripts/migrations/2026-11-12-tier-rename.rollback.pg.sql`、`scripts/verify-tier-rename.pg.cjs`、`scripts/migrations/2026-11-12-tier-rename.pg.md`、`model/user_level_preview.go`、`model/user_level_preview_test.go`、`docs/plans/2026-11-12-tier-rename.md`、`docs/CHANGELOG.md`、`CLAUDE.md`。
+- **说明**: 用户已确认按等级名合并、不降级，并让 Enterprise 拥有 Scale 的全部渠道。迁移增加可关闭的 inherits 参数，对渠道列表和 abilities 同步应用继承；多条关系使用传递闭包，补齐后再检查列表长度。报告按原/新列表汇总渠道数、启用数和最多 5 个示例，每个新档汇总 abilities 的合并前后及继承新增行数。预览列宽按实际字符串的最大字符数计算。保留默认旧门槛下 Lv1–Lv5 容量不变的说明，并明确门槛被改过的库会重新分档，发布代码后、迁移前可能变大，用户已接受。
+- **回滚**: 未改组用户恢复原快照；新注册/已改组用户使用可校验的反向映射，报告总数和前 50 个 ID；自定义组不动。旧 abilities 恢复当前对应新行的 enabled/priority，结构变化才中止并列前 20 个渠道 ID。四档配置与倍率调整不再阻止回滚，先报告当前值再恢复旧档，自定义倍率保留当前值；配置缺失、旧 key 或 ID 冲突仍中止。两份 SQL 在 DO 开头拒绝只读节点，保留原事务形态和 SHARE ROW EXCLUSIVE 锁。手册同步说明整份客户端请求及迁移确认前不编辑渠道。
+- **验证**: 沿用指定 GOTMPDIR/TMP/TEMP、`GOPROXY=off`、`GOSUMDB=off`、`GOFLAGS=-buildvcs=false`。依次执行 `go build ./...`、`go vet ./...`、`go test ./model ./controller -count=1` 全部通过；第三方 SQLite C 编译器的既有警告未影响退出码。本轮未重跑全量 Go 测试，上一轮全量结果保持不变。`node scripts/verify-tier-rename.pg.cjs C:/Users/brows/AppData/Local/Temp/tier-rename-codex/pglite` 最终 40 个场景通过（1453 条测试 NOTICE）；虚构批量渠道用例只输出 29 条迁移 NOTICE，低于 100 条上限。覆盖继承关闭/链式/环状、端点校验、继承后超长、反向映射、注册/升档/启停/优先级/价格变更回滚、结构及配置冲突、报告 ID 上限、演练无改动、幂等和手册全部 SQL。第一次运行读到了启动时的旧版手册查询，产生继承行差异；重新加载最终文件后全部通过。`node --check`、gofmt、SQL 禁令扫描、事务形态/锁/只读检查位置及 `git diff --check` 通过。只读节点用条件替换测试中止分支；未连接生产库或 Redis，未验证真实代理路由、多实例或生产规模锁等待。未提交、未推送，仓库中未记录生产统计数字。
+- **关联计划**: `docs/plans/2026-11-12-tier-rename.md`
+
+### refactor(tiers): 兼容旧等级并提供四档迁移与快照回滚
+- **分支**: `worktree-tier-rename`
+- **类型**: refactor / fix / docs
+- **涉及文件**: `common/group-ratio.go`、`model/group_config.go`、`model/user.go`、`model/user_level_preview.go`、`controller/fileGo.go`、`controller/group.go`、`relay/channel/flux/adaptor.go`；测试 `model/group_config_test.go`、`model/user_default_group_test.go`（新增）、`controller/tier_test.go`（新增）；`scripts/migrations/2026-11-12-tier-rename.pg.sql`、`scripts/migrations/2026-11-12-tier-rename.rollback.pg.sql`、`scripts/migrations/2026-11-12-tier-rename.pg.md`、`scripts/verify-tier-rename.pg.cjs`（均新增）；`docs/plans/2026-11-12-tier-rename.md`（新增）、`docs/CHANGELOG.md`、`CLAUDE.md`。
+- **说明**: 全新部署默认 Start / Build / Scale / Enterprise，门槛 $0 / $50 / $300 / $1000；旧库在迁移前按原配置运行。创建用户与 Flux 兜底按配置选择入门档，保留 users.group 原 tag，钩子查询使用创建事务及保存点；分组列表按配置排序，预览列宽支持完整 key。文件容量改为按升级门槛分档，默认旧门槛下 Lv1–Lv5 不变；门槛被改过的库，旧等级的上限会按各自的门槛重新分档，发布代码后、迁移前可能变大，用户已接受。Lv6 从一律拒绝变为 2GB，未知分组从一律拒绝变为 100MB。
+- **迁移与回滚**: 参数化旧 key 映射、四档门槛、折扣/返现继承及覆盖；单事务、锁与超时、默认 `ROLLBACK`、九张快照、混合 key/渠道长度检查、前后报告及人数/ability 集合等断言。保留历史返现与日志、自定义分组；默认继承折扣会涨价时中止。为保证演练不消耗序列，配置先删旧行再复用继承源 ID 插入，源缺失时使用未占用负 ID。用户已确认按等级名合并、不降级；Enterprise 的渠道继承和恢复流量后的回滚行为见第二轮记录。上线手册包含缺失 GroupRatio 的发布前补齐、停服建议、缓存清理、提交后核对和在线迁移旧 key 写回的修正办法；后台折扣和返现由用户另行配置。
+- **验证**: 使用指定 GOTMPDIR/TMP/TEMP，设置 `GOPROXY=off`、`GOSUMDB=off`。针对性 `go test ./model ./controller -run 'Test(DefaultGroup|UserDefaultGroup|InitGroupConfigs|FileCapacity|GetGroups)' -count=1 -timeout=60s` 通过。首次 `go build ./...` 因读取 VCS 状态失败（exit 128）中止，随后设置 `GOFLAGS=-buildvcs=false`，依次运行 `go build ./...`、`go vet ./...`、`go test ./...` 全部通过；第三方 SQLite C 编译器有既有警告，未影响退出码。`node scripts/verify-tier-rename.pg.cjs C:/Users/brows/AppData/Local/Temp/tier-rename-codex/pglite` 最终 22 个场景通过（711 条 NOTICE），覆盖迁移/回滚演练无变更、序列与默认值、倍率有无及不一致、两种 quota 单位、幂等、五处混合 key、超长、保护性回滚中止及手册全部 SQL。SQL 禁令扫描、运行路径旧 key 扫描、`git diff --check` 通过。未连接生产库/Redis，未运行真实多实例及生产规模验证；没有提交或推送。
+- **关联计划**: `docs/plans/2026-11-12-tier-rename.md`
+
 ### release: v0.1.46 发布渠道计费标签
 - **分支**: `main`
 - **类型**: release

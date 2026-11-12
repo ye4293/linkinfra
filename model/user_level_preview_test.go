@@ -1,8 +1,33 @@
 package model
 
 import (
+	"strings"
 	"testing"
 )
+
+func TestFormatLevelRecalcPreviewWidths(t *testing.T) {
+	// 长短 key 以及 Unicode 都按字符数计算，不保留固定的过宽空白。
+	for _, tc := range []struct{ from, to string }{
+		{"Build", "Enterprise"},
+		{strings.Repeat("x", 40), strings.Repeat("y", 45)},
+		{"组", "级别"},
+	} {
+		p := &LevelRecalcPreview{TotalUsers: 2, ChangedUsers: 2,
+			Transitions: map[string]int{"A -> B": 1, tc.from + " -> " + tc.to: 1},
+			Samples: []LevelChangeSample{
+				{UserId: 1, Username: "a", FromGroup: "A", ToGroup: "B"},
+				{UserId: 2, Username: "bbb", FromGroup: tc.from, ToGroup: tc.to},
+			},
+		}
+		got := FormatLevelRecalcPreview(p)
+		pad := func(s string, n int) string { return s + strings.Repeat(" ", n-len([]rune(s))) }
+		wantTransition := "  " + pad("A -> B", len([]rune(tc.from+" -> "+tc.to))) + " 1 人\n"
+		wantSample := "  #1 a   " + pad("A", len([]rune(tc.from))) + " -> " + pad("B", len([]rune(tc.to))) + " 累计充值 0\n"
+		if !strings.Contains(got, wantTransition) || !strings.Contains(got, wantSample) {
+			t.Fatalf("unexpected dynamic spacing:\n%s", got)
+		}
+	}
+}
 
 func TestPreviewLevelRecalc(t *testing.T) {
 	setupTestDB(t, &User{}, &GroupConfig{}, &Log{})

@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"sort"
+	"unicode/utf8"
 )
 
 // LevelChangeSample 一条等级变化的样本，用于人工抽查。
@@ -18,7 +19,7 @@ type LevelChangeSample struct {
 type LevelRecalcPreview struct {
 	TotalUsers   int                 `json:"total_users"`
 	ChangedUsers int                 `json:"changed_users"`
-	Transitions  map[string]int      `json:"transitions"` // "Lv1 -> Lv4" => 人数
+	Transitions  map[string]int      `json:"transitions"` // "Start -> Scale" => 人数
 	Samples      []LevelChangeSample `json:"samples"`
 }
 
@@ -111,18 +112,34 @@ func FormatLevelRecalcPreview(p *LevelRecalcPreview) string {
 
 	out += "\n--- 变更分布 ---\n"
 	keys := make([]string, 0, len(p.Transitions))
+	transitionWidth := 0
 	for k := range p.Transitions {
 		keys = append(keys, k)
+		if width := utf8.RuneCountInString(k); width > transitionWidth {
+			transitionWidth = width
+		}
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		out += fmt.Sprintf("  %-16s %d 人\n", k, p.Transitions[k])
+		out += fmt.Sprintf("  %-*s %d 人\n", transitionWidth, k, p.Transitions[k])
 	}
 
 	out += fmt.Sprintf("\n--- 样本（最多 %d 条）---\n", previewSampleLimit)
+	nameWidth, fromWidth, toWidth := 0, 0, 0
 	for _, s := range p.Samples {
-		out += fmt.Sprintf("  #%d %-20s %s -> %-6s 累计充值 %d\n",
-			s.UserId, s.Username, s.FromGroup, s.ToGroup, s.TopupQuota)
+		if width := utf8.RuneCountInString(s.Username); width > nameWidth {
+			nameWidth = width
+		}
+		if width := utf8.RuneCountInString(s.FromGroup); width > fromWidth {
+			fromWidth = width
+		}
+		if width := utf8.RuneCountInString(s.ToGroup); width > toWidth {
+			toWidth = width
+		}
+	}
+	for _, s := range p.Samples {
+		out += fmt.Sprintf("  #%d %-*s %-*s -> %-*s 累计充值 %d\n",
+			s.UserId, nameWidth, s.Username, fromWidth, s.FromGroup, toWidth, s.ToGroup, s.TopupQuota)
 	}
 	return out
 }

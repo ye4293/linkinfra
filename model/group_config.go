@@ -11,7 +11,7 @@ import (
 type GroupConfig struct {
 	ID          int     `json:"id" gorm:"primaryKey;autoIncrement"`
 	GroupKey    string  `json:"group_key" gorm:"type:varchar(32);uniqueIndex;not null"` // 对应 GroupRatio 的 key
-	DisplayName string  `json:"display_name" gorm:"type:varchar(64);not null"`          // 显示名称，如 "Lv1 基础版"
+	DisplayName string  `json:"display_name" gorm:"type:varchar(64);not null"`          // 显示名称，如 "Start"
 	Discount    float64 `json:"discount" gorm:"type:decimal(4,2);default:1.0"`          // 等级折扣倍率
 	SortOrder   int     `json:"sort_order" gorm:"default:0"`                            // 显示排序
 	Description string  `json:"description" gorm:"type:varchar(255)"`                   // 等级描述
@@ -53,29 +53,22 @@ func GetGroupConfigByID(id int) (*GroupConfig, error) {
 }
 
 // defaultUpgradeThresholds 各等级的默认升级门槛（单位 quota）。
-// 数值沿用重构前 controller/stripeCharge.go 中硬编码的 levelMap，
-// 保持既有升级行为不变：Lv2=$5、Lv3=$50、Lv4=$100、Lv5=$250。
-// Lv6 原逻辑没有升级路径（levels 切片只到 Lv5），这里补一个 $500 的门槛。
-//
-// 门槛不能留 0：若某等级门槛为 0，则任何新用户都同时满足它与 Lv1 的门槛，
-// 等级判定会把所有人拉到那个等级上。
+// 仅供全新库使用，已有配置保持不变。
 var defaultUpgradeThresholds = map[string]int64{
-	"Lv1": 0,
-	"Lv2": 5 * 500000,
-	"Lv3": 50 * 500000,
-	"Lv4": 100 * 500000,
-	"Lv5": 250 * 500000,
-	"Lv6": 500 * 500000,
+	"Start":      0,
+	"Build":      50 * 500000,
+	"Scale":      300 * 500000,
+	"Enterprise": 1000 * 500000,
 }
 
 // InitGroupConfigs 在表为空时，从现有 GroupRatio 初始化默认配置。
 //
-// sort_order 按 group key 字典序分配，而不是按 map 迭代顺序——
-// Go 的 map 迭代顺序是随机的，原实现会让每次全新部署的等级排序都不同，
-// 而等级判定在门槛并列时要依赖 sort_order，必须确定。
+// 默认档位按门槛排序，其余 key 排在后面按字典序排列。
 func InitGroupConfigs(db *gorm.DB) error {
 	var count int64
-	db.Model(&GroupConfig{}).Count(&count)
+	if err := db.Model(&GroupConfig{}).Count(&count).Error; err != nil {
+		return err
+	}
 	if count > 0 {
 		return nil
 	}
@@ -84,7 +77,17 @@ func InitGroupConfigs(db *gorm.DB) error {
 	for key := range common.GroupRatio {
 		keys = append(keys, key)
 	}
-	sort.Strings(keys)
+	sort.Slice(keys, func(i, j int) bool {
+		a, aKnown := defaultUpgradeThresholds[keys[i]]
+		b, bKnown := defaultUpgradeThresholds[keys[j]]
+		if aKnown != bKnown {
+			return aKnown
+		}
+		if aKnown && a != b {
+			return a < b
+		}
+		return keys[i] < keys[j]
+	})
 
 	for order, key := range keys {
 		config := GroupConfig{
@@ -105,7 +108,7 @@ func InitGroupConfigs(db *gorm.DB) error {
 // GetGroupConfigsByThresholdDesc 按升级门槛降序返回全部分组配置。
 // 门槛并列时按 sort_order 升序，即并列时较低等级排在前面——
 // 等级判定取第一个满足门槛的分组，这个顺序保证运营新增分组时
-// 若忘记设门槛（默认 0），用户会落到 Lv1 而不是被拉到新分组。
+// 若忘记设门槛（默认 0），用户会落到入门档而不是被拉到新分组。
 func GetGroupConfigsByThresholdDesc() (configs []GroupConfig, err error) {
 	err = DB.Order("upgrade_threshold desc, sort_order asc, id asc").Find(&configs).Error
 	return configs, err
@@ -117,4 +120,25 @@ func GetGroupConfigByKeyTx(tx *gorm.DB, key string) (*GroupConfig, error) {
 	var config GroupConfig
 	err := tx.Where("group_key = ?", key).First(&config).Error
 	return &config, err
+}
+
+// GetDefaultGroup 返回当前配置的入门档；空表或查询失败时回退到 Start。
+func GetDefaultGroup() string {
+	return getDefaultGroupTx(DB)
+}
+
+func getDefaultGroupTx(tx *gorm.DB) string {
+	if tx == nil {
+		return "Start"
+	}
+	var entry GroupConfig
+	// NewDB 清除创建语句的条件，但保留连接和事务。嵌套事务的保存点
+	// 让 PostgreSQL 查询失败后仍可创建用户，避免整个创建事务被标记为失败。
+	err := tx.Session(&gorm.Session{NewDB: true}).Transaction(func(query *gorm.DB) error {
+		return query.Order("upgrade_threshold asc, sort_order asc, id asc").Limit(1).Find(&entry).Error
+	})
+	if err != nil || entry.GroupKey == "" {
+		return "Start"
+	}
+	return entry.GroupKey
 }
