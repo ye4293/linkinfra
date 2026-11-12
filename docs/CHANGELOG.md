@@ -8,6 +8,14 @@
 
 ## 2026-11-12
 
+### release: v0.1.46 发布渠道计费标签
+- **分支**: `main`
+- **类型**: release
+- **涉及文件**: `VERSION`、`docs/CHANGELOG.md`、`docs/releases/v0.1.46-billing-tag.md`（新增）
+- **说明**: 用户要求代码审查确认无误后推送前后端、后端打 tag 触发镜像更新。推送前确认远端最新版本为 v0.1.45、`origin/main` 仍是 `41dc4ad`，发布 v0.1.46。包含渠道计费标签与按标签的用户折扣（`31751d1`）、按来源的 24 小时消耗（`88f28bb`），以及两轮审查的修复和补充测试（`f1ca094`、`26ac5f9`、`9f91af3`、`0fdaec1`）。无数据库迁移。前端 `ye4293/linkinfra-web` 同时推送到 `main`（`054c0ff`、`a037efa`、`93e19e6`、`08f852e`、`3f69c41`）。推送前另用 Codex（`gpt-6-astra`）对前后端相对线上版本的全部改动各做了一次独立审查：后端没有发现问题；前端指出的 Safari 输入法回车会误触发批量设置，已在 `3f69c41` 修复并经复审通过。审查结论、验证结果、没有验证的部分和上线注意见 `docs/releases/v0.1.46-billing-tag.md`。沿用现有双架构镜像发布流程。
+- **验证**: 最终 Go 代码（`0fdaec1`）已通过编译、静态检查、全量测试、race 检测和 linux 交叉编译；推送前在同一提交上重跑编译、静态检查和全量测试（27 个包）通过，前端在最终提交 `3f69c41` 上重跑类型检查、ESLint（0 error）、`next build` 和 `test:channel-ratios`（8 项）通过。本提交仅更新版本号和发布记录。
+- **关联计划**: `docs/plans/2026-11-11-billing-tag-user-discount.md`
+
 ### fix(billing): 按第二轮复核收紧折扣校验并补测试
 - **分支**: `release/billing-tag-v0.1.46`
 - **类型**: fix / test / docs
