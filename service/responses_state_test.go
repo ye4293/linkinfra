@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/songquanpeng/one-api/common"
+	"github.com/songquanpeng/one-api/common/redistest"
 	"github.com/songquanpeng/one-api/model"
 	"github.com/stretchr/testify/require"
 )
@@ -21,6 +23,26 @@ func stateContext(user int, body string) *gin.Context {
 	c.Request = httptest.NewRequest("POST", "/v1/responses", strings.NewReader(body))
 	c.Set("id", user)
 	return c
+}
+
+func TestRedisResponsesStateStoreLookupSupportsClusterKeys(t *testing.T) {
+	fake := redistest.Use(t)
+	origin := responsesStateOrigin{Provider: "openai", ChannelID: 10, KeyIndex: 0}
+	raw, err := json.Marshal(origin)
+	require.NoError(t, err)
+	fake.Set("responses_state:v1:first", string(raw))
+	fake.Set("responses_state:v1:second", string(raw))
+
+	got, err := (redisResponsesStateStore{}).Lookup(context.Background(), []string{
+		"responses_state:v1:first",
+		"responses_state:v1:second",
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, origin, got["responses_state:v1:first"])
+	require.Equal(t, origin, got["responses_state:v1:second"])
+	require.Equal(t, responsesStateTTL, fake.TTL("responses_state:v1:first"))
+	require.Equal(t, responsesStateTTL, fake.TTL("responses_state:v1:second"))
 }
 
 func stateOutputContext(user, channel int, provider string) *gin.Context {

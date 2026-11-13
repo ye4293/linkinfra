@@ -6,6 +6,15 @@
 
 ---
 
+## 2026-11-13
+
+### fix(responses): 兼容 Redis Cluster 的状态读取
+- **分支**: `main`
+- **类型**: fix / test
+- **涉及文件**: `service/responses_state_store.go`、`service/responses_state_test.go`、`common/redistest/redistest.go`、`docs/CHANGELOG.md`
+- **说明**: Redis Cluster 不支持跨 slot 的 `MGET`，导致 Responses 历史状态读取被包装成 `Responses state cache unavailable` 并返回 409。改为逐 key 读取和刷新 TTL，并补充多 key 回归测试。
+- **验证**: `go build ./...`、`go vet ./...`、`go test ./...` 全部通过；在 `jsy-1` 的 Redis 端点确认 `cluster_enabled:1` 且原请求复现 `CROSSSLOT`。
+
 ## 2026-11-12
 
 ### release: v0.1.47 等级改为四档（代码部分）

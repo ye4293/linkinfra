@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/songquanpeng/one-api/common"
 )
 
@@ -33,26 +34,22 @@ func (redisResponsesStateStore) Lookup(ctx context.Context, keys []string) (map[
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	values, err := common.RDB.MGet(ctx, keys...).Result()
-	if err != nil {
-		return nil, errors.New("Responses state cache unavailable")
-	}
 	result := make(map[string]responsesStateOrigin)
-	pipe := common.RDB.Pipeline()
-	for i, value := range values {
-		if value == nil {
+	for _, key := range keys {
+		raw, err := common.RDB.Get(ctx, key).Result()
+		if errors.Is(err, redis.Nil) {
 			continue
 		}
-		raw, ok := value.(string)
+		if err != nil {
+			return nil, errors.New("Responses state cache unavailable")
+		}
 		var origin responsesStateOrigin
-		if !ok || json.Unmarshal([]byte(raw), &origin) != nil || origin.ChannelID <= 0 || origin.KeyIndex < 0 {
+		if json.Unmarshal([]byte(raw), &origin) != nil || origin.ChannelID <= 0 || origin.KeyIndex < 0 {
 			return nil, errors.New("Invalid Responses state cache entry")
 		}
-		result[keys[i]] = origin
-		pipe.Expire(ctx, keys[i], responsesStateTTL)
-	}
-	if len(result) > 0 {
-		if _, err := pipe.Exec(ctx); err != nil {
+		result[key] = origin
+		// 逐 key 刷新 TTL，避免 Redis Cluster 对跨 slot 的批量命令返回 CROSSSLOT。
+		if err := common.RDB.Expire(ctx, key, responsesStateTTL).Err(); err != nil {
 			return nil, errors.New("Responses state cache unavailable")
 		}
 	}

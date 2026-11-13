@@ -92,6 +92,16 @@ func (f *Fake) handle(args []string) string {
 			}
 		}
 		return "+OK\r\n"
+	case command == "EXPIRE" && len(args) == 3:
+		if _, ok := f.data[args[1]]; !ok {
+			return ":0\r\n"
+		}
+		amount, err := strconv.ParseInt(args[2], 10, 64)
+		if err != nil {
+			return "-ERR invalid expire time\r\n"
+		}
+		f.ttl[args[1]] = time.Duration(amount) * time.Second
+		return ":1\r\n"
 	case command == "DEL" && len(args) >= 2:
 		deleted := 0
 		for _, key := range args[1:] {
