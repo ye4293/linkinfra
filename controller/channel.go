@@ -22,6 +22,23 @@ const invalidBillingTagMessage = "Billing tag may only contain letters, digits, 
 
 const invalidChannelProviderMessage = "Provider must be a string of at most 128 characters."
 
+// ListChannelProviders 返回渠道上填写过的 provider 及渠道数，供互通规则编辑器核对规则里的名字。
+func ListChannelProviders(c *gin.Context) {
+	providers, err := model.ListChannelProviders()
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    providers,
+	})
+}
+
 // ListBillingTags 返回渠道上已配置的计费标签及渠道数，供渠道表单和用户折扣编辑器选择。
 func ListBillingTags(c *gin.Context) {
 	tags, err := model.ListChannelBillingTags()

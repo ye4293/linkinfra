@@ -297,3 +297,60 @@ func TestResponsesReasoningIDWithoutCiphertextPinsResource(t *testing.T) {
 	unknown.Request.Header.Set("X-Linkinfra-Provider", "azure")
 	require.Error(t, bindResponsesState(unknown, store))
 }
+
+// 互通规则扩大了重试范围时，请求可能被范围内的另一个 provider 处理。
+// 状态的来源记录实际处理它的渠道的 provider，下一轮续接只用这个 provider。
+// 没有扩大范围时沿用首次选渠固定下来的 provider，与之前相同。
+func TestResponsesStateRecordsActualProviderWithinInteropScope(t *testing.T) {
+	store := newMemoryResponsesStateStore(100)
+	nextProvider := func(encrypted string) (string, int) {
+		t.Helper()
+		next := stateContext(1, `{"model":"gpt-test","input":[{"type":"reasoning","encrypted_content":"`+encrypted+`"}]}`)
+		require.NoError(t, bindResponsesState(next, store))
+		return model.RetryProvider(next.Request.Context()), model.ResponseStateChannel(next.Request.Context())
+	}
+	remember := func(c *gin.Context, encrypted string) {
+		t.Helper()
+		require.NoError(t, rememberResponsesState(c, []byte(`{"output":[{"type":"reasoning","encrypted_content":"`+encrypted+`"}]}`), false, store))
+	}
+
+	// 首选渠道是 openai，重试到 azure-east 的渠道 #20 后成功。
+	retried := stateOutputContext(1, 20, "openai")
+	retried.Request = retried.Request.WithContext(model.WithRetryProviderScope(retried.Request.Context(), []string{"openai", "azure-east"}))
+	retried.Set(ChannelProviderContextKey, " Azure-East ")
+	remember(retried, "from-azure-east")
+	provider, channel := nextProvider("from-azure-east")
+	require.Equal(t, "azure-east", provider, "下一轮只用实际处理请求的 provider")
+	require.Zero(t, channel, "可携带的密文只绑定 provider，不固定渠道")
+
+	// 范围扩大了，但请求就是首选渠道处理的：记录的仍是它的 provider。
+	direct := stateOutputContext(1, 10, "openai")
+	direct.Request = direct.Request.WithContext(model.WithRetryProviderScope(direct.Request.Context(), []string{"openai", "azure-east"}))
+	direct.Set(ChannelProviderContextKey, "openai")
+	remember(direct, "from-openai")
+	provider, _ = nextProvider("from-openai")
+	require.Equal(t, "openai", provider)
+
+	// 没有扩大范围：沿用首次选渠固定的 provider，不看当前渠道上的值（原有行为）。
+	single := stateOutputContext(1, 10, "openai")
+	single.Set(ChannelProviderContextKey, "azure-east")
+	remember(single, "single-provider")
+	provider, _ = nextProvider("single-provider")
+	require.Equal(t, "openai", provider)
+
+	// 首选渠道没有填 provider、重试到了填了 provider 的渠道：仍记录为没有 provider，下一轮固定原渠道（原有行为）。
+	unbounded := stateOutputContext(1, 30, "")
+	unbounded.Set(ChannelProviderContextKey, "azure-east")
+	remember(unbounded, "no-provider")
+	provider, channel = nextProvider("no-provider")
+	require.Empty(t, provider)
+	require.Equal(t, 30, channel)
+
+	// 范围扩大了却读不到当前渠道的 provider（不应该发生）：按没有 provider 处理，下一轮固定原渠道，不会放宽。
+	missing := stateOutputContext(1, 40, "openai")
+	missing.Request = missing.Request.WithContext(model.WithRetryProviderScope(missing.Request.Context(), []string{"openai", "azure-east"}))
+	remember(missing, "missing-provider")
+	provider, channel = nextProvider("missing-provider")
+	require.Empty(t, provider)
+	require.Equal(t, 40, channel)
+}

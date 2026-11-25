@@ -16,6 +16,21 @@ import (
 const responsesStateKeyIndex = "responses_state_key_index"
 const responsesStateKeyFingerprint = "responses_state_key_fingerprint"
 
+// ChannelProviderContextKey 是 gin 上下文里当前渠道 provider 的 key，每次选渠时由分发中间件写入。
+const ChannelProviderContextKey = "channel_provider"
+
+// responsesStateOriginProvider 返回这次响应的状态要记录的来源 provider。
+// 重试范围只有一个 provider（或没有）时，沿用首次选渠固定下来的 provider；
+// 互通规则扩大了重试范围时，请求可能是范围内的另一个 provider 处理的，记录实际处理它的渠道的 provider，
+// 下一轮续接只用这个 provider。
+func responsesStateOriginProvider(c *gin.Context) string {
+	ctx := c.Request.Context()
+	if len(model.RetryProviderScope(ctx)) > 0 {
+		return strings.ToLower(strings.TrimSpace(c.GetString(ChannelProviderContextKey)))
+	}
+	return model.RetryProvider(ctx)
+}
+
 func responsesKeyFingerprint(key string) string {
 	if key == "" {
 		return ""
@@ -212,7 +227,7 @@ func RememberResponsesState(c *gin.Context, raw []byte, stream bool) error {
 
 func rememberResponsesState(c *gin.Context, raw []byte, stream bool, store responsesStateStore) error {
 	root := gjson.ParseBytes(raw)
-	origin := responsesStateOrigin{Provider: model.RetryProvider(c.Request.Context()), ChannelID: c.GetInt("channel_id"), KeyIndex: c.GetInt("key_index")}
+	origin := responsesStateOrigin{Provider: responsesStateOriginProvider(c), ChannelID: c.GetInt("channel_id"), KeyIndex: c.GetInt("key_index")}
 	origin.KeyFingerprint = responsesKeyFingerprint(c.GetString("actual_key"))
 	if origin.ChannelID <= 0 {
 		return errors.New("Missing Responses channel origin")

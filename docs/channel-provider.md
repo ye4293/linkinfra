@@ -10,10 +10,15 @@
 
 更新 API 时保留 config 的其他已有字段。无需数据库迁移。
 
+Provider 只从 `config.provider` 这一项读取，不依赖 config 的其他字段解析成功（例如 Vertex 的区域映射写坏了，Provider 仍然读得出来）。保存渠道时，`provider` 必须是字符串且不超过 128 个字符，否则拒绝保存。
+
+Provider 同时是用户在 API key 上选择的来源名，也是互通规则里的名字，见 `docs/token-provider-routing.md`。改名会让引用旧名字的令牌设置和互通规则失效。
+
 ## 行为
 - 不带上游状态的首次选渠使用原来的权限、模型、优先级、权重和亲和规则。
 - 首次渠道配置了 Provider：本次请求的失败重试只选择相同 Provider 的可用渠道；不同 Provider 或未配置 Provider 的渠道均不会被选中。
-- 同 Provider 候选耗尽后返回错误，不跨 Provider，不重新循环已失败渠道，也不使用最后渠道兜底。
+- 配置了互通规则且首次渠道的 Provider 和请求的模型命中某条规则时，重试范围扩大为这条规则列出的一组 Provider。带历史状态的 Responses 请求和带 `X-Linkinfra-Provider` 的请求不扩大。
+- 同 Provider（或互通规则的一组 Provider）候选耗尽后返回错误，不跨到范围之外，不重新循环已失败渠道，也不使用最后渠道兜底。
 - 首次渠道未配置 Provider：保留原有重试行为，包括跨渠道重试。要启用隔离，应配置相关所有渠道。
 - 保留原有错误重试条件、重试次数和指定渠道限制。
 
@@ -27,7 +32,7 @@
 
 Responses 和 `/v1/responses/compact` 自动按实际返回状态绑定来源，无需客户端新增会话 ID：
 
-- 后端记录返回的 reasoning/compaction 密文指纹、item ID、response ID、conversation ID 的来源；下一轮携带状态时，首次选渠和失败重试都限定在原 Provider。
+- 后端记录返回的 reasoning/compaction 密文指纹、item ID、response ID、conversation ID 的来源；下一轮携带状态时，首次选渠和失败重试都限定在原 Provider。互通规则扩大了重试范围时，记录的是实际处理这次请求的渠道的 Provider。
 - `previous_response_id`、`item_reference`、`conversation` 以及没有密文的 reasoning/compaction ID 是服务端资源引用，额外固定原渠道/key；没有配置 Provider 的状态也固定原渠道/key。原 key 禁用、更换或不再可用时明确失败。
 - 不清理 thinking/compaction，不重写工具调用或结果。模型映射只修改 model，保留扩展字段和显式 false/0。
 - 普通响应和流式事件的状态在转发给客户端前写入索引。流开始后不透明重放；本地状态缓存失败不会被判定为上游渠道故障。

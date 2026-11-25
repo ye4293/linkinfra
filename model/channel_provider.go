@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 )
 
 type retryProviderContextKey struct{}
+type retryProviderScopeContextKey struct{}
 type responseStateChannelContextKey struct{}
 
 // providerNameMaxLength 是 provider / 来源名的长度上限（字节）。
@@ -96,12 +98,81 @@ func RetryProvider(ctx context.Context) string {
 	return provider
 }
 
+// WithRetryProviderScope 把本次请求的重试范围从 RetryProvider 一个扩大为一组 provider（互通规则）。
+// 只在首选渠道确定之后、重试范围不是来自历史状态时调用。RetryProvider 仍是首选渠道的 provider；
+// 它为空（首选渠道没有填 provider）时这个范围不起作用。
+// 范围里不保留空名字：没有填 provider 的渠道不参与互通，也不会成为有重试范围的请求的候选。
+func WithRetryProviderScope(ctx context.Context, providers []string) context.Context {
+	scope := make([]string, 0, len(providers))
+	for _, provider := range providers {
+		if provider = strings.ToLower(strings.TrimSpace(provider)); provider != "" {
+			scope = append(scope, provider)
+		}
+	}
+	return context.WithValue(ctx, retryProviderScopeContextKey{}, scope)
+}
+
+// RetryProviderScope 返回互通规则扩大后的重试范围；没有扩大时为空（范围只有 RetryProvider 一个）。
+func RetryProviderScope(ctx context.Context) []string {
+	scope, _ := ctx.Value(retryProviderScopeContextKey{}).([]string)
+	return scope
+}
+
 func RetryProviderAllows(ctx context.Context, channel *Channel) bool {
 	if id := ResponseStateChannel(ctx); id > 0 && (channel == nil || channel.Id != id) {
 		return false
 	}
 	provider := RetryProvider(ctx)
-	return provider == "" || (channel != nil && ChannelProvider(channel) == provider)
+	if provider == "" {
+		return true
+	}
+	if channel == nil {
+		return false
+	}
+	channelProvider := ChannelProvider(channel)
+	if channelProvider == provider {
+		return true
+	}
+	return slices.Contains(RetryProviderScope(ctx), channelProvider)
+}
+
+// ChannelProviderUsage 是一个 provider 及使用它的渠道数。
+type ChannelProviderUsage struct {
+	Provider string `json:"provider"`
+	// ChannelCount 是填了这个 provider 的渠道数，EnabledCount 是其中启用的渠道数。
+	ChannelCount int `json:"channel_count"`
+	EnabledCount int `json:"enabled_count"`
+}
+
+// ListChannelProviders 返回渠道上填写过的 provider 及渠道数，按名称排序。
+// 供管理员编辑互通规则时核对：规则里没有任何渠道使用的 provider 不会起作用。
+func ListChannelProviders() ([]ChannelProviderUsage, error) {
+	var channels []*Channel
+	if err := DB.Select("id, status, config").Where("config <> ?", "").Find(&channels).Error; err != nil {
+		return nil, err
+	}
+	usage := map[string]*ChannelProviderUsage{}
+	for _, channel := range channels {
+		provider := ChannelProvider(channel)
+		if provider == "" {
+			continue
+		}
+		entry := usage[provider]
+		if entry == nil {
+			entry = &ChannelProviderUsage{Provider: provider}
+			usage[provider] = entry
+		}
+		entry.ChannelCount++
+		if channel.Status == common.ChannelStatusEnabled {
+			entry.EnabledCount++
+		}
+	}
+	providers := make([]ChannelProviderUsage, 0, len(usage))
+	for _, entry := range usage {
+		providers = append(providers, *entry)
+	}
+	sort.Slice(providers, func(i, j int) bool { return providers[i].Provider < providers[j].Provider })
+	return providers, nil
 }
 
 // TokenSource 是用户可以在令牌的来源路由里选择的一个来源，以及它当前可用的模型。

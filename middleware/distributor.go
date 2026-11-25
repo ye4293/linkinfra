@@ -109,6 +109,8 @@ func Distribute() func(c *gin.Context) {
 			abortWithMessage(c, http.StatusConflict, err.Error())
 			return
 		}
+		// 重试范围已经由历史状态或 X-Linkinfra-Provider 决定时，互通规则不再扩大它。
+		boundByHistory := model.HasRetryBoundary(c.Request.Context())
 		routing := applyTokenProviderRouting(c)
 		if message := responsesHistoryRoutingConflict(c, routing); message != "" {
 			abortWithMessage(c, http.StatusConflict, message)
@@ -249,7 +251,16 @@ func Distribute() func(c *gin.Context) {
 				return
 			}
 			// 初选确定后固定 provider；后续重试不能覆盖历史状态要求的来源。
-			c.Request = c.Request.WithContext(model.WithRetryProvider(c.Request.Context(), model.ChannelProvider(channel)))
+			provider := model.ChannelProvider(channel)
+			ctx := model.WithRetryProvider(c.Request.Context(), provider)
+			// 互通规则：模型和首选渠道的 provider 命中规则时，重试范围扩大为规则里的一组 provider。
+			// 没有填 provider 的渠道不参与；带历史状态的请求仍只用原 provider。
+			if !boundByHistory {
+				if scope := common.InteropProviders(requestModel, provider); len(scope) > 1 {
+					ctx = model.WithRetryProviderScope(ctx, scope)
+				}
+			}
+			c.Request = c.Request.WithContext(ctx)
 		}
 		c.Next()
 		// relay 层标记成功后写回规则亲和缓存（避免 SSE 流式响应下 HTTP 200 但实际失败时写入错误渠道）
@@ -338,6 +349,9 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool) {
 
 func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, modelName string) {
 	c.Set("metrics_source", common.GetCatalogProvider(channel.Type, model.ChannelProvider(channel)))
+	// 当前渠道的 provider。每次选渠都替换（包括空值），重试后不会沿用上一渠道的值；
+	// Responses 状态在互通规则扩大了重试范围时按它记录来源。
+	c.Set(service.ChannelProviderContextKey, model.ChannelProvider(channel))
 	c.Set("channel", channel.Type)
 	c.Set("channel_id", channel.Id)
 	c.Set("channel_name", channel.Name)

@@ -40,6 +40,7 @@ type routingEnv struct {
 	user    model.User
 	other   model.User
 	admin   model.User
+	root    model.User
 	// lastContext 是最近一次到达转发处理函数的请求上下文里的令牌路由。
 	lastRouting model.TokenProviderRouting
 }
@@ -56,19 +57,25 @@ func newRoutingEnv(t *testing.T) *routingEnv {
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.Channel{}, &model.Ability{}, &model.Log{}, &model.Option{}))
 	oldDB, oldLogDB := model.DB, model.LOG_DB
 	oldRedis, oldMemory, oldAffinity := common.RedisEnabled, config.MemoryCacheEnabled, common.ChannelAffinityConfig
+	oldOptions := config.OptionMap
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB = oldDB, oldLogDB
 		common.RedisEnabled, config.MemoryCacheEnabled, common.ChannelAffinityConfig = oldRedis, oldMemory, oldAffinity
+		config.OptionMap = oldOptions
+		// 互通规则是进程内的全局状态，测试结束后清空。
+		require.NoError(t, common.UpdateProviderInteropRulesByJSONString(""))
 		_ = sqlDB.Close()
 	})
 	model.DB, model.LOG_DB = db, db
 	common.RedisEnabled, config.MemoryCacheEnabled = false, false
+	config.OptionMap = map[string]string{}
 
 	env := &routingEnv{t: t, db: db}
 	env.user = model.User{Username: "route-user", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AccessToken: "routing-user-access", AffCode: "route-user", Group: routingGroup}
 	env.other = model.User{Username: "route-other", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AccessToken: "routing-other-access", AffCode: "route-other", Group: "other-group"}
 	env.admin = model.User{Username: "route-admin", Role: common.RoleAdminUser, Status: common.UserStatusEnabled, AccessToken: "routing-admin-access", AffCode: "route-admin", Group: routingGroup}
-	for _, user := range []*model.User{&env.user, &env.other, &env.admin} {
+	env.root = model.User{Username: "route-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled, AccessToken: "routing-root-access", AffCode: "route-root", Group: routingGroup}
+	for _, user := range []*model.User{&env.user, &env.other, &env.admin, &env.root} {
 		require.NoError(t, db.Create(user).Error)
 	}
 
@@ -106,7 +113,12 @@ func newRoutingEnv(t *testing.T) *routingEnv {
 		if c.GetHeader("X-Test-Mark-Success") != "" {
 			service.MarkAffinityRelaySuccess(c)
 		}
-		c.JSON(http.StatusOK, gin.H{"channel": channel.Id, "source": model.ChannelSource(channel)})
+		c.JSON(http.StatusOK, gin.H{
+			"channel": channel.Id, "source": model.ChannelSource(channel),
+			// 首选渠道确定后固定下来的重试范围。
+			"retry_provider": model.RetryProvider(c.Request.Context()),
+			"retry_scope":    model.RetryProviderScope(c.Request.Context()),
+		})
 	}
 	relay := r.Group("/", middleware.TokenAuth(), middleware.Distribute())
 	relay.POST("/v1/chat/completions", selected)

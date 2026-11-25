@@ -97,14 +97,14 @@
 - 重试范围来自历史状态时不扩大：Responses 请求带有已绑定的状态，或带了 `X-Linkinfra-Provider`，仍只用原 provider。
 - 没有填 provider 的渠道与现在一样：作为首选时没有重试范围（重试不受限制），也不会成为有重试范围的请求的候选。要参与互通的渠道必须填 provider。
 - 重试候选是重试范围与令牌路由的交集，先后按 2.1 的规则。
-- 保存时校验：必须是 JSON 数组，正则可以编译，`providers` 规范化后至少两个。不合法时拒绝保存。
+- 保存时校验：必须是 JSON 数组，每条规则只能有 `models` 和 `providers` 两个字段，正则可以编译且不能为空，`providers` 规范化后至少两个。不合法时拒绝保存。
 - 设置为空时与现在的行为完全一致。
 
 实现上，请求上下文里的重试边界从一个 provider 字符串改为一组 provider（`model/channel_provider.go`）。
 
 ### 2.3 状态、粘性和 provider 读取
 
-- **Responses 状态来源**：`service/responses_state.go` 记录来源时改为记录实际处理请求的渠道的 provider。现在记录的是首选渠道的 provider，重试范围只有一个 provider 时两者相同；互通规则生效后可能不同。
+- **Responses 状态来源**：互通规则扩大了重试范围时，`service/responses_state.go` 记录来源改为记录实际处理请求的渠道的 provider（请求可能是范围内的另一个 provider 处理的）。没有扩大范围时仍记录首次选渠固定下来的 provider，与现在相同。实现时发现两者并不总是相同（首选渠道没有填 provider、重试到了填了 provider 的渠道时不同），所以只在范围扩大时才改，保证没有规则时行为不变。
 - **亲和缓存**：令牌设置了路由时，亲和缓存的 key 加上令牌 ID（`service/channel_affinity.go`）。否则同一用户的两个令牌选了不同来源时，一个令牌命中的渠道不在另一个的允许范围内，会被当作失效删除，两边互相清掉对方的粘性。没有设置路由的令牌 key 不变。
 - **provider 的读取**：`ChannelProvider` 改为只解析 `config` 里的 `provider` 一项，不依赖整份 `config` 解析成功。现在 `config` 的其他字段类型不对时 provider 被当成没填，渠道的来源会变成渠道类型名，`ignore` 可能因此挡不住它。保存渠道时拒绝不是字符串的 `provider`，以及超过 128 个字符的 `provider`（令牌路由里的来源名最长 128，更长的既选不中也忽略不了）。
 - **Gemini**：不改代码，靠配置。AI Studio 和 Vertex 的渠道分别填不同的 provider（不写进互通规则），跨轮次靠亲和规则粘在原渠道。
@@ -112,7 +112,7 @@
 ### 2.4 接口与缓存
 
 - `GET /api/token/sources`（登录用户）：当前用户分组下可用的来源，每项含来源名、显示名和可用的模型列表。供令牌表单列出选项，并提示打开 `only` 后哪些模型不可用。
-- `GET /api/channel/providers`（管理员）：渠道上出现的 provider 及渠道数。供互通规则编辑器标出没有任何渠道使用的 provider。
+- `GET /api/channel/providers`（管理员）：渠道上出现的 provider、渠道数和其中启用的渠道数。供互通规则编辑器标出没有任何渠道使用的 provider。
 - 令牌的 Redis 缓存改用新 key `token:v2:<key>`，更新和删除令牌时清除缓存。现在缓存存的是整个 Token，更新令牌不清缓存，修改最长要等一个 `SyncFrequency` 周期（默认 10 分钟）才生效；换 key 是因为旧版本实例写入的缓存不含路由字段，新版本读到会当成没有设置。
 
 ### 2.5 前端（linkinfra-web）
@@ -120,7 +120,7 @@
 1. `sections/token/token-form.tsx`：新增 Provider Routing 区域。已选来源列表可拖动排序（仓库已有 `@dnd-kit`），Only Selected Providers 开关（默认关闭），Ignore Providers 多选。标出已不可用的来源；打开 `only` 时列出会因此不可用的模型。
 2. `app/api/token/sources/route.ts`：新增代理。`lib/types/token.ts` 增加字段。
 3. `sections/setting/view/modelSettingPage.tsx`：在 Channel affinity 下方增加互通规则编辑器，列出每个 provider 当前的渠道数。
-4. `locales/en.ts`、`locales/zh.ts`：补充文案。界面文案用英文。
+4. `locales/interface-zh.json`：补充中文文案。控制台界面的文案以英文为 key，中文在这个文件里对照（原计划写的是 `locales/en.ts`、`locales/zh.ts`，那两个文件只用于落地页）。管理端的互通规则编辑器与模型设置页一致，只有英文。
 
 ### 2.6 可单独确认的两步
 

@@ -8,6 +8,15 @@
 
 ## 2026-11-26
 
+### feat(provider): 互通规则，重试可以在声明互通的 provider 之间进行
+- **分支**: `token-provider-routing`
+- **类型**: feat / test / docs
+- **涉及文件**: `common/provider_interop.go`（新增）、`model/channel_provider.go`、`model/cache.go`、`model/option.go`、`middleware/distributor.go`、`service/responses_state.go`、`controller/channel.go`、`router/api-router.go`；测试 `common/provider_interop_test.go`、`model/provider_interop_select_test.go`、`router/provider_interop_test.go`（均新增）、`router/token_provider_routing_test.go`、`service/responses_state_test.go`、`middleware/distributor_headers_test.go`；`docs/token-provider-routing.md`（新增）、`docs/channel-provider.md`、`docs/plans/2026-11-25-token-provider-routing.md`、`docs/CHANGELOG.md`
+- **说明**: 计划第 5 节的第 3 步。新增系统设置 `ProviderInteropRules`（JSON 数组，每条规则是模型名正则加一组 provider）。首选渠道确定后，模型和它的 provider 命中规则时，本次请求的重试范围从这一个 provider 扩大为规则里的一组；重试候选是这个范围与令牌路由的交集。带历史状态或 `X-Linkinfra-Provider` 的 Responses 请求不扩大，没有填 provider 的渠道不参与。范围扩大时，Responses 状态的来源记录实际处理请求的渠道的 provider。新增 `GET /api/channel/providers`（管理员），返回渠道上填写过的 provider 和渠道数。没有配置规则时，重试范围和状态记录与之前相同。
+- **与计划的出入**: 状态来源只在重试范围被规则扩大时才改为记录实际渠道的 provider。计划里写的是一律改，实现时发现首选渠道没有填 provider、重试到了填了 provider 的渠道时两者不同，一律改会改变没有规则时的行为。
+- **验证**: `go build ./...`、`go vet ./...`、`go test ./... -count=1`（27 个包）通过。新增一个全链路测试：真实的鉴权、分发和重试循环，每个渠道一个本地模拟上游并记录被请求的先后，对照计划里的示例表逐行核对首选和失败重试的去向（包括没有规则时不跨 provider、被忽略的来源即使唯一健康也不使用、重试次数限制）。变异检查 35 处（规则的解析与匹配、范围是否生效、历史状态不扩大、降档按来源分别计算、状态来源记录、保存校验等），对应测试全部失败。没有验证的部分：真实上游之间的互通性（规则只声明可以重试，是否真的互通由管理员确认）、多实例下规则按同步周期生效、前端编辑器（还没改）。
+- **关联计划**: `docs/plans/2026-11-25-token-provider-routing.md`
+
 ### feat(token): 令牌的来源路由（路由存储、选渠、缓存与接口）
 - **分支**: `token-provider-routing`
 - **类型**: feat / fix / test

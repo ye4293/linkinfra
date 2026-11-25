@@ -74,6 +74,7 @@ func InitOptionMap() {
 	config.OptionMap["ModelRatio"] = common.ModelRatio2JSONString()
 	config.OptionMap[common.AudioDurationPricesOption] = common.AudioDurationPricesJSON()
 	config.OptionMap[common.ModelDiscountOption] = common.ModelDiscountsJSON()
+	config.OptionMap[common.ProviderInteropRulesOption] = "[]"
 	config.OptionMap["GroupRatio"] = common.GroupRatio2JSONString()
 	config.OptionMap["CompletionRatio"] = common.CompletionRatio2JSONString()
 	config.OptionMap["AudioInputRatio"] = common.AudioInputRatio2JSONString()
@@ -210,6 +211,12 @@ func updateOption(key string, value string) error {
 	}
 	if key == common.AudioDurationPricesOption {
 		if _, err := common.ParseAudioDurationPrices(value); err != nil {
+			return err
+		}
+	}
+	// 互通规则写错会让重试范围静默失效或扩得过大，保存前校验并拒绝。
+	if key == common.ProviderInteropRulesOption {
+		if _, err := common.ParseProviderInteropRules(value); err != nil {
 			return err
 		}
 	}
@@ -357,6 +364,9 @@ func updateOptionMap(key string, value string) (err error) {
 		err = common.UpdateModelDiscounts(value)
 	case common.AudioDurationPricesOption:
 		err = common.UpdateAudioDurationPrices(value)
+	case common.ProviderInteropRulesOption:
+		// 不合法时返回错误并保留当前生效的规则（库里的值只可能来自直接改库，保存接口会先校验）。
+		err = common.UpdateProviderInteropRulesByJSONString(value)
 	case "GroupRatio":
 		err = common.UpdateGroupRatioByJSONString(value)
 	case "CompletionRatio":

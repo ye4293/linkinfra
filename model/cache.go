@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,17 +39,20 @@ func logResponsesRetryCandidates(ctx context.Context, priority int, candidates, 
 		return
 	}
 	provider, stateChannel := RetryProvider(ctx), ResponseStateChannel(ctx)
+	scope := RetryProviderScope(ctx)
 	var summary strings.Builder
 	for i, candidate := range candidates {
 		if i >= 20 {
 			break
 		}
 		candidateProvider := ChannelProvider(&candidate)
+		// 互通规则扩大了重试范围时，范围内的其他 provider 也算匹配。
+		providerMatch := provider == "" || provider == candidateProvider || (candidateProvider != "" && slices.Contains(scope, candidateProvider))
 		fmt.Fprintf(&summary, "{id:%d provider:%q provider_match:%t state_match:%t} ", candidate.Id,
-			candidateProvider[:min(len(candidateProvider), 128)], provider == "" || provider == candidateProvider, stateChannel == 0 || stateChannel == candidate.Id)
+			candidateProvider[:min(len(candidateProvider), 128)], providerMatch, stateChannel == 0 || stateChannel == candidate.Id)
 	}
-	logger.Infof(ctx, "responses_retry_diag event=candidates priority=%d provider=%q state_channel=%d before_boundary=%d after_boundary=%d sample_limit=20 candidates=[%s]",
-		priority, provider, stateChannel, len(candidates), len(eligible), summary.String())
+	logger.Infof(ctx, "responses_retry_diag event=candidates priority=%d provider=%q provider_scope=%q state_channel=%d before_boundary=%d after_boundary=%d sample_limit=20 candidates=[%s]",
+		priority, provider, scope, stateChannel, len(candidates), len(eligible), summary.String())
 }
 
 // 令牌缓存的 key。缓存内容从 v2 起包含来源路由（provider_routing），所以换了 key：
