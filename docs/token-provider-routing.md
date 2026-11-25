@@ -135,7 +135,7 @@ AI Studio 和 Vertex 的 Gemini 渠道分别填不同的 provider，不写进互
   ```
 
 - 列还不存在时，读取令牌、创建和更新没有设置路由的令牌都照常工作；只有保存路由会报错。
-- PostgreSQL 上加列的瞬间，其他实例上已经预编译的 `tokens` 查询会各报一次 `cached plan must not change result type`，随后自动恢复。表现为个别请求鉴权或预扣费失败。介意的话在低峰期手动加列。
+- PostgreSQL 上加列的瞬间，其他实例上已经预编译的 `tokens` 查询可能各报一次 `cached plan must not change result type`，随后自动恢复，表现为个别请求鉴权或预扣费失败。这是按 GORM 预编译语句的实现和 PostgreSQL 的行为推断的，没有在真实的库上复现过；任何给 `tokens` 加列的发布都一样。介意的话在低峰期手动加列。
 - 令牌的 Redis 缓存 key 从 `token:<key>` 换成 `token:v2:<key>`：旧版本实例写的缓存不含路由，新版本不读它。
 - 滚动发布期间，请求落到旧版本实例时不受路由限制。后端全部升级后再发布前端入口。
 - 设置了路由的令牌，亲和缓存的 key 带令牌 ID（`channel_affinity:v1:token=<id>:...`），各令牌的粘性互不影响。没有设置路由的令牌 key 不变。

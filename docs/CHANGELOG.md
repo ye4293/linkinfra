@@ -8,6 +8,16 @@
 
 ## 2026-11-26
 
+### docs(token): 记录来源路由的前端改动与本地联调结果
+- **分支**: `token-provider-routing`（后端）；前端 `ye4293/linkinfra-web` 的同名分支
+- **类型**: docs
+- **涉及文件**: `docs/CHANGELOG.md`、`docs/token-provider-routing.md`、`docs/plans/2026-11-25-token-provider-routing.md`、`CLAUDE.md`
+- **前端改动**（三个提交，都没有推送）: `1f231de` API key 表单增加 Provider routing 区域（可拖动排序的来源列表、Only selected providers 开关、Ignore providers 多选，提示按当前设置哪些模型不可用，中文文案在 `locales/interface-zh.json`）；`9d0a533` 模型设置页增加 Provider interop rules 编辑器（从渠道上已有的 provider 里选，标出没有渠道或没有启用渠道的名字，保存时显示后端的校验信息）；`c30027a` 日志页增加 Source 列。类型检查、`next build` 和 `test:provider-routing`（5 项）通过；ESLint 在本次新增和修改的代码上没有报错，`modelSettingPage.tsx` 里有 2 处 `react/no-unescaped-entities` 报错是 `main` 上原有的，没有动。
+- **本地联调**: 全新的临时 SQLite 库（`NODE_TYPE=master`，`provider_routing` 列由主节点自动创建）、本地模拟上游（每个渠道记录被请求的先后）、`RetryTimes=6`，Claude 的三个来源各两个渠道并配了一条互通规则。按计划里的示例表逐行实测，首选和重试的去向与表一致：不设置时按管理员的优先级在三个来源之间重试；`order=[vertex]` 先用完 vertex 再到其余来源；`order=[vertex,anthropic]` 加 `only` 不会到 aws；`order=[vertex]` 加 `only` 只在 vertex 内；`ignore=[aws]` 时 aws 即使是唯一健康的来源也不使用；没有规则的模型只在首选渠道的 provider 内重试；路由之内没有这个模型时返回 503 并说明原因。浏览器（无头 Chrome）走查：创建带路由的 key（键盘和鼠标拖动排序、Only、Ignore）、保存后核对库里的内容、编辑、清空、中文界面；互通规则的添加、后端校验报错、保存、调整先后、删除、刷新后仍在；普通用户在日志页核对来源。
+- **没有验证的部分**: 真实上游之间的互通性；真实的 PostgreSQL / MySQL（测试和联调用的都是 SQLite）；多实例和滚动发布；移动端宽度下的布局、Safari 和 Firefox；线上部署。加列时预编译语句可能报错的说法是按 GORM 和 PostgreSQL 的行为推断的，没有复现过，文档里已经注明。
+- **发布注意**: 后端全部实例升级之后再发布前端。新前端遇到还没有升级的后端时，Provider routing 区域不显示（拿不到来源列表），保存令牌也不带这个字段；这一点用 `main` 上的后端实测过，创建和编辑令牌、日志页、模型设置页都正常。反过来，旧前端遇到新后端时会把读到的 `provider_routing` 原样带回来，后端按没有修改处理（有接口测试）。
+- **关联计划**: `docs/plans/2026-11-25-token-provider-routing.md`
+
 ### fix(relay): 跨 provider 重试后保留最初的错误
 - **分支**: `token-provider-routing`
 - **类型**: fix / test / docs
