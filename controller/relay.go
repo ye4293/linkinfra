@@ -172,6 +172,8 @@ func Relay(c *gin.Context) {
 
 	// 初始就排除首次失败渠道，确保同优先级补重试不会再次命中它
 	failedChannelIds := []int{channelId}
+	// 首次尝试的错误。重试换到另一个 provider 后得到不可重试的错误时返回它，见 errorAfterCrossProviderRetry。
+	firstErr, restoredFirstErr := bizErr, false
 
 	// 记录第一次调用的失败信息（单次渠道耗时）
 	channelDuration := time.Since(attemptStartTime).Seconds()
@@ -315,6 +317,7 @@ func Relay(c *gin.Context) {
 		if !shouldRetry(c, bizErr.StatusCode, bizErr.Error.Message) {
 			logger.Warnf(ctx, "Retry stopped: status %d is not retryable, stopping further retries", bizErr.StatusCode)
 			reportChannelError(channelId, channelName, keyIndex, bizErr, originalModel)
+			bizErr, restoredFirstErr = errorAfterCrossProviderRetry(c, firstErr, bizErr)
 			break
 		}
 
@@ -326,11 +329,16 @@ func Relay(c *gin.Context) {
 		// 记录渠道历史到上下文中，供后续使用
 		c.Set("admin_channel_history", channelHistory)
 
-		// 把 429 友好化文案应用到 retryAttempts 的最终条目和 bizErr，保持一致
+		// 把 429 友好化文案应用到 retryAttempts 里对应的条目和 bizErr，保持一致。
+		// 返回的是首次尝试的错误时，对应的是第一条；否则是最后一条。
 		if relayMode != relayconstant.RelayModeSystemOne && bizErr.StatusCode == http.StatusTooManyRequests {
 			bizErr.Error.Message = "The current group upstream load is saturated, please try again later."
 			if n := len(retryAttempts); n > 0 {
-				retryAttempts[n-1].Error = bizErr.Error.Message
+				returned := n - 1
+				if restoredFirstErr {
+					returned = 0
+				}
+				retryAttempts[returned].Error = bizErr.Error.Message
 			}
 		}
 
@@ -2783,6 +2791,8 @@ func RelayGemini(c *gin.Context) {
 	// 记录所有已失败的渠道ID，用于重试时排除
 	failedChannelIds := []int{channelId}
 	lastGeminiChannel := getLastRetryFallbackChannel(originalChannelId)
+	// 首次尝试的错误，见 errorAfterCrossProviderRetry。
+	firstErr := geminiErr
 	group := c.GetString("group")
 	retryTimes := config.RetryTimes
 	if !shouldRetry(c, geminiErr.StatusCode, geminiErr.Error.Message) {
@@ -2869,6 +2879,7 @@ func RelayGemini(c *gin.Context) {
 		if !shouldRetry(c, geminiErr.StatusCode, geminiErr.Error.Message) {
 			logger.Warnf(ctx, "Retry stopped: status %d is not retryable, stopping further retries", geminiErr.StatusCode)
 			go processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, geminiErr, originalModel)
+			geminiErr, _ = errorAfterCrossProviderRetry(c, firstErr, geminiErr)
 			break
 		}
 
@@ -2949,6 +2960,8 @@ func RelayClaude(c *gin.Context) {
 	// 记录所有已失败的渠道ID，用于重试时排除
 	failedChannelIds := []int{channelId}
 	lastClaudeChannel := getLastRetryFallbackChannel(originalChannelId)
+	// 首次尝试的错误，见 errorAfterCrossProviderRetry。
+	firstErr := relayError
 	group := c.GetString("group")
 	retryTimes := config.RetryTimes
 	if !shouldRetry(c, relayError.StatusCode, relayError.Error.Message) {
@@ -3035,6 +3048,7 @@ func RelayClaude(c *gin.Context) {
 		if !shouldRetry(c, relayError.StatusCode, relayError.Error.Message) {
 			logger.Warnf(ctx, "Retry stopped: status %d is not retryable, stopping further retries", relayError.StatusCode)
 			go processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
+			relayError, _ = errorAfterCrossProviderRetry(c, firstErr, relayError)
 			break
 		}
 
@@ -3123,6 +3137,8 @@ func RelayResponse(c *gin.Context) {
 
 	// 记录所有已失败的渠道ID，用于重试时排除
 	failedChannelIds := []int{channelId}
+	// 首次尝试的错误，见 errorAfterCrossProviderRetry。
+	firstErr := relayError
 
 	group := c.GetString("group")
 	retryTimes := config.RetryTimes
@@ -3231,6 +3247,9 @@ func RelayResponse(c *gin.Context) {
 			logger.Infof(ctx, "Responses retry stopped: %s (status=%d)", stopReason, relayError.StatusCode)
 			if ctx.Err() == nil && !c.GetBool("responses_state_record_failed") {
 				processChannelRelayError(ctx, userId, channelId, channelName, keyIndex, relayError, originalModel)
+			}
+			if stopReason == "non_retryable_error" {
+				relayError, _ = errorAfterCrossProviderRetry(c, firstErr, relayError)
 			}
 			break
 		}

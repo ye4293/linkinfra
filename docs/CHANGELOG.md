@@ -8,6 +8,15 @@
 
 ## 2026-11-26
 
+### fix(relay): 跨 provider 重试后保留最初的错误
+- **分支**: `token-provider-routing`
+- **类型**: fix / test / docs
+- **涉及文件**: `controller/retry_policy.go`、`controller/relay.go`；测试 `controller/provider_retry_test.go`、`router/cross_provider_error_test.go`、`router/race_on_test.go`、`router/race_off_test.go`（后三个新增）；`docs/token-provider-routing.md`、`docs/plans/2026-11-25-token-provider-routing.md`、`docs/CHANGELOG.md`
+- **说明**: 计划 2.6 的第二项。互通规则让重试可以换到另一个 provider。换过去之后因为不可重试的错误停止时（常见的是那个 provider 不支持请求里的某个功能，返回 400），此前客户端只看到这个 400，看不到最初的限流或过载。现在返回首次尝试的错误，客户端可以据此稍后重试；后一个 provider 的错误保留在错误日志的重试明细里。通用、Claude、Gemini、Responses 四个重试循环的行为一致。只在重试范围被互通规则扩大、且出错的渠道与首选渠道不是同一个 provider 时生效：没有配置规则时不受影响；可重试的错误用完了渠道，仍返回最后一次的错误；不可重试的错误来自首选渠道的同一个 provider，照常返回它；Responses 请求已经开始向客户端输出之后的失败不受影响。
+- **验证**: `go build ./...`、`go vet ./...`、`go test ./... -count=1`（27 个包）通过；改动涉及的六个包另外带 `-race` 跑过。新增全链路测试：真实的鉴权、分发和重试循环加本地模拟上游，覆盖 systemone、chat、Claude、Gemini、Responses 五种请求和上面列出的每一种情况。变异检查 12 处（四个循环各自去掉这处行为、同一个 provider 或没有规则时也替换、其他停止原因下也替换、重试明细改错条目等），对应测试全部失败。本地联调环境里也实测了一次。
+- **测试上的限制**: chat、Claude、Gemini 三个子测试在带 `-race` 运行时跳过。这三条路径在协程里处理渠道错误（`go processChannelRelayError`），协程会读全局配置，测试没有办法和它们建立同步关系，竞态检测会把之后任何测试对这些全局变量的写入报成竞争。不带 `-race` 时测试会等这些协程结束再收尾。这是原有的异步设计带来的，此前没有测试覆盖这三条失败路径。
+- **关联计划**: `docs/plans/2026-11-25-token-provider-routing.md`
+
 ### feat(log): 日志列表返回请求的来源
 - **分支**: `token-provider-routing`
 - **类型**: feat / test / docs

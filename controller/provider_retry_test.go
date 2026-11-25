@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/model"
+	relaymodel "github.com/songquanpeng/one-api/relay/model"
+	"github.com/songquanpeng/one-api/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -286,4 +290,51 @@ func TestRetryBoundaryStillAppliesWithTokenProviderRouting(t *testing.T) {
 	channel, err := selectRetryChannel(ctx, "default", "claude-test", &failed)
 	require.ErrorIs(t, err, model.ErrTokenProviderRoutingNoChannel)
 	require.Nil(t, channel)
+}
+
+// 重试换到另一个 provider 后因为不可重试的错误停止时，返回首次尝试的错误；
+// 没有互通规则、或错误来自首选渠道的 provider 时，仍返回当前的错误。
+func TestErrorAfterCrossProviderRetry(t *testing.T) {
+	first := &relaymodel.ErrorWithStatusCode{StatusCode: http.StatusTooManyRequests, Error: relaymodel.Error{Message: "rate limited", Type: "rate_limit_error"}}
+	current := &relaymodel.ErrorWithStatusCode{StatusCode: http.StatusBadRequest, Error: relaymodel.Error{Message: "feature not supported", Type: "invalid_request_error"}}
+	newContext := func(firstProvider string, scope []string, currentProvider string) *gin.Context {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx := context.Background()
+		if firstProvider != "" {
+			ctx = model.WithRetryProvider(ctx, firstProvider)
+		}
+		if scope != nil {
+			ctx = model.WithRetryProviderScope(ctx, scope)
+		}
+		c.Request = httptest.NewRequest("POST", "/v1/messages", nil).WithContext(ctx)
+		c.Set(service.ChannelProviderContextKey, currentProvider)
+		return c
+	}
+	scope := []string{"anthropic", "vertex"}
+
+	// 互通规则生效，错误来自另一个 provider：返回首次的错误。
+	result, restored := errorAfterCrossProviderRetry(newContext("anthropic", scope, "vertex"), first, current)
+	require.True(t, restored)
+	require.Equal(t, http.StatusTooManyRequests, result.StatusCode)
+	require.Equal(t, "rate limited", result.Error.Message)
+	// 返回的是副本：调用方改写文案不会改到原来的错误。
+	result.Error.Message = "rewritten"
+	require.Equal(t, "rate limited", first.Error.Message)
+
+	for name, c := range map[string]*gin.Context{
+		"错误来自首选渠道的 provider": newContext("anthropic", scope, "anthropic"),
+		"没有互通规则":             newContext("anthropic", nil, "vertex"),
+		"首选渠道没有填 provider":   newContext("", scope, "vertex"),
+		"没有重试范围":             newContext("", nil, "vertex"),
+		"读不到当前渠道的 provider":  newContext("anthropic", scope, ""),
+	} {
+		result, restored := errorAfterCrossProviderRetry(c, first, current)
+		require.False(t, restored, name)
+		require.Same(t, current, result, name)
+	}
+
+	// 没有首次的错误可用时返回当前的错误。
+	result, restored = errorAfterCrossProviderRetry(newContext("anthropic", scope, "vertex"), nil, current)
+	require.False(t, restored)
+	require.Same(t, current, result)
 }

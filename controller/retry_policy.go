@@ -12,6 +12,7 @@ import (
 	"github.com/songquanpeng/one-api/common/config"
 	"github.com/songquanpeng/one-api/common/logger"
 	relaymodel "github.com/songquanpeng/one-api/relay/model"
+	"github.com/songquanpeng/one-api/service"
 
 	dbmodel "github.com/songquanpeng/one-api/model"
 )
@@ -26,6 +27,30 @@ func appendUniqueChannelID(channelIDs []int, channelID int) []int {
 		}
 	}
 	return append(channelIDs, channelID)
+}
+
+// errorAfterCrossProviderRetry 决定重试因为不可重试的错误而停止时返回哪个错误。
+//
+// 互通规则让重试可以换到另一个 provider。换过去之后得到的不可重试错误（常见的是那个 provider
+// 不支持请求里的某个功能，返回 400）不代表请求本身有问题：原 provider 恢复后同样的请求可以成功。
+// 这时返回首次尝试的错误（通常是限流或过载），客户端可以据此稍后重试。
+//
+// 只在重试范围被互通规则扩大、且当前渠道的 provider 不是首选渠道的 provider 时生效；
+// 其余情况返回当前的错误，与之前相同。restored 为 true 时返回的是首次错误的副本，调用方可以修改它。
+func errorAfterCrossProviderRetry(c *gin.Context, first, current *relaymodel.ErrorWithStatusCode) (result *relaymodel.ErrorWithStatusCode, restored bool) {
+	ctx := c.Request.Context()
+	if first == nil || current == nil || len(dbmodel.RetryProviderScope(ctx)) == 0 {
+		return current, false
+	}
+	firstProvider, currentProvider := dbmodel.RetryProvider(ctx), c.GetString(service.ChannelProviderContextKey)
+	// 首选渠道没有填 provider 时没有重试范围，扩大的范围不起作用。
+	if firstProvider == "" || currentProvider == "" || currentProvider == firstProvider {
+		return current, false
+	}
+	logger.Infof(ctx, "retry stopped by a non-retryable error from provider %q (status %d); returning the original error from provider %q (status %d)",
+		currentProvider, current.StatusCode, firstProvider, first.StatusCode)
+	original := *first
+	return &original, true
 }
 
 // selectRetryChannel 选择重试渠道，始终从最高优先级开始（skipPriorityLevels=0），
