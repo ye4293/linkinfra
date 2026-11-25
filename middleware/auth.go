@@ -184,6 +184,10 @@ func TokenAuth() func(c *gin.Context) {
 		c.Set("id", token.UserId)
 		c.Set("token_id", token.Id)
 		c.Set("token_name", token.Name)
+		// 令牌的来源路由先放在 gin 上下文里，是否适用于本次请求由分发中间件决定。
+		if !token.ProviderRouting.IsEmpty() {
+			c.Set(tokenProviderRoutingKey, token.ProviderRouting)
+		}
 		if len(parts) > 1 {
 			if model.IsAdmin(token.UserId) {
 				c.Set("specific_channel_id", parts[1])

@@ -27,6 +27,8 @@ type Token struct {
 	UsedQuota            int64  `json:"used_quota" gorm:"default:0"` // used quota
 	TokenRemindThreshold int64  `json:"token_remind_threshold"`
 	TokenLastNoticeTime  int64  `json:"token_last_notice_time" gorm:"default:0"`
+	// ProviderRouting 是令牌的来源路由，存在 provider_routing 列（JSON 文本，没有设置时为 NULL）。
+	ProviderRouting TokenProviderRouting `json:"provider_routing" gorm:"column:provider_routing;type:text"`
 }
 
 func GetAllUserTokens(userId int, startIdx int, num int, order string) ([]*Token, error) {
@@ -167,16 +169,40 @@ func GetTokenById(id int) (*Token, error) {
 }
 
 func (token *Token) Insert() error {
-	var err error
-	err = DB.Create(token).Error
-	return err
+	tx := DB
+	if token.ProviderRouting.IsEmpty() {
+		// 没有设置来源路由时不写 provider_routing，这一列保持 NULL。
+		// 发布期间如果有实例先于主节点（负责加列）启动，创建普通令牌不受影响。
+		tx = tx.Omit("provider_routing")
+	}
+	return tx.Create(token).Error
 }
 
+// tokenEditableColumns 是用户在令牌表单里可以修改的列（不含来源路由）。
+var tokenEditableColumns = []string{"name", "status", "expired_time", "remain_quota", "token_remind_threshold", "unlimited_quota"}
+
 // Update Make sure your token's fields is completed, because this will update non-zero values
+//
+// 不写来源路由：没有提交路由的更新不碰 provider_routing 这一列，
+// 两个并发的更新不会用各自读到的旧值覆盖对方刚改的路由。
 func (token *Token) Update() error {
-	var err error
-	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "token_remind_threshold", "unlimited_quota").Updates(token).Error
-	return err
+	return token.updateColumns(tokenEditableColumns)
+}
+
+// UpdateWithProviderRouting 在 Update 的基础上同时写入来源路由，清空时写回 NULL。
+func (token *Token) UpdateWithProviderRouting() error {
+	columns := append(append([]string{}, tokenEditableColumns...), "provider_routing")
+	return token.updateColumns(columns)
+}
+
+func (token *Token) updateColumns(columns []string) error {
+	// 用 Select 列出要写的列，零值也会写入。
+	if err := DB.Model(token).Select(columns).Updates(token).Error; err != nil {
+		return err
+	}
+	// 令牌缓存按 key 存整个 Token，写库成功后清掉，状态、额度和路由的修改立即生效。
+	InvalidateTokenCache(token.Key)
+	return nil
 }
 
 func (token *Token) SelectUpdate() error {
@@ -187,7 +213,11 @@ func (token *Token) SelectUpdate() error {
 func (token *Token) Delete() error {
 	var err error
 	err = DB.Delete(token).Error
-	return err
+	if err != nil {
+		return err
+	}
+	InvalidateTokenCache(token.Key)
+	return nil
 }
 
 func DeleteTokensByIds(ids []int, userId int) error {
@@ -196,11 +226,22 @@ func DeleteTokensByIds(ids []int, userId int) error {
 		return errors.New("The ids list is empty or the userId is invalid")
 	}
 
+	// 缓存按 key 存，删除前先取出这些令牌的 key 用于清缓存。
+	var keys []string
+	if common.RedisEnabled {
+		if err := DB.Model(&Token{}).Where("id IN ? AND user_id = ?", ids, userId).Pluck("key", &keys).Error; err != nil {
+			return err
+		}
+	}
+
 	// 构造查询条件，只删除属于userId的且ID在ids列表中的token
 	// 这里使用了GORM的Delete方法进行批量删除
 	result := DB.Where("id IN ? AND user_id = ?", ids, userId).Delete(&Token{})
 	if result.Error != nil {
 		return result.Error
+	}
+	for _, key := range keys {
+		InvalidateTokenCache(key)
 	}
 	return nil
 }

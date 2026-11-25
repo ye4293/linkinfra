@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/songquanpeng/one-api/common"
 	"github.com/songquanpeng/one-api/common/logger"
+	"github.com/songquanpeng/one-api/model"
 	"github.com/tidwall/gjson"
 )
 
@@ -93,9 +94,26 @@ func extractAffinityValue(c *gin.Context, src common.ChannelAffinityKeySource) s
 
 const affinityRedisNS = "channel_affinity:v1"
 
-func buildAffinityCacheKey(rule common.ChannelAffinityRule, model, group, value string) string {
-	parts := make([]string, 0, 5)
+// affinityTokenScope 返回亲和缓存 key 里的令牌范围，0 表示不按令牌区分。
+// 令牌设置了来源路由时，粘性按令牌分别记录：同一用户的两个令牌选了不同来源时，
+// 一个令牌记下的渠道可能不在另一个的允许范围内，共用一个 key 会互相清掉对方的粘性。
+// 没有设置路由的令牌 key 不变。
+func affinityTokenScope(c *gin.Context) int {
+	if c == nil || c.Request == nil {
+		return 0
+	}
+	if model.TokenProviderRoutingFrom(c.Request.Context()).IsEmpty() {
+		return 0
+	}
+	return c.GetInt("token_id")
+}
+
+func buildAffinityCacheKey(rule common.ChannelAffinityRule, model, group, value string, tokenScope int) string {
+	parts := make([]string, 0, 6)
 	parts = append(parts, affinityRedisNS)
+	if tokenScope > 0 {
+		parts = append(parts, "token="+strconv.Itoa(tokenScope))
+	}
 	if rule.IncludeRuleName && rule.Name != "" {
 		parts = append(parts, rule.Name)
 	}
@@ -232,6 +250,7 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName, group string) (int
 		logInfo  map[string]interface{}
 	}
 	var firstMatch *firstMatchInfo
+	tokenScope := affinityTokenScope(c)
 
 	for _, rule := range setting.Rules {
 		if !matchAnyRegex(rule.ModelRegex, modelName) {
@@ -262,7 +281,7 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName, group string) (int
 		if ttl <= 0 {
 			ttl = setting.DefaultTTLSeconds
 		}
-		cacheKey := buildAffinityCacheKey(rule, modelName, group, value)
+		cacheKey := buildAffinityCacheKey(rule, modelName, group, value, tokenScope)
 		logInfo := map[string]interface{}{
 			"rule_name": rule.Name,
 			"model":     modelName,

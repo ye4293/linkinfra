@@ -175,3 +175,115 @@ func TestProviderRetryHighestTierHasOnlyOneExtraAttempt(t *testing.T) {
 	require.Nil(t, channel, "没有更低档时应停止，不能继续消耗最高档的剩余渠道")
 	require.Len(t, failed, 2)
 }
+
+// 令牌设置了来源路由时的失败重试：按令牌的顺序逐个来源尝试，被忽略和没有选中的来源不会被重试到；
+// 用完后在路由之内重新循环，不会换到路由之外的来源。
+func TestRetryFollowsTokenProviderRouting(t *testing.T) {
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	// 这些渠道都没有填 provider：首选渠道不产生重试范围，重试可以跨来源，来源取渠道类型名。
+	for _, spec := range []struct {
+		id, channelType int
+		priority        int64
+	}{
+		{1, common.ChannelTypeAnthropic, 100}, {2, common.ChannelTypeAnthropic, 50},
+		{3, common.ChannelTypeAwsClaude, 100}, {4, common.ChannelTypeAwsClaude, 50},
+		{5, common.ChannelTypeOpenRouter, 200},
+	} {
+		weight := uint(1)
+		channel := model.Channel{Id: spec.id, Type: spec.channelType, Status: common.ChannelStatusEnabled, Group: "default", Models: "claude-test", Priority: &spec.priority, Weight: &weight}
+		require.NoError(t, db.Create(&channel).Error)
+		require.NoError(t, db.Create(&model.Ability{ChannelId: spec.id, Group: "default", Model: "claude-test", Enabled: true, Priority: &spec.priority}).Error)
+	}
+	// retrySequence 从首选渠道失败开始，依次重试并把选中的渠道记为失败，返回重试到的渠道。
+	retrySequence := func(ctx context.Context, first, attempts int) []int {
+		t.Helper()
+		failed := []int{first}
+		var sequence []int
+		for i := 0; i < attempts; i++ {
+			channel, err := selectRetryChannel(ctx, "default", "claude-test", &failed)
+			require.NoError(t, err)
+			sequence = append(sequence, channel.Id)
+			failed = appendUniqueChannelID(failed, channel.Id)
+		}
+		return sequence
+	}
+	routed := func(routing model.TokenProviderRouting) context.Context {
+		return model.WithTokenProviderRouting(context.Background(), routing)
+	}
+
+	// 没有设置路由：按管理员的优先级跨来源重试（原有行为）。最后两个渠道同档，先后随机。
+	unrouted := retrySequence(context.Background(), 1, 4)
+	require.Equal(t, []int{5, 3}, unrouted[:2])
+	require.ElementsMatch(t, []int{2, 4}, unrouted[2:])
+
+	// aws 在前、anthropic 在后，只用这两个来源：先把 aws 用完，再到 anthropic；openrouter 优先级最高也不会用。
+	ctx := routed(model.TokenProviderRouting{Order: []string{"aws", "anthropic"}, Only: true})
+	require.Equal(t, []int{4, 1, 2}, retrySequence(ctx, 3, 3))
+	// 用完后在路由之内从头循环：重新从 aws 开始，仍然不到 openrouter。
+	require.Equal(t, []int{4, 1, 2, 3, 4, 1}, retrySequence(ctx, 3, 6))
+
+	// only 关闭：选中的来源用完后到其余来源，其余来源之间按管理员的优先级。
+	ctx = routed(model.TokenProviderRouting{Order: []string{"aws"}})
+	require.Equal(t, []int{4, 5, 1, 2}, retrySequence(ctx, 3, 4))
+
+	// 忽略的来源在重试里不出现，包括循环之后。
+	ctx = routed(model.TokenProviderRouting{Ignore: []string{"openrouter", "aws"}})
+	require.Equal(t, []int{2, 1, 2, 1}, retrySequence(ctx, 1, 4))
+
+	// 路由之内只有一个渠道：重试回到这个渠道本身，不会换到路由之外。
+	ctx = routed(model.TokenProviderRouting{Order: []string{"openrouter"}, Only: true})
+	require.Equal(t, []int{5, 5}, retrySequence(ctx, 5, 2))
+}
+
+// 首选渠道填了 provider 时，重试范围仍是这一个 provider；令牌路由只能在范围内进一步收窄，
+// 降档规则（原档补重试一次，之后只往更低的优先级）不变。
+func TestRetryBoundaryStillAppliesWithTokenProviderRouting(t *testing.T) {
+	db := setupTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	for _, spec := range []struct {
+		id       int
+		priority int64
+		provider string
+	}{
+		{1, 100, "anthropic"}, {2, 100, "anthropic"}, {3, 80, "anthropic"}, {4, 60, "anthropic"},
+		{5, 100, "vertex"}, {6, 80, "vertex"},
+	} {
+		weight := uint(1)
+		channel := model.Channel{Id: spec.id, Status: common.ChannelStatusEnabled, Group: "default", Models: "claude-test", Priority: &spec.priority, Weight: &weight, Config: `{"provider":"` + spec.provider + `"}`}
+		require.NoError(t, db.Create(&channel).Error)
+		require.NoError(t, db.Create(&model.Ability{ChannelId: spec.id, Group: "default", Model: "claude-test", Enabled: true, Priority: &spec.priority}).Error)
+	}
+	for name, routing := range map[string]model.TokenProviderRouting{
+		"没有设置路由":       {},
+		"anthropic 在前": {Order: []string{"anthropic", "vertex"}, Only: true},
+		"vertex 在前":    {Order: []string{"vertex", "anthropic"}},
+		"只忽略别的来源":      {Ignore: []string{"aws"}},
+	} {
+		ctx := model.WithRetryProvider(model.WithTokenProviderRouting(context.Background(), routing), "anthropic")
+		failed := []int{1}
+		channel, err := selectRetryChannel(ctx, "default", "claude-test", &failed)
+		require.NoError(t, err, name)
+		require.Equal(t, 2, channel.Id, "%s：原档补重试一次", name)
+		failed = append(failed, channel.Id)
+		channel, err = selectRetryChannel(ctx, "default", "claude-test", &failed)
+		require.NoError(t, err, name)
+		require.Equal(t, 3, channel.Id, "%s：之后降档，不到 vertex", name)
+		failed = append(failed, channel.Id)
+		channel, err = selectRetryChannel(ctx, "default", "claude-test", &failed)
+		require.NoError(t, err, name)
+		require.Equal(t, 4, channel.Id, name)
+		failed = append(failed, channel.Id)
+		channel, err = selectRetryChannel(ctx, "default", "claude-test", &failed)
+		require.Error(t, err, name)
+		require.Nil(t, channel, "%s：范围内用完后停止，不重新循环，也不到令牌允许的其他来源", name)
+		require.Equal(t, []int{1, 2, 3, 4}, failed, name)
+	}
+
+	// 重试范围内的来源被令牌忽略时选不到渠道（首选阶段就会被挡住，这里确认重试也不会绕过）。
+	ctx := model.WithRetryProvider(model.WithTokenProviderRouting(context.Background(), model.TokenProviderRouting{Ignore: []string{"anthropic"}}), "anthropic")
+	failed := []int{1}
+	channel, err := selectRetryChannel(ctx, "default", "claude-test", &failed)
+	require.ErrorIs(t, err, model.ErrTokenProviderRoutingNoChannel)
+	require.Nil(t, channel)
+}

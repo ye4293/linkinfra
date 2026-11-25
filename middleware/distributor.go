@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -51,6 +52,54 @@ func extractModelNameFromGeminiPath(path string) string {
 	return modelName
 }
 
+// tokenProviderRoutingKey 是 TokenAuth 存放令牌来源路由的 gin 上下文 key。
+const tokenProviderRoutingKey = "token_provider_routing"
+
+// applyTokenProviderRouting 把令牌的来源路由放进请求上下文，首次选渠和失败重试都从那里读取。
+// 以下请求不适用，返回零值：
+//   - 管理员在 key 后面指定了渠道（sk-xxx-<渠道 ID>）；
+//   - Kling 和阿里视频的 GET 查询：它们经过分发后会改绑到任务所在的渠道。
+func applyTokenProviderRouting(c *gin.Context) model.TokenProviderRouting {
+	value, _ := c.Get(tokenProviderRoutingKey)
+	routing, _ := value.(model.TokenProviderRouting)
+	if routing.IsEmpty() {
+		return model.TokenProviderRouting{}
+	}
+	if _, ok := c.Get("specific_channel_id"); ok {
+		return model.TokenProviderRouting{}
+	}
+	path := c.Request.URL.Path
+	if c.Request.Method == http.MethodGet && (strings.HasPrefix(path, "/kling/v1/") || strings.HasPrefix(path, "/ali/api/v1/")) {
+		return model.TokenProviderRouting{}
+	}
+	c.Request = c.Request.WithContext(model.WithTokenProviderRouting(c.Request.Context(), routing))
+	return routing
+}
+
+// responsesHistoryRoutingConflict 检查 Responses 历史（或 X-Linkinfra-Provider 请求头）要求的 provider 或渠道
+// 是否被令牌的来源路由排除。被排除时返回说明原因的报错；不丢弃历史继续请求，也不换到路由之外的来源。
+func responsesHistoryRoutingConflict(c *gin.Context, routing model.TokenProviderRouting) string {
+	if routing.IsEmpty() {
+		return ""
+	}
+	ctx := c.Request.Context()
+	const advice = "Use an API key whose provider routing allows this provider, or start a new conversation."
+	if id := model.ResponseStateChannel(ctx); id > 0 {
+		// 原渠道读不到时不在这里报错，后面的选渠会给出原有的报错。
+		channel, err := model.GetChannelById(id, true)
+		if err == nil && channel != nil && !routing.AllowsChannel(channel) {
+			return fmt.Sprintf("The Responses history is bound to its original channel, whose provider %q is excluded by the provider routing of this API key. %s",
+				model.ChannelSource(channel), advice)
+		}
+		return ""
+	}
+	if provider := model.RetryProvider(ctx); provider != "" && !routing.Allows(provider) {
+		return fmt.Sprintf("This request requires the provider %q (from the Responses history or the X-Linkinfra-Provider header), which is excluded by the provider routing of this API key. %s",
+			provider, advice)
+	}
+	return ""
+}
+
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		userId := c.GetInt("id")
@@ -58,6 +107,11 @@ func Distribute() func(c *gin.Context) {
 		c.Set("group", userGroup)
 		if err := service.BindResponsesState(c); err != nil {
 			abortWithMessage(c, http.StatusConflict, err.Error())
+			return
+		}
+		routing := applyTokenProviderRouting(c)
+		if message := responsesHistoryRoutingConflict(c, routing); message != "" {
+			abortWithMessage(c, http.StatusConflict, message)
 			return
 		}
 
@@ -120,14 +174,21 @@ func Distribute() func(c *gin.Context) {
 									break
 								}
 							}
-							if groupOK && modelOK && model.RetryProviderAllows(c.Request.Context(), preferred) {
+							// 令牌的来源路由不允许这个渠道时也按失效处理：设置了路由的令牌，
+							// 亲和缓存按令牌分别记录（见 service.affinityTokenScope），清除不影响其他令牌。
+							routingOK := routing.AllowsChannel(preferred)
+							if groupOK && modelOK && routingOK && model.RetryProviderAllows(c.Request.Context(), preferred) {
 								channel = preferred
 								logger.Infof(c.Request.Context(), "[Affinity] 使用亲和渠道 渠道=%d 模型=%s 分组=%s",
 									preferredID, modelRequest.Model, userGroup)
 							} else {
-								logger.Infof(c.Request.Context(), "[Affinity] 缓存渠道已失效（分组匹配=%v 模型匹配=%v），正在清除 渠道=%d",
-									groupOK, modelOK, preferredID)
-								service.InvalidateChannelAffinity(c, "group_or_model_mismatch")
+								reason := "group_or_model_mismatch"
+								if groupOK && modelOK && !routingOK {
+									reason = "token_provider_routing"
+								}
+								logger.Infof(c.Request.Context(), "[Affinity] 缓存渠道已失效（分组匹配=%v 模型匹配=%v 来源路由允许=%v），正在清除 渠道=%d",
+									groupOK, modelOK, routingOK, preferredID)
+								service.InvalidateChannelAffinity(c, reason)
 							}
 						} else {
 							// 渠道不存在或已禁用，删除亲和缓存避免持续命中失效渠道
@@ -150,6 +211,11 @@ func Distribute() func(c *gin.Context) {
 					}
 					if err != nil {
 						message := fmt.Sprintf("There are no channels available for model %s under the current group %s", modelRequest.Model, userGroup)
+						if errors.Is(err, model.ErrTokenProviderRoutingNoChannel) {
+							// 有可用渠道，但都在这个令牌的来源路由之外：说明原因，不换到路由之外的来源。
+							message = fmt.Sprintf("There are no channels available for model %s within the provider routing of this API key (%s). Providers outside the routing are not used; change the provider routing of the API key to allow them.",
+								modelRequest.Model, routing)
+						}
 						if channel != nil {
 							logger.Error(c.Request.Context(), fmt.Sprintf("Channel does not exist：%d", channel.Id))
 							message = "Database consistency has been violated, please contact the administrator"

@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -138,10 +140,15 @@ func GetTokenStatus(c *gin.Context) {
 	})
 }
 
-func AddToken(c *gin.Context) {
+// providerRoutingSubmitted 判断请求是否提交了 provider_routing：字段缺失或为 null 都算没有提交。
+func providerRoutingSubmitted(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && !bytes.Equal(trimmed, []byte("null"))
+}
 
-	token := model.Token{}
-	err := c.ShouldBindJSON(&token)
+// GetTokenSources 返回当前用户分组下可用的来源及各自的模型，供令牌表单列出来源路由的选项。
+func GetTokenSources(c *gin.Context) {
+	group, err := model.CacheGetUserGroup(c.GetInt("id"))
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -149,6 +156,52 @@ func AddToken(c *gin.Context) {
 		})
 		return
 	}
+	sources, err := model.ListTokenSources(group)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+	// 与模型广场一致，不展示内部标识符（ARN、带路径的名称）；过滤后没有模型的来源不列出。
+	visible := make([]model.TokenSource, 0, len(sources))
+	for _, source := range sources {
+		models := make([]string, 0, len(source.Models))
+		for _, name := range source.Models {
+			if !shouldSkipModel(name) {
+				models = append(models, name)
+			}
+		}
+		if len(models) == 0 {
+			continue
+		}
+		source.Models = models
+		visible = append(visible, source)
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    visible,
+	})
+}
+
+func AddToken(c *gin.Context) {
+
+	// provider_routing 单独按原始 JSON 接收：要拒绝未知字段并规范化，不能直接绑进 Token。
+	var request struct {
+		model.Token
+		ProviderRouting json.RawMessage `json:"provider_routing"`
+	}
+	err := c.ShouldBindJSON(&request)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+	token := request.Token
 	if len(token.Name) > 30 {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
@@ -156,15 +209,27 @@ func AddToken(c *gin.Context) {
 		})
 		return
 	}
+	var routing model.TokenProviderRouting
+	if providerRoutingSubmitted(request.ProviderRouting) {
+		routing, err = model.ParseTokenProviderRouting(request.ProviderRouting)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
+	}
 	cleanToken := model.Token{
-		UserId:         c.GetInt("id"),
-		Name:           token.Name,
-		Key:            helper.GenerateKey(),
-		CreatedTime:    helper.GetTimestamp(),
-		AccessedTime:   helper.GetTimestamp(),
-		ExpiredTime:    token.ExpiredTime,
-		RemainQuota:    token.RemainQuota,
-		UnlimitedQuota: token.UnlimitedQuota,
+		UserId:          c.GetInt("id"),
+		Name:            token.Name,
+		Key:             helper.GenerateKey(),
+		CreatedTime:     helper.GetTimestamp(),
+		AccessedTime:    helper.GetTimestamp(),
+		ExpiredTime:     token.ExpiredTime,
+		RemainQuota:     token.RemainQuota,
+		UnlimitedQuota:  token.UnlimitedQuota,
+		ProviderRouting: routing,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -248,6 +313,8 @@ func UpdateToken(c *gin.Context) {
 		StatusOnly           *bool  `json:"status_only"`
 		Status               int    `json:"status"`
 		TokenRemindThreshold int64  `json:"token_remind_threshold"`
+		// 来源路由：不带这个字段或为 null 时不改动已有设置，空对象表示清空。
+		ProviderRouting json.RawMessage `json:"provider_routing"`
 	}
 
 	var tokenupdate TokenUpdate
@@ -294,12 +361,31 @@ func UpdateToken(c *gin.Context) {
 	// 智能启用逻辑变量（提升到函数级作用域）
 	shouldAutoEnable := false
 	autoEnableReason := ""
+	// 只在本次请求修改了来源路由时才写这一列。
+	routingChanged := false
 
 	if tokenupdate.StatusOnly != nil && *tokenupdate.StatusOnly {
 		cleanToken.Status = tokenupdate.Status
 	} else {
 		// 记录更新前的状态，用于智能启用判断
 		originalStatus := cleanToken.Status
+
+		// 只改状态的请求不动来源路由；其他请求里不带 provider_routing 或为 null 时也不改动。
+		// 提交的内容与已保存的相同也算没有修改：表单会把读到的令牌原样带回来。
+		if providerRoutingSubmitted(tokenupdate.ProviderRouting) {
+			routing, err := model.ParseTokenProviderRouting(tokenupdate.ProviderRouting)
+			if err != nil {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"message": err.Error(),
+				})
+				return
+			}
+			if !routing.Equal(cleanToken.ProviderRouting) {
+				cleanToken.ProviderRouting = routing
+				routingChanged = true
+			}
+		}
 
 		// If you add more fields, please also update token.Update()
 		cleanToken.Name = tokenupdate.Name
@@ -344,7 +430,11 @@ func UpdateToken(c *gin.Context) {
 			}
 		}
 	}
-	err = cleanToken.Update()
+	if routingChanged {
+		err = cleanToken.UpdateWithProviderRouting()
+	} else {
+		err = cleanToken.Update()
+	}
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,

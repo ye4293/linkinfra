@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,6 +51,14 @@ func logResponsesRetryCandidates(ctx context.Context, priority int, candidates, 
 		priority, provider, stateChannel, len(candidates), len(eligible), summary.String())
 }
 
+// 令牌缓存的 key。缓存内容从 v2 起包含来源路由（provider_routing），所以换了 key：
+// 旧版本实例写入的缓存不含路由字段，新版本如果读到会当成没有设置路由，
+// 用户设置的路由会在一个同步周期内静默失效。新旧版本同时在线或回滚时都会遇到。
+const (
+	tokenCacheKeyFormat       = "token:v2:%s"
+	legacyTokenCacheKeyFormat = "token:%s"
+)
+
 func CacheGetTokenByKey(key string) (*Token, error) {
 	keyCol := "`key`"
 	if common.UsingPostgreSQL {
@@ -62,7 +69,7 @@ func CacheGetTokenByKey(key string) (*Token, error) {
 		err := DB.Where(keyCol+" = ?", key).First(&token).Error
 		return &token, err
 	}
-	tokenObjectString, err := common.RedisGet(fmt.Sprintf("token:%s", key))
+	tokenObjectString, err := common.RedisGet(fmt.Sprintf(tokenCacheKeyFormat, key))
 	if err != nil {
 		err := DB.Where(keyCol+" = ?", key).First(&token).Error
 		if err != nil {
@@ -72,7 +79,7 @@ func CacheGetTokenByKey(key string) (*Token, error) {
 		if err != nil {
 			return nil, err
 		}
-		err = common.RedisSet(fmt.Sprintf("token:%s", key), string(jsonBytes), time.Duration(TokenCacheSeconds)*time.Second)
+		err = common.RedisSet(fmt.Sprintf(tokenCacheKeyFormat, key), string(jsonBytes), time.Duration(TokenCacheSeconds)*time.Second)
 		if err != nil {
 			logger.SysError("Redis set token error: " + err.Error())
 		}
@@ -80,6 +87,19 @@ func CacheGetTokenByKey(key string) (*Token, error) {
 	}
 	err = json.Unmarshal([]byte(tokenObjectString), &token)
 	return &token, err
+}
+
+// InvalidateTokenCache 清除令牌缓存，让状态、额度和来源路由的修改立即生效。
+// 旧版本实例使用的 key 一并清除：滚动发布期间在新版本上改了令牌，旧版本实例也要重新读库。
+func InvalidateTokenCache(key string) {
+	if key == "" || !common.RedisEnabled || common.RDB == nil {
+		return
+	}
+	for _, format := range []string{tokenCacheKeyFormat, legacyTokenCacheKeyFormat} {
+		if err := common.RedisDel(fmt.Sprintf(format, key)); err != nil {
+			logger.SysError("Redis del token error: " + err.Error())
+		}
+	}
 }
 
 func CacheGetUserGroup(id int) (group string, err error) {
@@ -413,6 +433,7 @@ func CacheGetRandomSatisfiedChannel(ctx context.Context, group string, model str
 	if len(excludeChannelIds) > 0 && len(excludeChannelIds[0]) > 0 {
 		excludeIds = excludeChannelIds[0]
 	}
+	routing := TokenProviderRoutingFrom(ctx)
 	// 如果不使用优先级且提供了 responseID，尝试从缓存中获取 channel
 	if skipPriorityLevels == 0 && responseID != "" {
 		// 从 Redis 中获取缓存的 channel ID 和 Key 索引
@@ -449,14 +470,17 @@ func CacheGetRandomSatisfiedChannel(ctx context.Context, group string, model str
 								}
 							}
 
-							// 如果都匹配，直接返回该 channel
-							if groupMatched && modelMatched && RetryProviderAllows(ctx, channel) {
+							// 如果都匹配，直接返回该 channel。
+							// 令牌的来源路由不允许这个渠道时跳过，按正常规则选渠；
+							// 允许时继续使用，不因为它的来源排在后面而换回前面的来源。
+							routingAllowed := routing.AllowsChannel(channel)
+							if groupMatched && modelMatched && RetryProviderAllows(ctx, channel) && routingAllowed {
 								logger.Info(ctx, fmt.Sprintf("[Claude Cache] Using cached channel %d (keyIndex: %d) for responseID: %s, group: %s, model: %s",
 									channelID, cachedKeyIndex, responseID, group, model))
 								return channel, cachedKeyIndex, nil
 							} else {
-								logger.Info(ctx, fmt.Sprintf("[Claude Cache] Cached channel %d not suitable (group match: %v, model match: %v), will select new channel",
-									channelID, groupMatched, modelMatched))
+								logger.Info(ctx, fmt.Sprintf("[Claude Cache] Cached channel %d not suitable (group match: %v, model match: %v, provider routing allows: %v), will select new channel",
+									channelID, groupMatched, modelMatched, routingAllowed))
 							}
 						} else {
 							logger.Info(ctx, fmt.Sprintf("[Claude Cache] Cached channel %d is not enabled (status: %d), will select new channel",
@@ -477,145 +501,20 @@ func CacheGetRandomSatisfiedChannel(ctx context.Context, group string, model str
 		return nil, -1, err
 	}
 
-	if skipPriorityLevels == 0 && RetryProvider(ctx) != "" && ResponseStateChannel(ctx) == 0 && len(excludeIds) > 0 {
-		// Provider 首次失败后先在原档补重试一次，之后每次失败都降档。
-		// 失败渠道可能已被自动禁用，因此不能从当前可用优先级的索引推算进度。
-		// 用失败历史中的最低优先级作为上界，降级后不再返回更高档。
-		var failedPriority sql.NullInt64
-		err = DB.WithContext(ctx).Model(&Channel{}).
-			Select("MIN(COALESCE(priority, 0))").Where("id IN ?", excludeIds).Scan(&failedPriority).Error
-		if err != nil {
-			return nil, -1, fmt.Errorf("failed to fetch retry priority: %w", err)
-		}
-		if !failedPriority.Valid {
-			return nil, -1, errors.New("no failed channel priority available")
-		}
-		retryPriorities := make([]int, 0, len(priorities))
-		if len(excludeIds) == 1 {
-			// 只为第一次重试保留原档；同档无可用渠道时直接向下查找。
-			for _, priority := range priorities {
-				if int64(priority) == failedPriority.Int64 {
-					retryPriorities = append(retryPriorities, priority)
-					break
-				}
-			}
-		}
-		for _, priority := range priorities {
-			if int64(priority) < failedPriority.Int64 {
-				retryPriorities = append(retryPriorities, priority)
-			}
-		}
-		// 没有更低档时停止，不重新消耗当前档或更高档的剩余渠道。
-		// 后续查询继续应用失败排除、provider、模型和用户组约束。
-		priorities = retryPriorities
+	// 按令牌的来源路由分层选渠；层内沿用优先级、权重和 provider 重试的降档规则（见 channelSelector）。
+	selector := &channelSelector{
+		ctx: ctx, group: group, model: model, groupCol: groupCol, trueVal: trueVal,
+		excludeIds: excludeIds, routing: routing,
+		descend: RetryProvider(ctx) != "" && ResponseStateChannel(ctx) == 0,
 	}
-
-	// logger.SysLog(fmt.Sprintf("Found priorities for group=%s, model=%s: %v, excludeIds=%v", group, model, priorities, excludeIds)) // 调试用，生产环境可注释
-
-	if len(priorities) == 0 {
-		logger.Error(ctx, fmt.Sprintf("No priorities found for group=%s, model=%s, excludeIds=%v", group, model, excludeIds))
-		return nil, -1, errors.New("no priorities available")
+	if HasRetryBoundary(ctx) {
+		selector.accept = func(channel *Channel) bool { return RetryProviderAllows(ctx, channel) }
 	}
-
-	// 确定使用哪个优先级
-	var priorityToUse int
-	// skipPriorityLevels 基于完整优先级序列，而不是排除失败渠道后的剩余优先级。
-	selectedPriorityIndex := skipPriorityLevels
-	if selectedPriorityIndex >= len(priorities) {
-		selectedPriorityIndex = len(priorities) - 1
-	}
-	priorityToUse = priorities[selectedPriorityIndex]
-
-	// 验证选择的优先级是否有可用渠道
-	// logger.SysLog(fmt.Sprintf("Selected priority %d for group=%s, model=%s, excludeIds=%v", priorityToUse, group, model, excludeIds)) // 调试用，生产环境可注释
-
-	// 获取符合条件的所有渠道及其权重
-	var channels []Channel
-	channelQuery := DB.Table("channels").
-		Joins("JOIN abilities ON channels.id = abilities.channel_id").
-		Where("abilities."+groupCol+" = ? AND abilities.model = ? AND abilities.enabled = ? AND abilities.priority = ? AND channels.status = ?", group, model, trueVal, priorityToUse, common.ChannelStatusEnabled)
-
-	// 如果有需要排除的渠道ID，添加排除条件
-	if len(excludeIds) > 0 {
-		channelQuery = channelQuery.Where("channels.id NOT IN ?", excludeIds)
-	}
-
-	err = channelQuery.Find(&channels).Error
+	channel, err := selector.pick(priorities, skipPriorityLevels)
 	if err != nil {
-		return nil, -1, fmt.Errorf("failed to fetch channels: %w", err)
+		return nil, -1, err
 	}
-	eligible := filterRetryProviderChannels(ctx, channels)
-	logResponsesRetryCandidates(ctx, priorityToUse, channels, eligible)
-	channels = eligible
-
-	if len(channels) == 0 {
-		logger.Error(ctx, fmt.Sprintf("No channels found for group=%s, model=%s, priority=%d, skipPriorityLevels=%d, excludeIds=%v", group, model, priorityToUse, skipPriorityLevels, excludeIds))
-
-		// 回退机制：如果当前优先级没有可用渠道，尝试下一个优先级
-		for idx := selectedPriorityIndex + 1; idx < len(priorities); idx++ {
-			priorityToUse = priorities[idx]
-			logger.Info(ctx, fmt.Sprintf("Fallback: trying priority %d (index %d)", priorityToUse, idx))
-
-			// 重新构建查询
-			fallbackQuery := DB.Table("channels").
-				Joins("JOIN abilities ON channels.id = abilities.channel_id").
-				Where("abilities."+groupCol+" = ? AND abilities.model = ? AND abilities.enabled = ? AND abilities.priority = ? AND channels.status = ?", group, model, trueVal, priorityToUse, common.ChannelStatusEnabled)
-
-			if len(excludeIds) > 0 {
-				fallbackQuery = fallbackQuery.Where("channels.id NOT IN ?", excludeIds)
-			}
-
-			err = fallbackQuery.Find(&channels).Error
-			if err != nil {
-				return nil, -1, fmt.Errorf("failed to fetch channels in fallback: %w", err)
-			}
-			eligible = filterRetryProviderChannels(ctx, channels)
-			logResponsesRetryCandidates(ctx, priorityToUse, channels, eligible)
-			channels = eligible
-
-			if len(channels) > 0 {
-				logger.Info(ctx, fmt.Sprintf("Fallback successful: found %d channels with priority %d", len(channels), priorityToUse))
-				break
-			}
-		}
-
-		if len(channels) == 0 {
-			return nil, -1, errors.New("no channels available with the required priority and weight")
-		}
-	}
-
-	// 计算总权重并准备加权随机选择
-	totalWeight := 0
-	channelWeights := make([]int, len(channels))
-	for i, channel := range channels {
-		weight := int(*channel.Weight)
-		if weight <= 0 {
-			weight = 1
-		}
-		channelWeights[i] = weight
-		totalWeight += weight
-	}
-
-	if totalWeight == 0 {
-		return nil, -1, errors.New("total weight of channels is zero")
-	}
-
-	// 直接用全局 rand：它在 Go 1.20+ 已自动随机播种、并发安全、走无锁快路径。
-	// 原写法先取 rand.Intn(10000) 当 jitter 再去播种一个局部生成器，既然已经
-	// 用上了全局 rand，那一层包装是纯多余（且 wall-clock 播种本身在同一时钟
-	// tick 内会退化，jitter 只是缓解而非消除）。
-	weightThreshold := rand.Intn(totalWeight) + 1
-
-	currentWeight := 0
-	for i, channel := range channels {
-		currentWeight += channelWeights[i]
-		if currentWeight >= weightThreshold {
-			// logger.SysLog(fmt.Sprintf("Selected channel %d (name=%s) with weight %d, threshold=%d", channel.Id, channel.Name, channelWeights[i], weightThreshold)) // 调试用，生产环境可注释
-			return &channel, -1, nil
-		}
-	}
-
-	return nil, -1, errors.New("unable to select a channel based on weight")
+	return channel, -1, nil
 }
 
 // ChannelCapabilityFilter 渠道能力过滤器类型
@@ -627,7 +526,8 @@ var FilterSupportCountTokens ChannelCapabilityFilter = func(channel *Channel, co
 }
 
 // CacheGetRandomSatisfiedChannelWithCapability 带能力筛选的渠道选择
-// 此函数在 CacheGetRandomSatisfiedChannel 基础上增加能力过滤
+// 此函数在 CacheGetRandomSatisfiedChannel 基础上增加能力过滤。
+// 它不受重试范围限制，但应用令牌的来源路由（包括先后顺序），结果尽量落在正式请求会用的来源上。
 func CacheGetRandomSatisfiedChannelWithCapability(
 	ctx context.Context,
 	group string,
@@ -660,77 +560,24 @@ func CacheGetRandomSatisfiedChannelWithCapability(
 		return nil, errors.New("no priorities available")
 	}
 
-	selectedPriorityIndex := skipPriorityLevels
-	if selectedPriorityIndex >= len(priorities) {
-		selectedPriorityIndex = len(priorities) - 1
-	}
-	// 遍历优先级，寻找支持指定能力的渠道
-	for priorityIdx := selectedPriorityIndex; priorityIdx < len(priorities); priorityIdx++ {
-		priorityToUse := priorities[priorityIdx]
-
-		// 获取该优先级的所有渠道
-		var channels []Channel
-		channelQuery := DB.Table("channels").
-			Joins("JOIN abilities ON channels.id = abilities.channel_id").
-			Where("abilities."+groupCol+" = ? AND abilities.model = ? AND abilities.enabled = ? AND abilities.priority = ? AND channels.status = ?",
-				group, model, trueVal, priorityToUse, common.ChannelStatusEnabled)
-
-		if len(excludeIds) > 0 {
-			channelQuery = channelQuery.Where("channels.id NOT IN ?", excludeIds)
-		}
-
-		err = channelQuery.Find(&channels).Error
-		if err != nil {
-			continue
-		}
-
-		// 应用能力过滤器
-		var filteredChannels []Channel
-		for _, channel := range channels {
+	// 从选定的优先级往下遍历，寻找支持指定能力的渠道；高优先级的渠道不支持该能力是常态，不逐档记日志。
+	selector := &channelSelector{
+		ctx: ctx, group: group, model: model, groupCol: groupCol, trueVal: trueVal,
+		excludeIds: excludeIds, routing: TokenProviderRoutingFrom(ctx), quiet: true,
+		accept: func(channel *Channel) bool {
 			cfg, err := channel.LoadConfig()
-			if err != nil {
-				continue
-			}
-			if capabilityFilter(&channel, cfg) {
-				filteredChannels = append(filteredChannels, channel)
-			}
-		}
-
-		if len(filteredChannels) == 0 {
-			continue // 尝试下一个优先级
-		}
-
-		// 按权重随机选择
-		totalWeight := 0
-		for _, channel := range filteredChannels {
-			weight := int(*channel.Weight)
-			if weight <= 0 {
-				weight = 1
-			}
-			totalWeight += weight
-		}
-
-		if totalWeight == 0 {
-			continue
-		}
-
-		// 同上：直接用全局 rand，不再套一层 wall-clock 播种的局部生成器
-		weightThreshold := rand.Intn(totalWeight) + 1
-
-		currentWeight := 0
-		for _, channel := range filteredChannels {
-			weight := int(*channel.Weight)
-			if weight <= 0 {
-				weight = 1
-			}
-			currentWeight += weight
-			if currentWeight >= weightThreshold {
-				return &channel, nil
-			}
-		}
+			return err == nil && capabilityFilter(channel, cfg)
+		},
 	}
-
-	return nil, errors.New("no channels available with required capability")
+	channel, err := selector.pick(priorities, skipPriorityLevels)
+	if err != nil {
+		if errors.Is(err, ErrTokenProviderRoutingNoChannel) {
+			return nil, err
+		}
+		logger.Info(ctx, fmt.Sprintf("No channel with the required capability for group=%s, model=%s: %v", group, model, err))
+		return nil, errors.New("no channels available with required capability")
+	}
+	return channel, nil
 }
 
 func CacheGetChannel(id int) (*Channel, error) {

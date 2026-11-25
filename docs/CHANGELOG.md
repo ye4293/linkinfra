@@ -6,6 +6,22 @@
 
 ---
 
+## 2026-11-26
+
+### feat(token): 令牌的来源路由（路由存储、选渠、缓存与接口）
+- **分支**: `token-provider-routing`
+- **类型**: feat / fix / test
+- **涉及文件**: `model/token_provider_routing.go`（新增）、`model/channel_select.go`（新增）、`model/channel_provider.go`、`model/cache.go`、`model/token.go`、`middleware/auth.go`、`middleware/distributor.go`、`service/channel_affinity.go`、`controller/token.go`、`controller/channel.go`、`router/api-router.go`；测试 `model/token_provider_routing_test.go`、`model/channel_select_test.go`、`router/token_provider_routing_test.go`（均新增）、`controller/provider_retry_test.go`；`docs/plans/2026-11-25-token-provider-routing.md`（新增）、`docs/CHANGELOG.md`
+- **说明**: 计划第 5 节的第 2 步。令牌新增 `provider_routing`（`order` / `only` / `ignore`），用户可以决定 API key 使用哪些来源、先后顺序和永不使用的来源。选渠函数按令牌的来源分层，层内仍按管理员的优先级和权重；首选、失败重试、`X-Response-ID` 和亲和规则命中的渠道、count_tokens 都遵守路由。路由之内没有可用渠道时返回 503 并说明原因，Responses 历史要求的 provider 被路由排除时返回 409，都不换到路由之外的来源。新增 `GET /api/token/sources`，返回当前用户等级下可用的来源和模型。没有设置路由的令牌，选渠和重试与之前一致。
+- **对现有行为的影响**:
+  - 更新和删除令牌后清除令牌缓存，禁用令牌、修改额度也立即生效（此前最长延迟一个同步周期）。缓存 key 换成 `token:v2:<key>`，不读旧版本实例写的缓存。
+  - 渠道 provider 的读取只看 `config.provider`，不再因为 config 的其他字段写错而被当成没填；保存渠道时拒绝不是字符串或超过 128 个字符的 provider。
+  - 令牌接口返回的数据多了 `provider_routing` 字段。
+  - 设置了路由的令牌，亲和缓存的 key 带令牌 ID；没有设置路由的令牌 key 不变。
+- **数据库**: `tokens` 表新增可空列 `provider_routing`（TEXT），主节点启动时自动加列。列还不存在时，读取令牌、创建和更新没有设置路由的令牌都照常工作，只有保存路由会报错。
+- **验证**: `go build ./...`、`go vet ./...`、`go test ./... -count=1`（27 个包）通过。变异检查 51 处（去掉 ignore / only 过滤、分层、与重试范围取交集、缓存 key 和清缓存、亲和 key、豁免路径、保存校验等），在仓库外生成源文件副本用 `go test -overlay` 套上去，对应测试全部失败；第一轮有 1 处存活（`null` 直接传入解析函数），已补断言。没有验证的部分：真实 PostgreSQL / MySQL 上的加列和读写（测试用的是 SQLite）、多实例滚动发布、浏览器里的表单（前端还没改）。
+- **关联计划**: `docs/plans/2026-11-25-token-provider-routing.md`
+
 ## 2026-11-13
 
 ### fix(responses): 兼容 Redis Cluster 的状态读取

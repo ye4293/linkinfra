@@ -20,6 +20,8 @@ import (
 
 const invalidBillingTagMessage = "Billing tag may only contain letters, digits, '.', '_' and '-' (max 64 characters)."
 
+const invalidChannelProviderMessage = "Provider must be a string of at most 128 characters."
+
 // ListBillingTags 返回渠道上已配置的计费标签及渠道数，供渠道表单和用户折扣编辑器选择。
 func ListBillingTags(c *gin.Context) {
 	tags, err := model.ListChannelBillingTags()
@@ -184,6 +186,13 @@ func AddChannel(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": invalidBillingTagMessage,
+		})
+		return
+	}
+	if model.HasInvalidChannelProvider(&channel) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": invalidChannelProviderMessage,
 		})
 		return
 	}
@@ -658,6 +667,13 @@ func UpdateChannel(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": invalidBillingTagMessage,
+		})
+		return
+	}
+	if _, exists := rawBody["config"]; exists && model.HasInvalidChannelProvider(&channel) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"message": invalidChannelProviderMessage,
 		})
 		return
 	}
