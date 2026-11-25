@@ -48,6 +48,46 @@ type Log struct {
 	MetricsModelName string  `json:"-" gorm:"type:varchar(200)"`
 	MetricsSourceKey string  `json:"-" gorm:"type:varchar(200)"`
 	MetricsAttempts  string  `json:"-" gorm:"type:text"`
+	// Source 是处理这次请求的渠道的来源名（见 ChannelSource），由 FillLogSources 在返回日志列表时填充，不落库。
+	Source string `json:"source,omitempty" gorm:"-"`
+}
+
+// FillLogSources 给日志补上来源名，用户可以据此核对请求实际走的是哪个来源（例如 API key 的来源路由是否生效）。
+// 优先用写日志时记录下来的来源；没有记录时按渠道当前的配置取，渠道已经删除则留空。
+func FillLogSources(logs []*Log) {
+	var channelIDs []int
+	seen := map[int]bool{}
+	for _, log := range logs {
+		if log == nil || log.ChannelId <= 0 {
+			continue
+		}
+		if log.MetricsSourceKey != "" {
+			log.Source = log.MetricsSourceKey
+			continue
+		}
+		if !seen[log.ChannelId] {
+			seen[log.ChannelId] = true
+			channelIDs = append(channelIDs, log.ChannelId)
+		}
+	}
+	if len(channelIDs) == 0 {
+		return
+	}
+	var channels []*Channel
+	if err := DB.Select("id, type, config").Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
+		// 来源只是附加信息，查不到不影响日志列表本身。
+		logger.SysError("failed to load channels for log sources: " + err.Error())
+		return
+	}
+	sources := make(map[int]string, len(channels))
+	for _, channel := range channels {
+		sources[channel.Id] = ChannelSource(channel)
+	}
+	for _, log := range logs {
+		if log != nil && log.Source == "" && log.ChannelId > 0 {
+			log.Source = sources[log.ChannelId]
+		}
+	}
 }
 
 // applyLogIdRange 将时间范围转为 id 范围并应用到 logs 查询
@@ -281,7 +321,7 @@ func GetCurrentUserLogsAndCount(userId int, logType int, startTimestamp int64, e
 	offset := (page - 1) * pageSize
 
 	// 然后获取满足条件的日志数据
-	err = tx.Select("id, request_id, user_id, created_at, type, username, token_name, model_name, quota, prompt_tokens, completion_tokens, cached_tokens, channel_id, duration, is_stream, first_word_latency, content, x_request_id, x_response_id, other").Order("id desc").Limit(pageSize).Offset(offset).Find(&logs).Error
+	err = tx.Select("id, request_id, user_id, created_at, type, username, token_name, model_name, quota, prompt_tokens, completion_tokens, cached_tokens, channel_id, duration, is_stream, first_word_latency, content, x_request_id, x_response_id, other, metrics_source_key").Order("id desc").Limit(pageSize).Offset(offset).Find(&logs).Error
 	if err != nil {
 		return nil, total, err
 	}

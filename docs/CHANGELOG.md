@@ -8,6 +8,14 @@
 
 ## 2026-11-26
 
+### feat(log): 日志列表返回请求的来源
+- **分支**: `token-provider-routing`
+- **类型**: feat / test / docs
+- **涉及文件**: `model/log.go`、`controller/log.go`；测试 `router/log_source_test.go`（新增）、`router/count_tokens_routing_test.go`（新增，单独提交）；`docs/token-provider-routing.md`、`docs/plans/2026-11-25-token-provider-routing.md`、`docs/CHANGELOG.md`
+- **说明**: 计划 2.6 的第一项。用户设置了来源路由之后，需要能核对请求实际走的是哪个来源。`/api/log/self`、`/api/log/self/search` 和管理员的 `/api/log/` 返回的每条日志增加 `source` 字段（处理这次请求的渠道的来源名）：优先用写日志时已经记录的来源，没有记录时按渠道当前的配置取，渠道已删除或与渠道无关的日志不带这个字段。不加数据库列。失败的请求记的是最后一次尝试的渠道。另外补了一个 count_tokens 接口的全链路测试，此前这条路径只在选渠函数一层测过。
+- **验证**: `go build ./...`、`go vet ./...`、`go test ./... -count=1`（27 个包）通过。变异检查 10 处（日志来源 7 处、count_tokens 接线 3 处），对应测试全部失败。本地联调：全新的临时 SQLite 库（`NODE_TYPE=master`）加模拟上游，用普通用户的 API key（`order=[vertex]`、`ignore=[aws]`）发三次请求，在浏览器的日志页看到来源依次是 vertex、anthropic（vertex 失败后重试）、anthropic（允许的来源全部失败），普通用户看不到渠道列。
+- **关联计划**: `docs/plans/2026-11-25-token-provider-routing.md`
+
 ### feat(provider): 互通规则，重试可以在声明互通的 provider 之间进行
 - **分支**: `token-provider-routing`
 - **类型**: feat / test / docs

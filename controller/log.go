@@ -167,6 +167,7 @@ func GetAllLogs(c *gin.Context) {
 		})
 		return
 	}
+	model.FillLogSources(logs)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -212,6 +213,8 @@ func GetUserLogs(c *gin.Context) {
 		return
 	}
 	stripAdminInfoFromLogs(logs)
+	// 来源名让用户可以核对请求实际走的是哪个来源（例如 API key 的来源路由是否生效）。
+	model.FillLogSources(logs)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -255,6 +258,7 @@ func SearchUserLogs(c *gin.Context) {
 		return
 	}
 	stripAdminInfoFromLogs(logs)
+	model.FillLogSources(logs)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
