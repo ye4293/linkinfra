@@ -8,6 +8,14 @@
 
 ## 2026-11-26
 
+### release: v0.1.48 令牌的来源路由与 provider 互通规则
+- **分支**: `main`（自 `token-provider-routing` 快进合并）
+- **类型**: release
+- **涉及文件**: `VERSION`、`docs/CHANGELOG.md`、`docs/releases/v0.1.48-token-provider-routing.md`
+- **说明**: 发布令牌的来源路由（API key 上选择使用哪些上游来源、先后顺序、只用选中的、永不使用的）和 provider 互通规则（管理员声明哪些 provider 之间可以互相重试）。新增 `tokens.provider_routing` 列，由主节点的 AutoMigrate 创建。包含 8 个提交，从 `3969e5c` 到 `00efe1f`。没有数据迁移。
+- **验证**: 见发布文档。
+- **关联计划**: `docs/plans/2026-11-25-token-provider-routing.md`
+
 ### fix(provider): 重试范围里有多个来源时，降档规则按来源分别计算
 - **分支**: `token-provider-routing`
 - **类型**: fix / test / docs
