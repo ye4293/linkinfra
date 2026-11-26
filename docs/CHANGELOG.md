@@ -8,6 +8,14 @@
 
 ## 2026-11-26
 
+### fix(provider): 重试范围里有多个来源时，降档规则按来源分别计算
+- **分支**: `token-provider-routing`
+- **类型**: fix / test / docs
+- **涉及文件**: `model/channel_select.go`、`model/cache.go`；测试 `model/provider_interop_select_test.go`、`router/provider_interop_test.go`；`docs/token-provider-routing.md`、`docs/plans/2026-11-25-token-provider-routing.md`、`docs/CHANGELOG.md`
+- **说明**: 互通规则让重试可以换到别的 provider，而几个来源通常配在同一优先级。此前降档规则对所有失败渠道一起计算：首选失败后同档只再补一次，若随机到同一个来源就降到更低优先级，其他来源同档的渠道轮不到——全链路测试里三个来源同档时只试到两个渠道就停了。现在重试范围里有多个来源时（互通规则扩大范围，不管令牌有没有设置路由），已失败的渠道按来源分开汇总，一个来源每失败一次就只限制它自己的渠道，其他来源同一优先级的渠道照常可用。范围只有一个来源时仍是一起计算，与引入来源路由之前完全相同；令牌的 `order` 分层（换到下一个来源时从它的最高档开始）不变。
+- **验证**: `go build ./...`、`go vet ./...`、`go test ./... -count=1`（27 个包）通过；改动涉及的六个包另外带 `-race` 跑过。新增测试：三个来源同档各两个渠道时六个渠道全部会被尝试；同一来源每失败一次降一档；令牌只设 `ignore` 和 `only` 关闭时的后备层里同样按来源计算；没有互通规则时行为不变。全链路测试补了同档场景（六次尝试覆盖全部渠道、唯一健康的渠道总能被重试到）。变异检查 12 处（降档上界、补重试次数、最低优先级取反、来源不分开统计、层内/多层/单层分支、接线开关、原行为分支等），对应测试全部失败。
+- **关联计划**: `docs/plans/2026-11-25-token-provider-routing.md`
+
 ### docs(token): 记录来源路由的前端改动与本地联调结果
 - **分支**: `token-provider-routing`（后端）；前端 `ye4293/linkinfra-web` 的同名分支
 - **类型**: docs

@@ -96,22 +96,23 @@ func TestRetryProviderScopeAllows(t *testing.T) {
 	require.Empty(t, RetryProviderScope(root))
 }
 
-// 没有设置令牌路由时，互通规则让重试可以跨 provider：整个范围一起按优先级降档。
-// 没有规则时仍只在首选渠道的 provider 内。
+// 没有设置令牌路由时，互通规则让重试可以跨 provider：范围内的渠道按管理员的优先级依次尝试，
+// 降档规则按来源分别计算。没有规则时仍只在首选渠道的 provider 内。
 func TestInteropScopeLetsRetryCrossProviders(t *testing.T) {
 	seedInteropChannels(t)
 	root := context.Background()
 
 	withScope := WithRetryProviderScope(WithRetryProvider(root, "anthropic"), claudeScope)
 	require.Equal(t, []int{3, 5, 2, 4, 6}, retriesAfter(t, withScope, 1),
-		"范围内按优先级依次降档；没有填 provider 的 #7 和范围之外的 #8 即使优先级更高也不会用")
+		"范围内按优先级依次尝试；没有填 provider 的 #7 和范围之外的 #8 即使优先级更高也不会用")
 
 	withoutScope := WithRetryProvider(root, "anthropic")
 	require.Equal(t, []int{2}, retriesAfter(t, withoutScope, 1), "没有规则：只在 anthropic 内")
 
-	// 首选渠道是别的 provider 时，范围同样是这一组。
+	// 首选渠道不是优先级最高的那个（例如亲和规则命中了 vertex 的 #3）：vertex 失败只限制 vertex 自己，
+	// anthropic 还没有试过，优先级更高的 #1 照常可用。
 	fromVertex := WithRetryProviderScope(WithRetryProvider(root, "vertex"), claudeScope)
-	require.Equal(t, []int{5, 2, 4, 6}, retriesAfter(t, fromVertex, 3), "降档后不再回到更高的优先级（#1）")
+	require.Equal(t, []int{1, 5, 2, 4, 6}, retriesAfter(t, fromVertex, 3))
 }
 
 // 令牌路由与互通规则一起生效：重试候选是两者的交集，按令牌的顺序逐个来源尝试，
@@ -180,5 +181,103 @@ func TestTokenRoutingKeepsDescendingRuleWithinSource(t *testing.T) {
 		require.Len(t, retries, 4)
 		require.Contains(t, []int{9, 10}, retries[0])
 		require.Equal(t, []int{4, 1, 2}, retries[1:])
+	}
+}
+
+// 互通范围里的几个 provider 配在同一个优先级（常见的配法）时，降档规则按来源分别计算：
+// 一个来源失败两次之后只用它更低优先级的渠道，不影响其他来源同一优先级的渠道。
+// 否则直连失败后同档只再试一次（还可能随机到同一个来源），其他来源同档的渠道轮不到。
+func TestInteropScopeDescendsPerSourceAtEqualPriority(t *testing.T) {
+	db := setupTestDB(t, &Channel{}, &Ability{})
+	add := func(id int, provider string, priority int64) {
+		t.Helper()
+		weight := uint(1)
+		require.NoError(t, db.Create(&Channel{Id: id, Type: common.ChannelTypeAnthropic, Status: common.ChannelStatusEnabled, Config: `{"provider":"` + provider + `"}`, Group: routingTestGroup, Models: routingTestModel, Priority: &priority, Weight: &weight}).Error)
+		require.NoError(t, db.Create(&Ability{ChannelId: id, Group: routingTestGroup, Model: routingTestModel, Enabled: true, Priority: &priority}).Error)
+	}
+	// 三个来源在最高档（100）各有渠道：anthropic 三个，vertex、aws 各两个；anthropic 另有一个低档（50）的。
+	add(1, "anthropic", 100)
+	add(2, "anthropic", 100)
+	add(3, "anthropic", 100)
+	add(4, "vertex", 100)
+	add(5, "vertex", 100)
+	add(6, "aws", 100)
+	add(7, "aws", 100)
+	add(8, "anthropic", 50)
+	sourceOf := map[int]string{1: "anthropic", 2: "anthropic", 3: "anthropic", 4: "vertex", 5: "vertex", 6: "aws", 7: "aws", 8: "anthropic"}
+	sourcesOf := func(ids []int) []string {
+		sources := make([]string, 0, len(ids))
+		for _, id := range ids {
+			sources = append(sources, sourceOf[id])
+		}
+		return sources
+	}
+
+	for i := 0; i < 40; i++ {
+		ctx := WithRetryProviderScope(WithRetryProvider(context.Background(), "anthropic"), claudeScope)
+		retries := retriesAfter(t, ctx, 1)
+		// anthropic 在最高档只补重试一次（#2 或 #3 之一），vertex 和 aws 的四个渠道都会轮到，最后才是低档的 #8。
+		require.Len(t, retries, 6, "retries: %v", retries)
+		require.Equal(t, 8, retries[5], "低档的渠道排在最后: %v", retries)
+		require.ElementsMatch(t, []string{"anthropic", "vertex", "vertex", "aws", "aws"}, sourcesOf(retries[:5]), "retries: %v", retries)
+	}
+
+	// 令牌只设置了 ignore（仍是一层）时同样按来源分别计算。
+	for i := 0; i < 20; i++ {
+		ctx := WithRetryProviderScope(WithRetryProvider(routedContext(TokenProviderRouting{Ignore: []string{"aws"}}), "anthropic"), claudeScope)
+		retries := retriesAfter(t, ctx, 1)
+		require.Len(t, retries, 4, "retries: %v", retries)
+		require.Equal(t, 8, retries[3])
+		require.ElementsMatch(t, []string{"anthropic", "vertex", "vertex"}, sourcesOf(retries[:3]), "retries: %v", retries)
+	}
+
+	// only 关闭时的后备层里有多个来源，也按来源分别计算：vertex 用完后，anthropic 和 aws 同档的渠道都会轮到。
+	for i := 0; i < 20; i++ {
+		routed := routedContext(TokenProviderRouting{Order: []string{"vertex"}})
+		ctx := WithRetryProviderScope(WithRetryProvider(routed, "vertex"), claudeScope)
+		retries := retriesAfter(t, ctx, 4)
+		// vertex 的另一个渠道，然后是后备层：anthropic 最高档两个（首次加补一次）、aws 两个，最后是低档的 #8。
+		require.Len(t, retries, 6, "retries: %v", retries)
+		require.Equal(t, 5, retries[0])
+		require.Equal(t, 8, retries[5])
+		require.ElementsMatch(t, []string{"anthropic", "anthropic", "aws", "aws"}, sourcesOf(retries[1:5]), "retries: %v", retries)
+	}
+
+	// 没有互通规则（范围只有首选渠道的 provider）时，规则与之前完全一样：同档补一次，然后降档。
+	for i := 0; i < 20; i++ {
+		retries := retriesAfter(t, WithRetryProvider(context.Background(), "anthropic"), 1)
+		require.Len(t, retries, 2, "retries: %v", retries)
+		require.Contains(t, []int{2, 3}, retries[0])
+		require.Equal(t, 8, retries[1])
+	}
+}
+
+// 按来源分别计算时，同一个来源每失败一次就再降一档：以它已失败渠道里最低的优先级为上界，
+// 降下去之后那一档剩下的渠道也不再使用（与只有一个 provider 时的规则相同）。
+func TestInteropScopeDescendsOneTierPerFailureWithinSource(t *testing.T) {
+	db := setupTestDB(t, &Channel{}, &Ability{})
+	for _, spec := range []struct {
+		id       int
+		provider string
+		priority int64
+	}{
+		{1, "anthropic", 100}, {2, "anthropic", 100},
+		{3, "anthropic", 80}, {4, "anthropic", 80},
+		{5, "anthropic", 60}, {6, "anthropic", 60},
+		{7, "vertex", 100},
+	} {
+		weight := uint(1)
+		require.NoError(t, db.Create(&Channel{Id: spec.id, Type: common.ChannelTypeAnthropic, Status: common.ChannelStatusEnabled, Config: `{"provider":"` + spec.provider + `"}`, Group: routingTestGroup, Models: routingTestModel, Priority: &spec.priority, Weight: &weight}).Error)
+		require.NoError(t, db.Create(&Ability{ChannelId: spec.id, Group: routingTestGroup, Model: routingTestModel, Enabled: true, Priority: &spec.priority}).Error)
+	}
+	for i := 0; i < 40; i++ {
+		ctx := WithRetryProviderScope(WithRetryProvider(context.Background(), "anthropic"), []string{"anthropic", "vertex"})
+		retries := retriesAfter(t, ctx, 1)
+		// 最高档：anthropic 补重试一次（#2），vertex 的 #7 也会轮到，两者先后随机。
+		// 之后 anthropic 每失败一次降一档：80 档和 60 档各只用一个渠道。
+		require.Len(t, retries, 4, "retries: %v", retries)
+		require.ElementsMatch(t, []int{2, 7}, retries[:2], "retries: %v", retries)
+		require.Contains(t, []int{3, 4}, retries[2], "retries: %v", retries)
+		require.Contains(t, []int{5, 6}, retries[3], "retries: %v", retries)
 	}
 }

@@ -510,6 +510,9 @@ func CacheGetRandomSatisfiedChannel(ctx context.Context, group string, model str
 		ctx: ctx, group: group, model: model, groupCol: groupCol, trueVal: trueVal,
 		excludeIds: excludeIds, routing: routing,
 		descend: RetryProvider(ctx) != "" && ResponseStateChannel(ctx) == 0,
+		// 互通规则扩大了重试范围时，候选里有多个来源：降档规则按来源分别计算。
+		// 没有扩大时范围只有一个 provider，候选和已失败的渠道都属于同一个来源，不需要区分。
+		descendPerSource: len(RetryProviderScope(ctx)) > 0,
 	}
 	if HasRetryBoundary(ctx) {
 		selector.accept = func(channel *Channel) bool { return RetryProviderAllows(ctx, channel) }

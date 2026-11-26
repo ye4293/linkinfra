@@ -325,4 +325,31 @@ func TestInteropRetryOrderEndToEnd(t *testing.T) {
 	config.RetryTimes = 6
 	require.NoError(t, common.UpdateProviderInteropRulesByJSONString(`[{"models":["^claude-"],"providers":["anthropic","vertex","aws"]}]`))
 	require.Equal(t, []int{1, 2}, order(none))
+
+	// 三个来源配在同一个优先级（常见的配法，同档之间按权重随机）：降档规则按来源分别计算，
+	// 一个来源失败不会让其他来源同档的渠道轮不到。六个渠道全部失败时每个都会被尝试一次。
+	require.NoError(t, common.UpdateProviderInteropRulesByJSONString(`[{"models":["^jev-"],"providers":["anthropic","vertex","aws"]}]`))
+	require.NoError(t, db.Model(&model.Channel{}).Where("1 = 1").Update("priority", 100).Error)
+	require.NoError(t, db.Model(&model.Ability{}).Where("1 = 1").Update("priority", 100).Error)
+	for i := 0; i < 10; i++ {
+		require.ElementsMatch(t, []int{1, 2, 3, 4, 5, 6}, order(none), "不设置")
+		require.ElementsMatch(t, []int{1, 2, 3, 4}, order(model.TokenProviderRouting{Ignore: []string{"aws"}}), "忽略 aws")
+
+		sequence := order(model.TokenProviderRouting{Order: []string{"vertex"}})
+		require.Len(t, sequence, 6)
+		require.ElementsMatch(t, []int{3, 4}, sequence[:2], "先把 vertex 的两个渠道用完: %v", sequence)
+		require.ElementsMatch(t, []int{1, 2, 5, 6}, sequence[2:], "再到其余来源: %v", sequence)
+
+		// 只有 aws 的一个渠道健康：不管首选落在哪个来源，最终都能重试到它。
+		status, sequence, _ := attempt(none, 6)
+		require.Equal(t, http.StatusOK, status, "sequence: %v", sequence)
+		require.Equal(t, 6, sequence[len(sequence)-1])
+	}
+	// 没有规则时，同档的其他来源仍然不会被重试到：首选渠道所在来源的两个渠道试完就停。
+	require.NoError(t, common.UpdateProviderInteropRulesByJSONString(""))
+	for i := 0; i < 10; i++ {
+		sequence := order(none)
+		require.Len(t, sequence, 2, "sequence: %v", sequence)
+		require.Equal(t, (sequence[0]-1)/2, (sequence[1]-1)/2, "两次尝试在同一个来源: %v", sequence)
+	}
 }

@@ -26,11 +26,15 @@ type channelSelector struct {
 	accept func(channel *Channel) bool
 	// descend 为 true 时应用 provider 重试的降档规则：原档补重试一次，之后只往更低的优先级。
 	descend bool
+	// descendPerSource 为 true 时降档规则按来源分别计算：一个来源失败之后只限制它自己的渠道，
+	// 其他来源同一优先级的渠道照常可用。互通规则扩大了重试范围（候选里有多个来源）时使用；
+	// 否则所有失败渠道一起计算，与引入来源路由之前相同。
+	descendPerSource bool
 	// quiet 为 true 时不逐档记录选不到渠道的日志。
 	quiet bool
 
-	tiers        map[int]*channelTier // 已读取的优先级档，同一次选渠的各层共用
-	failed       []Channel            // 已失败渠道的来源和优先级，设置了路由时按需读取一次
+	tiers        map[int]*channelTier    // 已读取的优先级档，同一次选渠的各层共用
+	failed       map[string]failedSource // 各来源已失败渠道的个数和最低优先级，按需读取一次
 	failedLoaded bool
 	// routingBlocked 记录是否有渠道满足其他条件、只因为令牌的来源路由被排除。
 	routingBlocked bool
@@ -40,9 +44,23 @@ type channelSelector struct {
 type channelTier struct {
 	// all 是这一档启用且未被排除的全部渠道，只用于诊断日志。
 	all []Channel
-	// candidates 是其中满足 accept 且来源路由允许的渠道，layers 是它们各自所在的层。
+	// candidates 是其中满足 accept 且来源路由允许的渠道，
+	// layers 和 sources 是它们各自所在的层和来源名（不需要时为零值）。
 	candidates []Channel
 	layers     []int
+	sources    []string
+}
+
+// failedSource 是一个来源在本次请求里已失败渠道的个数和其中最低的优先级。
+type failedSource struct {
+	count  int
+	lowest int64
+}
+
+// allows 判断这个来源在某个优先级的渠道还能不能用于重试：
+// 只失败过一次时可以在原档补重试一次，之后只往更低的优先级。
+func (f failedSource) allows(priority int) bool {
+	return int64(priority) < f.lowest || (f.count == 1 && int64(priority) == f.lowest)
 }
 
 // pick 依次在每一层里选渠，前面的层没有可选渠道才进入后面的层。
@@ -66,17 +84,24 @@ func (s *channelSelector) pick(priorities []int, skipPriorityLevels int) (*Chann
 
 // pickInLayer 在一层来源里选渠。这一层没有可选渠道时返回 (nil, 原因, nil)，查询失败返回 (nil, nil, err)。
 func (s *channelSelector) pickInLayer(layer int, priorities []int, skipPriorityLevels int) (*Channel, error, error) {
+	// failed 不为 nil 时按来源分别应用降档规则。
+	var failed map[string]failedSource
 	if s.descend && skipPriorityLevels == 0 && len(s.excludeIds) > 0 {
 		// Provider 首次失败后先在原档补重试一次，之后每次失败都降档。
 		// 失败渠道可能已被自动禁用，因此不能从当前可用优先级的索引推算进度。
 		// 用失败历史中的最低优先级作为上界，降级后不再返回更高档。
-		failedPriority, failedCount, found, err := s.failedPriority(layer)
-		if err != nil {
-			return nil, nil, err
-		}
-		if found {
+		if s.descendPerSource {
+			var err error
+			if failed, err = s.failedBySource(); err != nil {
+				return nil, nil, err
+			}
+		} else {
+			failedPriority, err := s.lowestFailedPriority()
+			if err != nil {
+				return nil, nil, err
+			}
 			retryPriorities := make([]int, 0, len(priorities))
-			if failedCount == 1 {
+			if len(s.excludeIds) == 1 {
 				// 只为第一次重试保留原档；同档无可用渠道时直接向下查找。
 				for _, priority := range priorities {
 					if int64(priority) == failedPriority {
@@ -119,7 +144,7 @@ func (s *channelSelector) pickInLayer(layer int, priorities []int, skipPriorityL
 			}
 			return nil, nil, fmt.Errorf("failed to fetch channels: %w", err)
 		}
-		eligible := tier.inLayer(layer, s.routing.layerCount())
+		eligible := tier.eligible(layer, s.routing.layerCount(), priority, failed)
 		logResponsesRetryCandidates(s.ctx, priority, tier.all, eligible)
 		if len(eligible) == 0 {
 			if idx == start {
@@ -140,58 +165,68 @@ func (s *channelSelector) pickInLayer(layer int, priorities []int, skipPriorityL
 	return nil, errors.New("no channels available with the required priority and weight"), nil
 }
 
-// logMiss 记录一层里选不到渠道。没有设置路由时这是异常情况；
-// 设置了路由时，排在前面的来源没有渠道是正常的，降为普通日志并标出是哪一层。
+// logMiss 记录一层里选不到渠道。只有一个来源、没有设置路由时这是异常情况；
+// 可能涉及多个来源时，排在前面的来源或优先级没有可选渠道是正常的，降为普通日志。
 func (s *channelSelector) logMiss(layer int, message string) {
 	if s.quiet {
 		return
 	}
 	if s.routing.IsEmpty() {
-		logger.Error(s.ctx, message)
+		if s.descendPerSource {
+			logger.Info(s.ctx, message)
+		} else {
+			logger.Error(s.ctx, message)
+		}
 		return
 	}
 	logger.Info(s.ctx, fmt.Sprintf("%s, provider routing layer %d/%d (%s)", message, layer+1, s.routing.layerCount(), s.routing))
 }
 
-// failedPriority 返回这一层里已失败渠道的最低优先级和个数。found 为 false 表示这一层还没有失败过。
-func (s *channelSelector) failedPriority(layer int) (priority int64, count int, found bool, err error) {
-	if s.routing.IsEmpty() {
-		// 没有设置路由：所有失败渠道一起计算，与引入来源路由之前相同。
-		var failedPriority sql.NullInt64
-		err = DB.WithContext(s.ctx).Model(&Channel{}).
-			Select("MIN(COALESCE(priority, 0))").Where("id IN ?", s.excludeIds).Scan(&failedPriority).Error
-		if err != nil {
-			return 0, 0, false, fmt.Errorf("failed to fetch retry priority: %w", err)
-		}
-		if !failedPriority.Valid {
-			return 0, 0, false, errors.New("no failed channel priority available")
-		}
-		return failedPriority.Int64, len(s.excludeIds), true, nil
+// lowestFailedPriority 返回已失败渠道里最低的优先级，所有失败渠道一起计算。
+func (s *channelSelector) lowestFailedPriority() (int64, error) {
+	var failedPriority sql.NullInt64
+	err := DB.WithContext(s.ctx).Model(&Channel{}).
+		Select("MIN(COALESCE(priority, 0))").Where("id IN ?", s.excludeIds).Scan(&failedPriority).Error
+	if err != nil {
+		return 0, fmt.Errorf("failed to fetch retry priority: %w", err)
 	}
-
-	// 设置了路由：降档按来源分别计算。前一个来源的失败不影响下一个来源从最高档开始。
-	if !s.failedLoaded {
-		err = DB.WithContext(s.ctx).Model(&Channel{}).
-			Select("id, type, priority, config").Where("id IN ?", s.excludeIds).Find(&s.failed).Error
-		if err != nil {
-			return 0, 0, false, fmt.Errorf("failed to fetch retry priority: %w", err)
-		}
-		s.failedLoaded = true
+	if !failedPriority.Valid {
+		return 0, errors.New("no failed channel priority available")
 	}
-	for i := range s.failed {
-		if s.routing.layerOf(ChannelSource(&s.failed[i])) != layer {
-			continue
-		}
-		failed := s.failed[i].GetPriority()
-		if count == 0 || failed < priority {
-			priority = failed
-		}
-		count++
-	}
-	return priority, count, count > 0, nil
+	return failedPriority.Int64, nil
 }
 
-// tier 读取一个优先级档里启用且未被排除的渠道，并算出每个候选渠道所在的层。
+// failedBySource 按来源汇总已失败的渠道：每个来源失败了几个、其中最低的优先级。
+// 同一次选渠里只读取一次。
+func (s *channelSelector) failedBySource() (map[string]failedSource, error) {
+	if s.failedLoaded {
+		return s.failed, nil
+	}
+	var channels []Channel
+	err := DB.WithContext(s.ctx).Model(&Channel{}).
+		Select("id, type, priority, config").Where("id IN ?", s.excludeIds).Find(&channels).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch retry priority: %w", err)
+	}
+	if len(channels) == 0 {
+		return nil, errors.New("no failed channel priority available")
+	}
+	failed := make(map[string]failedSource)
+	for i := range channels {
+		source := ChannelSource(&channels[i])
+		priority := channels[i].GetPriority()
+		entry, seen := failed[source]
+		if !seen || priority < entry.lowest {
+			entry.lowest = priority
+		}
+		entry.count++
+		failed[source] = entry
+	}
+	s.failed, s.failedLoaded = failed, true
+	return failed, nil
+}
+
+// tier 读取一个优先级档里启用且未被排除的渠道，并算出每个候选渠道所在的层和来源。
 // 同一次选渠里每一档只读取一次，渠道的配置也只解析一次。
 func (s *channelSelector) tier(priority int) (*channelTier, error) {
 	if tier, ok := s.tiers[priority]; ok {
@@ -208,7 +243,8 @@ func (s *channelSelector) tier(priority int) (*channelTier, error) {
 	if err := query.Find(&tier.all).Error; err != nil {
 		return nil, err
 	}
-	if s.accept == nil && s.routing.IsEmpty() {
+	needSources := !s.routing.IsEmpty() || s.descendPerSource
+	if s.accept == nil && !needSources {
 		tier.candidates = tier.all
 	} else {
 		for i := range tier.all {
@@ -216,15 +252,19 @@ func (s *channelSelector) tier(priority int) (*channelTier, error) {
 			if s.accept != nil && !s.accept(channel) {
 				continue
 			}
-			layer := 0
+			layer, source := 0, ""
+			if needSources {
+				source = ChannelSource(channel)
+			}
 			if !s.routing.IsEmpty() {
-				if layer = s.routing.layerOf(ChannelSource(channel)); layer < 0 {
+				if layer = s.routing.layerOf(source); layer < 0 {
 					s.routingBlocked = true
 					continue
 				}
 			}
 			tier.candidates = append(tier.candidates, *channel)
 			tier.layers = append(tier.layers, layer)
+			tier.sources = append(tier.sources, source)
 		}
 	}
 	if s.tiers == nil {
@@ -234,16 +274,23 @@ func (s *channelSelector) tier(priority int) (*channelTier, error) {
 	return tier, nil
 }
 
-// inLayer 返回这一档里属于指定层的候选渠道。只有一层时就是全部候选。
-func (t *channelTier) inLayer(layer, layerCount int) []Channel {
-	if layerCount <= 1 {
+// eligible 返回这一档里可选的候选渠道：属于指定的层，并且它的来源按降档规则还能用这个优先级。
+// failed 为 nil 时不按来源应用降档规则；只有一层时不区分层。
+func (t *channelTier) eligible(layer, layerCount, priority int, failed map[string]failedSource) []Channel {
+	if layerCount <= 1 && failed == nil {
 		return t.candidates
 	}
 	var channels []Channel
 	for i := range t.candidates {
-		if t.layers[i] == layer {
-			channels = append(channels, t.candidates[i])
+		if layerCount > 1 && t.layers[i] != layer {
+			continue
 		}
+		if failed != nil {
+			if source, ok := failed[t.sources[i]]; ok && !source.allows(priority) {
+				continue
+			}
+		}
+		channels = append(channels, t.candidates[i])
 	}
 	return channels
 }
